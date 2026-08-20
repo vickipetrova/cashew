@@ -47,6 +47,19 @@ extension Forecast {
     /// trend. Three is the smallest number that can disagree with itself.
     static let minimumSamples = 3
 
+    /// How much of the trailing window the samples must actually cover.
+    ///
+    /// Sample *count* is not the same as observation *time*, and conflating them produced a false
+    /// positive on the very first real run: five weekly samples spanning 22 minutes, one point of
+    /// movement, extrapolated to "on pace, Saturday 1:44 AM" for a limit sitting at 2%. Twenty-two
+    /// minutes says nothing about a 168-hour window, however many times you poll during it.
+    static let minimumSpanFraction: Double = 0.25
+
+    /// The endpoint reports `percent` as an integer, so one point is the smallest change that can
+    /// exist and carries about half a point of rounding with it. A rate fitted to a single tick is
+    /// mostly quantization error, and over a weekly window that error projects enormously.
+    static let minimumMovementPoints: Double = 2
+
     /// Below this the projection is hundreds of hours out, and "next March" is a worse answer than
     /// no answer. It also absorbs the endpoint's own rounding jitter, which is why it isn't zero.
     static let idleRatePerHour: Double = 0.1
@@ -66,8 +79,16 @@ extension Forecast {
         }
         let elapsed = last.at.timeIntervalSince(first.at)
         guard elapsed > 0 else { return .unknown }
+        // Enough observation time to be extrapolating from something. See `minimumSpanFraction`.
+        guard elapsed >= trailingWindow(for: kind) * minimumSpanFraction else { return .unknown }
 
-        let ratePerSecond = (last.utilization - first.utilization) / elapsed
+        let movement = last.utilization - first.utilization
+        // Enough movement to be above the endpoint's own rounding. See `minimumMovementPoints`.
+        // A limit that genuinely crept one point in six hours is far too slow to reach the cap
+        // anyway, so nothing worth saying is lost here — it would have been `.underPace`.
+        guard movement >= minimumMovementPoints else { return .unknown }
+
+        let ratePerSecond = movement / elapsed
         // Covers idle, covers falling — a negative rate would otherwise project a hit date in the
         // past and read as an emergency — and covers the non-finite case a future provider could
         // produce, since `ClaudeProvider` clamps but the model here is provider-agnostic.

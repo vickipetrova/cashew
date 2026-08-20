@@ -161,6 +161,46 @@ import Testing
         }
     }
 
+    // MARK: - Past timestamps
+
+    /// The fifteen-day bug, as a test.
+    ///
+    /// `clock`'s weekday branch tests `date.timeIntervalSince(now) >= dayThreshold`, which is only
+    /// ever true looking *forward*. Fed a past date it always rendered a bare time, so a reading from
+    /// fifteen days earlier displayed as "Showing data from 4:44 AM" — directly above a correctly
+    /// rendered "Refresh Now (15d ago)". The two lines described the same instant and disagreed.
+    @Test func anOldReadingIsNotRenderedAsATimeOfDay() {
+        let now = Date(timeIntervalSince1970: 1_785_600_000)
+        let fifteenDaysAgo = now.addingTimeInterval(-15 * 24 * 60 * 60)
+
+        let stamp = Fmt.stamp(fifteenDaysAgo, from: now)
+        #expect(stamp == "15d ago")
+        // The precise regression: it must not agree with `clock`, which is what it used to call.
+        #expect(stamp != Fmt.clock(fifteenDaysAgo, from: now))
+        // …and it must agree with the Refresh Now row, which was right all along.
+        #expect(stamp == Fmt.age(of: fifteenDaysAgo, from: now))
+    }
+
+    /// Today's readings keep the wall-clock time: it's precise, and there's no ambiguity about which
+    /// day is meant.
+    @Test func atodaysReadingKeepsItsClockTime() {
+        let now = Date(timeIntervalSince1970: 1_785_600_000)
+        let earlier = now.addingTimeInterval(-3 * 60 * 60)
+        #expect(Fmt.stamp(earlier, from: now) == Fmt.clock(earlier, from: now))
+    }
+
+    @Test func theStampSwitchesFormAtTheDayBoundary() {
+        let now = Date(timeIntervalSince1970: 1_785_600_000)
+        let justUnder = now.addingTimeInterval(-(86_400 - 60))
+        let justOver = now.addingTimeInterval(-(86_400 + 60))
+        #expect(Fmt.stamp(justUnder, from: now) == Fmt.clock(justUnder, from: now))
+        #expect(Fmt.stamp(justOver, from: now) == Fmt.age(of: justOver, from: now))
+    }
+
+    @Test func aMissingTimestampDegradesRatherThanCrashing() {
+        #expect(Fmt.stamp(nil) == "?")
+    }
+
     /// A weekly limit you'll hit on Thursday deserves attention at 30% as much as at 60%, and the
     /// number alone can't say so — this is the only way the ramp ever fires below its threshold.
     @Test func beingOnPacePromotesACalmTitleToYellow() {

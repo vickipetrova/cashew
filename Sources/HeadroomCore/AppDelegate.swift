@@ -47,8 +47,31 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func reschedulePoll() {
+        rateLimitStreak = 0
         pollTimer?.invalidate()
         pollTimer = schedule(every: Settings.refreshInterval) { [weak self] in self?.refresh() }
+    }
+
+    /// Consecutive rate-limited replies. Reset by any success, and by any settings change, since that
+    /// is the user explicitly asking for a different cadence.
+    private var rateLimitStreak = 0
+
+    /// Replace the repeating poll with a single delayed one after being told to slow down.
+    ///
+    /// This is the fix for a fifteen-day outage: the app was rate-limited, kept asking every five
+    /// minutes regardless, and had no way back except being noticed and restarted. `Retry-After` was
+    /// parsed by nobody and discarded with the rest of the response.
+    ///
+    /// One-shot rather than repeating, so each further refusal gets its own longer wait and the first
+    /// success restores the normal interval through `reschedulePoll`.
+    private func backOff(retryAfter: TimeInterval?) {
+        rateLimitStreak += 1
+        let delay = Backoff.delay(attempt: rateLimitStreak, retryAfter: retryAfter,
+                                  base: Settings.refreshInterval)
+        pollTimer?.invalidate()
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in self?.refresh() }
+        RunLoop.main.add(timer, forMode: .common)
+        pollTimer = timer
     }
 
     /// Bumped for every fetch, captured by that fetch's completion, and compared when it lands.
@@ -76,8 +99,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.history.save(snapshot: windows)
                     self.menuController.update(windows: windows, updatedAt: Date())
                     Notifier.evaluate(windows)
+                    // Back to the normal cadence. Only a success clears a backoff — a manual Refresh
+                    // Now that also gets refused must not reset the streak, or mashing it defeats the
+                    // whole mechanism.
+                    if self.rateLimitStreak > 0 { self.reschedulePoll() }
                 case .failure(let error):
                     self.menuController.update(error: error)
+                    if case UsageError.rateLimited(let retryAfter) = error {
+                        self.backOff(retryAfter: retryAfter)
+                    }
                 }
             }
         }

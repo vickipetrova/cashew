@@ -90,12 +90,63 @@ import Testing
         #expect(withAncient == .onPace(now.addingTimeInterval(120 * 60)))
     }
 
-    /// …and a weekly limit looks back a day, so the same 200-minute-old sample *does* count for it.
-    /// Asserted through the count rule: dropping it would leave two samples and `.unknown`.
+    /// …and a weekly limit looks back a day, so samples from twenty hours ago still count for it
+    /// while a session limit has long since discarded them.
     @Test func aWeeklyLimitLooksBackFurtherThanASession() {
-        let samples = [sample(200, 10), sample(100, 20), sample(0, 30)]
+        let samples = [sample(20 * 60, 10), sample(10 * 60, 20), sample(0, 30)]
         #expect(project(samples, kind: .session, resetsIn: 100 * 60 * 60) == .unknown)
         #expect(project(samples, kind: .weekly, resetsIn: 100 * 60 * 60) != .unknown)
+    }
+
+    // MARK: - Not extrapolating from noise
+    //
+    // Both guards below exist because the feature produced a false positive on its first real run:
+    // five weekly samples spanning 22 minutes, one point of movement, reported as "on pace, Saturday
+    // 1:44 AM" for a limit sitting at 2%. Sample count was being mistaken for observation time, and
+    // the endpoint's integer `percent` meant that single point was mostly rounding.
+
+    /// Twenty-two minutes says nothing about a 168-hour window, however many times you poll in it.
+    @Test func aShortBurstDoesNotForecastAWeeklyLimit() {
+        let samples = [sample(22, 1), sample(15, 1), sample(7, 2), sample(0, 2)]
+        #expect(project(samples, kind: .weekly, resetsIn: 123 * 60 * 60) == .unknown)
+    }
+
+    /// The same span *is* enough for a session window, which is where the proportion earns its keep —
+    /// this is not a flat "wait six hours before saying anything".
+    @Test func theSpanRequirementScalesWithTheWindow() {
+        let samples = [sample(40, 10), sample(20, 20), sample(0, 30)]
+        #expect(project(samples, kind: .session, resetsIn: 3 * 60 * 60) != .unknown)
+        #expect(project(samples, kind: .weekly, resetsIn: 3 * 60 * 60) == .unknown)
+    }
+
+    /// `percent` is an integer, so a one-point delta is at the endpoint's own resolution and carries
+    /// about half a point of rounding — fitting a rate to it is fitting a rate to noise.
+    ///
+    /// The case where this is the *only* thing standing in the way is a nearly-full window: at 95%
+    /// there are five points left, so one tick of rounding over half an hour projects the cap two
+    /// hours out and would put "on pace" under a row whose number is already red. Everywhere else
+    /// the span and idle rules get there first — which mutation testing had to prove, because the
+    /// first two fixtures written for this guard were actually being caught by the idle threshold.
+    @Test func aSinglePointOfMovementIsNotARate() {
+        let nearlyFull = [sample(30, 95), sample(15, 95), sample(0, 96)]
+        #expect(project(nearlyFull, kind: .session, resetsIn: 3 * 60 * 60) == .unknown)
+    }
+
+    /// Real movement at the same utilization still forecasts, so this suppresses rounding rather
+    /// than suppressing bad news.
+    @Test func realMovementNearTheCapStillForecasts() {
+        let climbing = [sample(30, 90), sample(15, 93), sample(0, 96)]
+        #expect(project(climbing, kind: .session, resetsIn: 3 * 60 * 60) != .unknown)
+    }
+
+    /// Movement clear of both the rounding floor and the idle threshold still forecasts — the guards
+    /// suppress noise, not signal.
+    ///
+    /// Two points over twenty hours would *not*, but that is the idle rule doing its job rather than
+    /// this one: 0.1 points/hour is 40 days from the cap.
+    @Test func movementAboveTheRoundingFloorStillForecasts() {
+        let samples = [sample(20 * 60, 1), sample(10 * 60, 5), sample(0, 9)]
+        #expect(project(samples, kind: .weekly, resetsIn: 500 * 60 * 60) != .unknown)
     }
 
     /// Already there. Reporting a hit date in the future for a limit that is at 100% would be

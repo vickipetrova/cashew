@@ -69,16 +69,12 @@ final class UsageHistory {
 
     /// What's worth showing from the last good reading, or nil if there's nothing honest left.
     ///
-    /// Deliberately *not* everything that was saved. A window whose `resetsAt` has already passed has
-    /// rolled over since, so its percentage describes a period that is finished — showing "82%" for a
-    /// session that reset two hours ago is worse than showing nothing, because it reads as current
-    /// and there is no way for the user to tell.
-    ///
-    /// Windows with no reset time survive: the provider never promised one, so there's nothing that
-    /// says the reading has expired.
+    /// Deliberately *not* everything that was saved, and filtered by the same `Freshness` rule the
+    /// running app applies to what's on screen — one definition, so a reading can't be too stale to
+    /// keep displaying yet fresh enough to restore.
     func restorableSnapshot(now: Date = Date()) -> Snapshot? {
         guard let snapshot: Snapshot = Self.read(snapshotURL) else { return nil }
-        let live = snapshot.windows.filter { $0.resetsAt.map { $0 > now } ?? true }
+        let live = Freshness.displayable(snapshot.windows, updatedAt: snapshot.at, now: now)
         guard !live.isEmpty else { return nil }
         return Snapshot(windows: live, at: snapshot.at)
     }
