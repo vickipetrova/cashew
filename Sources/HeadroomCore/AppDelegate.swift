@@ -12,7 +12,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public override init() { super.init() }
 
     private let provider: UsageProvider = ClaudeProvider()
-    private let menuController = MenuController()
+    private let history = UsageHistory.default
+    private lazy var menuController = MenuController(history: history)
 
     private var pollTimer: Timer?
     private var tickTimer: Timer?
@@ -65,6 +66,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 guard let self, generation == self.fetchGeneration else { return }
                 switch result {
                 case .success(let windows):
+                    // Recorded before the menu renders, so the row being built can already see this
+                    // poll's sample. Only on success: a failed poll leaves the last good numbers on
+                    // screen, and re-recording them would invent a flat stretch that never happened
+                    // and drag every rate towards idle.
+                    self.history.record(windows)
+                    // Kept whole as well as sampled, so the next cold start has rows to draw even if
+                    // its first poll fails.
+                    self.history.save(snapshot: windows)
                     self.menuController.update(windows: windows, updatedAt: Date())
                     Notifier.evaluate(windows)
                 case .failure(let error):

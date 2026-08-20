@@ -6,6 +6,27 @@ All notable changes to Headroom are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Burn-rate forecasting.** A percentage can't tell you whether you'll make it to the reset — 40% an
+  hour into a five-hour window and 40% four hours in read identically. Headroom now keeps a rolling
+  history of utilization samples and projects the rate forward. When a limit is on pace to hit 100%
+  before it resets, one line appears under it — *"On pace to hit the limit ~Thu 14:00"* — and a
+  weekly limit in that state also turns its menu bar percentage yellow, even below the usual 50%
+  threshold. Nothing is shown otherwise, deliberately: there is no "you're fine" message to learn to
+  ignore. The projection is a straight line over a trailing window (90 minutes for a session limit,
+  24 hours for a weekly one), it discards samples from before a reset, and it stays silent rather
+  than guessing when the rate is indistinguishable from idle or there are too few samples.
+- Samples are stored in `~/Library/Application Support/com.vickipetrova.headroom/history.json` and
+  pruned after seven days — the first thing Headroom has ever written to disk. `SECURITY.md`
+  documents exactly what is in it, and Uninstall in the README removes it.
+- **The last good reading survives a restart.** A launch whose first poll fails — an expired token, no
+  network, or the API rate-limiting the request — used to show an error over an empty panel, even
+  though perfectly good numbers had been on screen an hour earlier. It now restores what it last saw,
+  with the error underneath and *"Showing data from 14:02"* saying how old it is, which is the same
+  thing it already did when a poll failed mid-session. Windows that have reset since are dropped
+  rather than shown, because their percentage describes a period that has already ended.
+
 ### Fixed
 
 - **Message rows no longer clip when their text changes.** A view-backed row was measured once, when

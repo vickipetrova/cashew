@@ -161,6 +161,32 @@ import Testing
         }
     }
 
+    /// A weekly limit you'll hit on Thursday deserves attention at 30% as much as at 60%, and the
+    /// number alone can't say so — this is the only way the ramp ever fires below its threshold.
+    @Test func beingOnPacePromotesACalmTitleToYellow() {
+        #expect(Fmt.color(30, mode: .alertsOnly, role: .title, onPace: true) == .systemYellow)
+        #expect(Fmt.color(30, mode: .alertsOnly, role: .title, onPace: false) == .labelColor)
+    }
+
+    /// It promotes, never demotes. A forecast is a weaker signal than already being at 85%.
+    @Test func beingOnPaceNeverSoftensTheHigherBands() {
+        for utilization in [50.0, 79.9, 80.0, 100.0] {
+            #expect(Fmt.color(utilization, mode: .alertsOnly, role: .title, onPace: true)
+                == Fmt.color(utilization, mode: .alertsOnly, role: .title, onPace: false))
+        }
+    }
+
+    /// The bar keeps tracking utilization, so the panel still reads as a measurement — the pace line
+    /// underneath is where the forecast speaks.
+    @Test func beingOnPaceLeavesTheBarAlone() {
+        #expect(Fmt.color(30, mode: .alertsOnly, role: .bar, onPace: true) == Fmt.spark)
+    }
+
+    /// Choosing System is choosing no colour at all; a forecast doesn't reopen that.
+    @Test func beingOnPaceDoesNotColourSystemMode() {
+        #expect(Fmt.color(30, mode: .system, role: .title, onPace: true) == .labelColor)
+    }
+
     /// The point of the default: below the first threshold nothing is tinted for severity. The
     /// number takes the ordinary label colour and only the bar carries the brand.
     @Test func alertsOnlyIsCalmBelowFifty() {

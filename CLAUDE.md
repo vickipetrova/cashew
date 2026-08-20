@@ -39,6 +39,8 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/HeadroomCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image |
 | `Sources/HeadroomCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/HeadroomCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
+| `Sources/HeadroomCore/UsageHistory.swift` | Everything Headroom writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
+| `Sources/HeadroomCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
 | `assets/Headroom.icon` | Icon Composer document — the icon's source of truth. Two gauge tracks, orange fills, cream gradient |
 | `assets/icon-1024.png` | A committed *render* of that document, and the only icon input on the CLT-only path |
 | `assets/render-icon.sh` | Regenerates the PNG from the document. Run it after editing the icon, commit both |
@@ -251,6 +253,8 @@ Enforced by a CI grep, and worth understanding rather than working around:
 - `Notifier.requestAuthorizationIfNeeded()` / `post` — reach `UNUserNotificationCenter`.
 - Constructing `MenuController` or `AppDelegate` — `MenuController` creates a real `NSStatusBar`
   status item in a stored-property initializer, so merely existing needs a GUI session.
+- `UsageHistory.default` — writes into the running app's own Application Support folder. Construct it
+  with a temp directory instead; that is why the location is a parameter and not a constant.
 
 ### Checking the live app
 

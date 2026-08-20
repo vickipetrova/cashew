@@ -92,6 +92,38 @@ import Testing
         #expect(spoken.contains("5%"))
         #expect(spoken.contains("resets in 4h 15m"))
     }
+
+    /// Calm by design: the pace line exists only when you are actually on pace. A row that says
+    /// something reassuring every ordinary day teaches you to stop reading it, and then it goes
+    /// unread on the day it matters.
+    @Test(arguments: [Forecast.underPace, .unknown])
+    func onlyBeingOnPaceProducesAPaceLine(_ forecast: Forecast) {
+        #expect(UsageRow(window(20, resetsIn: 3_600), now: now, mode: .alertsOnly,
+                         forecast: forecast).pace == nil)
+    }
+
+    @Test func theDefaultRowHasNoPaceLine() {
+        #expect(UsageRow(window(20, resetsIn: 3_600), now: now, mode: .alertsOnly).pace == nil)
+    }
+
+    @Test func beingOnPaceNamesTheProjectedTime() {
+        let hit = now.addingTimeInterval(2 * 60 * 60)
+        let row = UsageRow(window(20, resetsIn: 3_600), now: now, mode: .alertsOnly,
+                           forecast: .onPace(hit))
+        let pace = try? #require(row.pace)
+        #expect(pace?.hasPrefix("On pace to hit the limit ~") == true)
+        // The time itself comes from `Fmt.clock`, which `FormatTests` covers for locale and for the
+        // weekday it adds past a day out — asserted by identity rather than by re-formatting here.
+        #expect(pace?.hasSuffix(Fmt.clock(hit, from: now)) == true)
+    }
+
+    /// VoiceOver and AppleScript read `spoken`; a line that only exists visually would be invisible
+    /// to exactly the users who most need the menu described to them.
+    @Test func thePaceLineIsSpokenToo() {
+        let row = UsageRow(window(20, resetsIn: 3_600), now: now, mode: .alertsOnly,
+                           forecast: .onPace(now.addingTimeInterval(7_200)))
+        #expect(row.spoken.contains("On pace to hit the limit"))
+    }
 }
 
 /// A view-backed row has to re-measure when its content changes, and `HostedRow` is the only piece

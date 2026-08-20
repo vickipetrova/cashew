@@ -49,7 +49,32 @@ model's display name exactly as the API reported it. Your menu bar choices store
 your plan reports do reach disk. That is the whole extent of it: no percentages, no reset times, no
 history of your usage, and nothing that identifies your account.
 
-Launch at Login is stored by macOS, not by Headroom. No credentials, no usage history, no logs.
+Launch at Login is stored by macOS, not by Headroom. No credentials and no logs.
+
+### On disk
+
+Two files, both written after a successful poll and only after a successful poll:
+
+```
+~/Library/Application Support/com.vickipetrova.headroom/history.json
+~/Library/Application Support/com.vickipetrova.headroom/snapshot.json
+```
+
+`history.json` is what the burn-rate forecast is computed from: a timestamp, a limit identifier, and
+a utilization percentage, one entry per limit per poll. Anything older than seven days is dropped on
+every write.
+
+`snapshot.json` is the single most recent reading kept whole — the same percentages plus each
+window's heading and reset time — so that a launch which can't reach the API can still show the
+numbers it last had, labelled with when they were from, instead of an error over an empty panel.
+
+As above, a per-model limit's identifier and heading contain the model's display name as the API
+reported it, so those names appear in both files.
+
+That is everything. No token, nothing derived from a token, no account identifier, no request or
+response bodies, and nothing that says what you were working on — only how full each quota was and
+when. Delete them whenever you like; Headroom starts fresh and the forecast reappears once there are
+samples to draw a line through.
 
 ## Reporting a problem
 

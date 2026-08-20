@@ -40,8 +40,10 @@ about the shape.
 - **Anything that logs, caches, or writes the OAuth token.** See below.
 - **A second network destination.** No analytics, no telemetry, no update checks, no crash
   reporting. One request, to `api.anthropic.com`.
-- **Cost dashboards, historical databases, spend estimation.** Other projects do this well and the
-  README links them.
+- **Cost dashboards, spend estimation, billing history.** Other projects do this well and the README
+  links them. Headroom keeps a small rolling history of utilization samples for the burn-rate
+  forecast — seven days, deleted on uninstall, documented in `SECURITY.md` — and that is as far as
+  stored history goes. It exists to answer "will I make it to the reset", not "what have I spent".
 - **Anything requiring an API key or costing money to run.**
 - **An Xcode project.** `Package.swift` plus `build.sh` is the whole build; an `.xcodeproj` would be
   a second source of truth to keep in sync.
