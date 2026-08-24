@@ -137,7 +137,7 @@ final class MenuController: NSObject, NSMenuDelegate {
         button.image = Fmt.sparkImage(mode: Settings.colorMode)
         button.imagePosition = .imageLeading
 
-        guard !windows.isEmpty else {
+        guard !displayWindows().isEmpty else {
             button.attributedTitle = NSAttributedString()
             if lastError != nil { button.title = "!" }
             // A clean fetch that reported nothing isn't an error and isn't still loading —
@@ -161,8 +161,17 @@ final class MenuController: NSObject, NSMenuDelegate {
         button.attributedTitle = title
     }
 
+    /// What is currently worth putting on screen, which is not always what the last poll returned.
+    ///
+    /// One place, used by the panel, the menu bar title and the error copy alike — the three used to
+    /// be able to disagree, and a title showing percentages over a panel showing none is worse than
+    /// either on its own.
+    private func displayWindows() -> [LimitWindow] {
+        Freshness.displayable(windows, updatedAt: lastUpdated, now: Date())
+    }
+
     private func titleWindows() -> [LimitWindow] {
-        TitleSelection.windows(from: windows, selection: Settings.titleLimitIDs)
+        TitleSelection.windows(from: displayWindows(), selection: Settings.titleLimitIDs)
     }
 
     /// Where this window is heading, from the samples recorded so far.
@@ -209,7 +218,11 @@ final class MenuController: NSObject, NSMenuDelegate {
         liveRows.removeAll()
         menu.removeAllItems()
 
-        if windows.isEmpty {
+        // Not `windows`: a reading too old to describe anything is dropped here, so a long outage
+        // ends up in the message-only branch below instead of leaving stale percentages on screen.
+        let shown = displayWindows()
+
+        if shown.isEmpty {
             if lastError != nil {
                 // Reads current state rather than the error bound here, so a later failure while the
                 // menu is open rewrites this row instead of freezing the first one.
@@ -233,7 +246,7 @@ final class MenuController: NSObject, NSMenuDelegate {
             // between every one made three sections look like three unrelated panels stacked up.
             // Separators still earn their place below, where they divide *kinds* of thing: data from
             // an error, data from the commands.
-            for window in windows {
+            for window in shown {
                 menu.addItem(usageRow(for: window))
             }
             if lastError != nil {
@@ -441,8 +454,12 @@ final class MenuController: NSObject, NSMenuDelegate {
     private func message(for error: Error) -> String {
         let description = (error as? UsageError)?.errorDescription
             ?? error.localizedDescription
-        guard !windows.isEmpty, let lastUpdated else { return description }
-        return "\(description) Showing data from \(Fmt.clock(lastUpdated))."
+        // Keyed on what is actually *on screen*, not on what is in memory: once `Freshness` drops the
+        // rows, promising "showing data from…" would point at numbers that aren't there any more.
+        guard !displayWindows().isEmpty, let lastUpdated else { return description }
+        // `Fmt.stamp`, never `Fmt.clock` — see the note there. Clock renders a bare time for any past
+        // date, so this line claimed a fifteen-day-old reading was from "4:44 AM".
+        return "\(description) Showing data from \(Fmt.stamp(lastUpdated))."
     }
 
     // MARK: - Item builders

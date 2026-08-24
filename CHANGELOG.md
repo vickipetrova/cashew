@@ -16,7 +16,10 @@ All notable changes to Headroom are documented here. The format follows
   threshold. Nothing is shown otherwise, deliberately: there is no "you're fine" message to learn to
   ignore. The projection is a straight line over a trailing window (90 minutes for a session limit,
   24 hours for a weekly one), it discards samples from before a reset, and it stays silent rather
-  than guessing when the rate is indistinguishable from idle or there are too few samples.
+  than guessing when the rate is indistinguishable from idle, when there are too few samples, when
+  they don't span at least a quarter of the trailing window, or when the whole movement is within the
+  endpoint's own rounding — `percent` arrives as an integer, and a single one-point tick over twenty
+  minutes is noise, not a rate.
 - Samples are stored in `~/Library/Application Support/com.vickipetrova.headroom/history.json` and
   pruned after seven days — the first thing Headroom has ever written to disk. `SECURITY.md`
   documents exactly what is in it, and Uninstall in the README removes it.
@@ -29,6 +32,24 @@ All notable changes to Headroom are documented here. The format follows
 
 ### Fixed
 
+- **Headroom now backs off when the API says to.** A rate-limited app kept asking every five minutes
+  regardless, discarding the `Retry-After` header along with the rest of the response, and had no way
+  back except being noticed and restarted — one instance sat refused for fifteen days. It now honours
+  `Retry-After` when the server sends one (in either the seconds or HTTP-date form), doubles the
+  interval when it doesn't, caps the wait at an hour, and returns to the normal cadence on the first
+  success. The message is no longer *"Usage API returned HTTP 429"* but *"Too many requests — Headroom
+  is asking less often until this clears"*, since this is the one error whose fix is to wait.
+- **Stale readings are no longer presented as data.** Keeping the last good numbers when a poll fails
+  is right for a short outage and wrong for a long one: a reading over a day old, or one for a window
+  that has since reset, is now dropped rather than shown, and the panel says only what went wrong.
+  The same rule decides what a restart restores, so a reading can't be too stale to keep showing yet
+  fresh enough to bring back.
+- **"Showing data from …" no longer reports a 15-day-old reading as a time of day.** `Fmt.clock` picks
+  its weekday format from `date.timeIntervalSince(now) >= dayThreshold`, which is only ever true
+  looking forward; fed a past timestamp it always rendered a bare time. A reading from fifteen days
+  earlier displayed as *"Showing data from 4:44 AM"* directly above a correct *"Refresh Now (15d
+  ago)"*. Past timestamps now keep the clock time only for today and switch to elapsed time beyond
+  that.
 - **Message rows no longer clip when their text changes.** A view-backed row was measured once, when
   it was created, so a row built around a short string — "Loading…", or a one-line network error —
   kept that height when a longer message replaced it, and the multi-line Keychain-permission message

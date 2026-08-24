@@ -64,6 +64,25 @@ enum Fmt {
     ///
     /// Deliberately vaguer than a clock time. Next to a Refresh command the useful question is "are
     /// these stale?", and "4m ago" answers it without the reader having to subtract.
+    /// A timestamp in the *past*, for "Showing data from …".
+    ///
+    /// `clock` cannot be used for this and the bug it caused was on screen for fifteen days: its
+    /// weekday branch tests `date.timeIntervalSince(now) >= dayThreshold`, which is only ever true
+    /// looking forward. For a past date the interval is negative, so it always rendered a bare time —
+    /// a reading from fifteen days earlier read "Showing data from 4:44 AM", directly above a
+    /// correctly-rendered "Refresh Now (15d ago)".
+    ///
+    /// Today's readings keep the wall-clock time, which is precise and unambiguous. Anything older
+    /// switches to elapsed time, because the useful fact then is *how stale*, not what the clock said.
+    static func stamp(_ date: Date?, from now: Date = Date(),
+                      locale: Locale = .current, timeZone: TimeZone = .current) -> String {
+        guard let date else { return "?" }
+        guard now.timeIntervalSince(date) >= dayThreshold else {
+            return clock(date, from: now, locale: locale, timeZone: timeZone)
+        }
+        return age(of: date, from: now)
+    }
+
     static func age(of date: Date?, from now: Date = Date()) -> String {
         guard let date else { return "never" }
         let seconds = Int(now.timeIntervalSince(date))

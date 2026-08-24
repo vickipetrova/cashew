@@ -36,11 +36,66 @@ import Testing
 
     /// Every other non-200 reports its code rather than guessing at a cause. A redirect lands here
     /// too, since the session refuses to follow them.
-    @Test(arguments: [301, 302, 307, 400, 403, 429, 500, 503])
+    ///
+    /// 429 is deliberately absent: it now has its own case, because it is the only status that says
+    /// what to do about it.
+    @Test(arguments: [301, 302, 307, 400, 403, 500, 503])
     func otherStatusesSurfaceTheirCode(_ status: Int) throws {
         let result = ClaudeProvider.result(data: try data("{}"), response: response(status), error: nil)
         #expect(error(from: result) == .http(status))
         #expect(error(from: result)?.errorDescription?.contains("\(status)") == true)
+    }
+
+    // MARK: - Rate limiting
+
+    private func response(_ status: Int, retryAfter: String) -> HTTPURLResponse {
+        HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1",
+                        headerFields: ["Retry-After": retryAfter])!
+    }
+
+    /// The status that cost fifteen days of a dead menu bar. It is not "HTTP 429" to the user, and it
+    /// is not `.http` to the scheduler — the whole point is that it carries an instruction.
+    @Test func rateLimitingIsItsOwnErrorRatherThanAStatusCode() throws {
+        let result = ClaudeProvider.result(data: try data("{}"), response: response(429), error: nil)
+        #expect(error(from: result) == .rateLimited(retryAfter: nil))
+        let message = try #require(error(from: result)?.errorDescription)
+        #expect(message.contains("Too many requests"))
+        // The old copy read as a fault to be fixed rather than a wait to be sat out.
+        #expect(!message.contains("429"))
+    }
+
+    @Test func retryAfterInSecondsIsHonoured() throws {
+        let result = ClaudeProvider.result(data: try data("{}"),
+                                           response: response(429, retryAfter: "120"), error: nil)
+        #expect(error(from: result) == .rateLimited(retryAfter: 120))
+    }
+
+    /// RFC 9110 allows an HTTP date as well as a delta, and servers use both.
+    @Test func retryAfterAsAnHTTPDateIsConvertedToADelay() throws {
+        let future = Date().addingTimeInterval(600)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss 'GMT'"
+
+        let result = ClaudeProvider.result(
+            data: try data("{}"),
+            response: response(429, retryAfter: formatter.string(from: future)), error: nil)
+
+        guard case .rateLimited(let retryAfter) = try #require(error(from: result)) else {
+            Issue.record("expected .rateLimited"); return
+        }
+        let seconds = try #require(retryAfter)
+        #expect(abs(seconds - 600) < 5)
+    }
+
+    /// A date already in the past would otherwise become a negative delay, scheduling the retry
+    /// immediately and defeating the backoff at exactly the moment it is needed.
+    @Test(arguments: ["Wed, 01 Jan 2020 00:00:00 GMT", "0", "-30", "soon", ""])
+    func anUnusableRetryAfterFallsBackToNoAdvice(_ header: String) throws {
+        let result = ClaudeProvider.result(data: try data("{}"),
+                                           response: response(429, retryAfter: header), error: nil)
+        #expect(error(from: result) == .rateLimited(retryAfter: nil))
     }
 
     @Test func aTransportFailureIsReportedAsNetwork() {
@@ -96,6 +151,8 @@ extension UsageError: @retroactive Equatable {
              (.badResponse, .badResponse):
             return true
         case (.http(let a), .http(let b)):
+            return a == b
+        case (.rateLimited(let a), .rateLimited(let b)):
             return a == b
         case (.network(let a), .network(let b)):
             return (a as? URLError)?.code == (b as? URLError)?.code

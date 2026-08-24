@@ -67,10 +67,40 @@ func isJSONBoolean(_ any: Any) -> Bool {
     CFGetTypeID(any as CFTypeRef) == CFBooleanGetTypeID()
 }
 
+/// Which of the numbers still on screen are worth showing.
+///
+/// Headroom keeps the last good reading when a poll fails, which is right for the minutes-long
+/// outages it was written for and wrong for the fifteen-day one that actually happened: the menu sat
+/// there reporting `0% used · reset time unknown` on three rows, as though it were data.
+///
+/// Nothing here dims or annotates. A reading that no longer describes anything is removed, and the
+/// panel falls back to saying only what went wrong — which is the honest answer when there is
+/// nothing current to report.
+enum Freshness {
+    /// The longest window Headroom tracks is a week and the shortest is five hours, so a reading a
+    /// full day old cannot describe the session window at all and is well adrift on the weekly one.
+    static let maxAge: TimeInterval = 24 * 60 * 60
+
+    static func displayable(_ windows: [LimitWindow], updatedAt: Date?, now: Date) -> [LimitWindow] {
+        // No timestamp means no way to judge, and hiding data on a guess is worse than showing it.
+        guard let updatedAt else { return windows }
+        // The case that bit: `resetsAt` was nil on every row, so the per-window rule below could
+        // never fire and the numbers stayed forever.
+        guard now.timeIntervalSince(updatedAt) <= maxAge else { return [] }
+        // A window whose reset has passed describes a period that has ended. In healthy operation the
+        // next poll replaces it within minutes; it is only visible when polls are failing, which is
+        // exactly when it is misleading.
+        return windows.filter { $0.resetsAt.map { $0 > now } ?? true }
+    }
+}
+
 enum UsageError: LocalizedError {
     case noCredentials
     case credentialsAccessDenied
     case unauthorized
+    /// 429, kept separate from `http` because it is the one status that carries an instruction:
+    /// stop asking so often. `retryAfter` is the server's own answer to "how long", when it gave one.
+    case rateLimited(retryAfter: TimeInterval?)
     case http(Int)
     case network(Error)
     case badResponse
@@ -83,6 +113,10 @@ enum UsageError: LocalizedError {
             return "Can't read your Claude Code login — allow Headroom access when macOS asks."
         case .unauthorized:
             return "Token expired — open a Claude Code session to refresh it."
+        case .rateLimited:
+            // Deliberately not "HTTP 429": this is the one error a user can act on by doing nothing,
+            // and the old copy read as a fault to be fixed rather than a wait to be sat out.
+            return "Too many requests — Headroom is asking less often until this clears."
         case .http(let code):
             return "Usage API returned HTTP \(code)."
         case .network:
@@ -90,6 +124,31 @@ enum UsageError: LocalizedError {
         case .badResponse:
             return "Couldn't read the usage response."
         }
+    }
+}
+
+/// How long to wait before asking again after being told to slow down.
+///
+/// Pure so the schedule is testable — the alternative is a fifteen-day experiment, which is exactly
+/// how the absence of this was discovered.
+enum Backoff {
+    /// Never wait longer than this, even if the server asks for more. A header saying "come back
+    /// tomorrow" would otherwise leave the menu bar dead for a day with no way out but a restart.
+    static let ceiling: TimeInterval = 60 * 60
+
+    /// `attempt` counts consecutive rate-limited replies, starting at 1.
+    ///
+    /// The server's own `Retry-After` wins when it gave one — it knows when the window clears and we
+    /// are only guessing. Otherwise the interval doubles from the poll interval, so a user on the
+    /// 1-minute setting stops making 60 requests an hour into an endpoint that is refusing.
+    static func delay(attempt: Int, retryAfter: TimeInterval?, base: TimeInterval) -> TimeInterval {
+        if let retryAfter, retryAfter.isFinite, retryAfter > 0 {
+            return min(retryAfter, ceiling)
+        }
+        // `pow` on a large attempt overflows to infinity rather than trapping, and `min` would then
+        // return the ceiling anyway — but the exponent is clamped so the intent doesn't rely on that.
+        let doublings = pow(2.0, Double(min(max(attempt, 1), 16)))
+        return min(base * doublings, ceiling)
     }
 }
 
@@ -165,9 +224,11 @@ struct ClaudeProvider: UsageProvider {
             return .failure(UsageError.badResponse)
         }
         guard http.statusCode == 200 else {
-            return .failure(http.statusCode == 401
-                ? UsageError.unauthorized
-                : UsageError.http(http.statusCode))
+            if http.statusCode == 401 { return .failure(UsageError.unauthorized) }
+            if http.statusCode == 429 {
+                return .failure(UsageError.rateLimited(retryAfter: retryAfter(in: http)))
+            }
+            return .failure(UsageError.http(http.statusCode))
         }
         guard let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             // Covers a JSON array root and anything that isn't JSON at all.
@@ -175,6 +236,34 @@ struct ClaudeProvider: UsageProvider {
         }
         return .success(windows(in: object))
     }
+
+    /// `Retry-After`, in seconds from now.
+    ///
+    /// RFC 9110 allows two forms and servers use both: a delta in seconds, or an HTTP date. Parsed
+    /// defensively like everything else here — an unreadable header is simply no header, and the
+    /// caller falls back to doubling. A date already in the past yields nil rather than a negative
+    /// wait, which would otherwise schedule the retry immediately and defeat the whole mechanism.
+    static func retryAfter(in response: HTTPURLResponse) -> TimeInterval? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+
+        if let seconds = TimeInterval(raw) {
+            return seconds > 0 ? seconds : nil
+        }
+        guard let date = httpDateFormatter.date(from: raw) else { return nil }
+        let seconds = date.timeIntervalSinceNow
+        return seconds > 0 ? seconds : nil
+    }
+
+    /// RFC 9110's preferred date format. Fixed locale and timezone: the parse must not follow the
+    /// user's region, or a Mac set to a non-Gregorian calendar fails to read a valid header.
+    private static let httpDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter
+    }()
 
     // MARK: - Parsing
     //

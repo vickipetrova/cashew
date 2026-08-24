@@ -36,7 +36,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/HeadroomCore/UsagePanel.swift` | The dropdown's SwiftUI rows, and the pure `UsageRow` view model behind them. Which limits reach the *menu bar title* is `TitleSelection`, in MenuController.swift |
 | `Sources/HeadroomCore/UsageAPI.swift` | `LimitWindow` model, `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
 | `Sources/HeadroomCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
-| `Sources/HeadroomCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image |
+| `Sources/HeadroomCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
 | `Sources/HeadroomCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/HeadroomCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
 | `Sources/HeadroomCore/UsageHistory.swift` | Everything Headroom writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
@@ -45,6 +45,12 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `assets/icon-1024.png` | A committed *render* of that document, and the only icon input on the CLT-only path |
 | `assets/render-icon.sh` | Regenerates the PNG from the document. Run it after editing the icon, commit both |
 | `assets/README.md` | What belongs in `assets/` — screenshots, the hero GIF, and the icon sources |
+
+**`Fmt.clock` renders *future* dates; `Fmt.stamp` renders past ones.** Not a style preference — clock
+chooses its weekday format with `date.timeIntervalSince(now) >= dayThreshold`, which is only ever true
+looking forward, so a past date always came out as a bare time. "Showing data from 4:44 AM" sat above
+"Refresh Now (15d ago)" for two weeks, describing the same instant and disagreeing. Reset times are
+future and use `clock`; anything describing when data was fetched is past and uses `stamp`.
 
 Everything lives in `HeadroomCore` so the test target can reach it with `@testable`, keeping the
 public API to `AppDelegate` alone. `MenuController` renders `[LimitWindow]` and nothing else — that's
@@ -101,6 +107,30 @@ Four traps, each with a regression test — don't "simplify" any of them:
 - **Two ISO8601 formatters are required.** Timestamps arrive as
   `2026-08-02T16:39:59.408408+00:00`; `ISO8601DateFormatter` needs `.withFractionalSeconds` for
   those and returns nil without it, and returns nil *with* it for timestamps that lack them.
+
+**`percent` is an integer, and that is a trap for anything that fits a rate to it.** One point is the
+smallest change the endpoint can express, so it carries about half a point of rounding. `Forecast`
+therefore requires the samples to span at least a quarter of their trailing window *and* to move more
+than one point — sample *count* is not observation *time*. Without both, the first real run produced
+five weekly samples over 22 minutes, one point of movement, and announced "on pace to hit the limit
+~Sat 1:44 AM" for a limit sitting at 2%. Mutation testing is what proved the movement floor does
+anything at all: the obvious fixtures for it were being caught by the idle threshold instead, and only
+a nearly-full window isolates it.
+
+**429 is not just another status code, and treating it as one cost fifteen days of a dead menu bar.**
+An instance was rate-limited, kept polling every five minutes because `reschedulePoll` only ever knew
+one interval, and had no route back except the user noticing and restarting it. Meanwhile the account
+was fine — a fresh process using the same token got `200` immediately, which is how it was diagnosed.
+So `UsageError.rateLimited` carries the `Retry-After` the parser used to discard (RFC 9110 allows
+seconds *or* an HTTP date, and a date already in the past must yield nil rather than a negative wait),
+and `Backoff.delay` turns it into a schedule. Don't fold it back into `.http`.
+
+**Staleness is a display rule, not a storage one.** Keeping the last good numbers when a poll fails is
+right for a short outage and wrong for a long one. `Freshness.displayable` is the single definition —
+used by the panel, the menu bar title, the error copy *and* `restorableSnapshot`, so a reading can't
+be too stale to keep showing yet fresh enough to restore. The per-window "its reset has passed" rule
+alone is not enough: the real failure had `resets_at` nil on every row, so only the age bound caught
+it.
 
 Values are also clamped to 0–100 and checked for finiteness, because `Fmt.pct` converts to `Int` and
 that traps on infinity or anything past `Int`'s range. `scope.model.display_name` is server-controlled
