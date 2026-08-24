@@ -13,6 +13,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private let provider: UsageProvider = ClaudeProvider()
     private let history = UsageHistory.default
+    private let statusline = StatuslineFeed.default
     private lazy var menuController = MenuController(history: history)
 
     private var pollTimer: Timer?
@@ -27,7 +28,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         refresh()
         reschedulePoll()
-        tickTimer = schedule(every: 60) { [weak self] in self?.menuController.tick() }
+        tickTimer = schedule(every: 60) { [weak self] in
+            guard let self else { return }
+            // The countdown tick is also where a live reading gets picked up: the statusline file is
+            // rewritten every time Claude Code renders, which is far more often than the poll, so
+            // this is what makes the numbers live rather than up to fifteen minutes stale.
+            if !self.polled.isEmpty || self.statusline.read() != nil {
+                self.publishMergingLiveReadings(at: Date())
+            }
+            self.menuController.tick()
+        }
 
         // Timers are unreliable across sleep — the Mac can wake hours later with a window that
         // has already reset. Ask again the moment it wakes.
@@ -81,6 +91,27 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// requests the same way.
     private var fetchGeneration = 0
 
+    /// The last full reading from the API, before any live overlay.
+    ///
+    /// Kept apart from what's on screen because the two sources report different things: the API is
+    /// the only one that knows about per-model limits, so its answer has to survive being partly
+    /// overwritten by a fresher one.
+    private var polled: [LimitWindow] = []
+
+    /// Overlay whatever Claude Code currently reports onto the last poll, and publish the result.
+    ///
+    /// The statusline is a *supplement*, not a replacement. Using it alone was tried and was worse
+    /// than either source on its own: its payload has no per-model limits, so a `WEEKLY · FABLE` row
+    /// blinked in and out depending on whether a Claude Code session happened to be open.
+    private func publishMergingLiveReadings(at updatedAt: Date) {
+        let merged = SourceMerge.merge(polled: polled, live: statusline.read() ?? [])
+        guard !merged.isEmpty else { return }
+        history.record(merged, at: updatedAt)
+        history.save(snapshot: merged, at: updatedAt)
+        menuController.update(windows: merged, updatedAt: updatedAt)
+        Notifier.evaluate(merged)
+    }
+
     private func refresh() {
         fetchGeneration += 1
         let generation = fetchGeneration
@@ -93,12 +124,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     // poll's sample. Only on success: a failed poll leaves the last good numbers on
                     // screen, and re-recording them would invent a flat stretch that never happened
                     // and drag every rate towards idle.
-                    self.history.record(windows)
-                    // Kept whole as well as sampled, so the next cold start has rows to draw even if
-                    // its first poll fails.
-                    self.history.save(snapshot: windows)
-                    self.menuController.update(windows: windows, updatedAt: Date())
-                    Notifier.evaluate(windows)
+                    //
+                    // Published through the merge so a poll can't undo a fresher statusline reading
+                    // — the API answer can be up to fifteen minutes older than what Claude Code
+                    // reported thirty seconds ago.
+                    self.polled = windows
+                    self.publishMergingLiveReadings(at: Date())
                     // Back to the normal cadence. Only a success clears a backoff — a manual Refresh
                     // Now that also gets refused must not reset the streak, or mashing it defeats the
                     // whole mechanism.

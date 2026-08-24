@@ -8,6 +8,16 @@ All notable changes to Headroom are documented here. The format follows
 
 ### Added
 
+- **Optional: live numbers from Claude Code's statusline.** Claude Code hands
+  `rate_limits.five_hour` and `rate_limits.seven_day` to whatever statusline command you have
+  configured, every time it renders — far more often than Headroom polls. One line added to your own
+  script drops those in a file, and Headroom overlays them on the polled reading, so session and
+  weekly update as you work instead of on a timer. It **supplements** polling rather than replacing
+  it: the payload has no per-model breakdown, and an earlier version that used it *instead of*
+  polling made the `WEEKLY · OPUS` row blink in and out depending on whether a session was open.
+  Headroom never edits `~/.claude/settings.json`; opting in and out is a line you control, and the
+  snippet writes only `rate_limits` rather than the cwd, session id, transcript path and cost the
+  rest of the payload carries.
 - **Burn-rate forecasting.** A percentage can't tell you whether you'll make it to the reset — 40% an
   hour into a five-hour window and 40% four hours in read identically. Headroom now keeps a rolling
   history of utilization samples and projects the rate forward. When a limit is on pace to hit 100%

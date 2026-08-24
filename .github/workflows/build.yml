@@ -143,7 +143,7 @@ jobs:
           # UsageHistory.default is the newest: it writes into the running app's own Application
           # Support folder. Tests pass a temp directory, and the location is a constructor parameter
           # rather than a constant precisely so that stays enforceable from here.
-          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|UsageHistory\.default' Tests/ \
+          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|UsageHistory\.default|StatuslineFeed\.default' Tests/ \
                   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|///)' || true)"
           if [ -n "$hits" ]; then
             echo "$hits"

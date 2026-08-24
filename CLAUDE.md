@@ -40,6 +40,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/HeadroomCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/HeadroomCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
 | `Sources/HeadroomCore/UsageHistory.swift` | Everything Headroom writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
+| `Sources/HeadroomCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — Headroom never writes the file or touches `~/.claude/` |
 | `Sources/HeadroomCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
 | `assets/Headroom.icon` | Icon Composer document — the icon's source of truth. Two gauge tracks, orange fills, cream gradient |
 | `assets/icon-1024.png` | A committed *render* of that document, and the only icon input on the CLT-only path |
@@ -285,6 +286,8 @@ Enforced by a CI grep, and worth understanding rather than working around:
   status item in a stored-property initializer, so merely existing needs a GUI session.
 - `UsageHistory.default` — writes into the running app's own Application Support folder. Construct it
   with a temp directory instead; that is why the location is a parameter and not a constant.
+- `StatuslineFeed.default` — reads the same real folder, and a test that seeded it would be feeding
+  the running app. Same fix: construct it with a temp directory.
 
 ### Checking the live app
 

@@ -350,13 +350,13 @@ struct ClaudeProvider: UsageProvider {
     // One builder per window kind, so the array branch and the legacy branch can't drift apart in
     // how they label the same window.
 
-    private static func sessionWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
+    static func sessionWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
         LimitWindow(kind: .session, id: LimitWindow.sessionID,
                     label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "Session (5h)",
                     utilization: utilization, resetsAt: resetsAt)
     }
 
-    private static func weeklyWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
+    static func weeklyWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
         LimitWindow(kind: .weekly, id: LimitWindow.weeklyID,
                     label: "WEEKLY · ALL MODELS", shortLabel: "Weekly",
                     optionLabel: "Weekly (all models)",
@@ -403,7 +403,7 @@ struct ClaudeProvider: UsageProvider {
     /// converting a Double to Int traps on NaN, infinity, or anything past Int's range. A single
     /// `{"percent": 1e30}` — or `1e999`, which JSON parses to +infinity — would crash the menu bar
     /// rather than dropping a row.
-    private static func number(_ any: Any?) -> Double? {
+    static func number(_ any: Any?) -> Double? {
         // See `isJSONBoolean`: without this, `{"percent": true}` reads as 1%.
         guard let any, !isJSONBoolean(any) else { return nil }
         let value: Double
@@ -420,7 +420,7 @@ struct ClaudeProvider: UsageProvider {
     /// `Fmt.countdown`. Roughly 1970±200 years.
     private static let plausibleEpochRange = -6_311_433_600.0...6_311_433_600.0
 
-    private static func date(_ any: Any?) -> Date? {
+    static func date(_ any: Any?) -> Date? {
         // See `isJSONBoolean`: without this, `{"resets_at": false}` parses as 1 January 1970.
         guard let any, !isJSONBoolean(any) else { return nil }
         if let seconds = any as? Double {
