@@ -113,6 +113,36 @@ macOS asks for notification permission the first time Headroom runs with alerts 
 decline — or later switch Headroom off in System Settings › Notifications — the menu says
 *"Alerts blocked — open Notification settings"* rather than silently never alerting you.
 
+## Why not the built-in menu bar?
+
+Claude Code will tell you a number. `/usage` gives you the same percentages Headroom reads, and you
+can look at them whenever you think to.
+
+The gap isn't the number, it's the rate. **40% an hour into a five-hour window and 40% four hours in
+are the same reading and opposite situations**, and nothing that samples once can tell them apart.
+The first is a morning that ends fine. The second is a morning that ends at 3pm.
+
+So Headroom keeps a short history of what each limit has read and works out how fast you're actually
+moving. When that rate would reach the cap before the window resets, one line appears under the
+limit:
+
+```
+On pace to hit the limit ~Thu 14:00
+```
+
+and, for a weekly limit, the percentage in the menu bar turns yellow even if it's nowhere near the
+usual threshold — because a weekly limit you'll hit on Thursday is worth knowing about at 30%.
+
+The rest of the time it says nothing at all. There is deliberately no "you're fine" message: a line
+that reassures you every ordinary day is a line you stop reading, and then it goes unread on the day
+it matters. Silence is the normal state, and the forecast appearing is the signal.
+
+Two honest limits. It's a straight-line projection over a trailing window — 90 minutes for a session
+limit, a day for a weekly one — so it assumes the next hour looks like the last, which it won't if
+you stop for lunch or start a big refactor. And it needs a few samples before it will say anything,
+so a freshly installed Headroom stays quiet for a while. When it can't tell, it says nothing rather
+than guessing.
+
 ## Roadmap
 
 Deliberately small for v0.1. Not planned by me, but very welcome as contributions — each of these is
@@ -158,11 +188,15 @@ Headroom's one distinguishing bet is that you shouldn't have to set anything up.
 
 ```bash
 rm -rf /Applications/Headroom.app
+rm -rf ~/Library/Application\ Support/com.vickipetrova.headroom
 defaults delete com.vickipetrova.headroom
 ```
 
 If you turned on Launch at Login, switch it off first (or remove Headroom from System Settings ›
-General › Login Items). Headroom writes nothing else — no caches, no logs, no config files.
+General › Login Items).
+
+Those three lines are everything: the app, the usage history the forecast is computed from, and your
+preferences. No caches, no logs, no config files anywhere else.
 
 ## Security
 

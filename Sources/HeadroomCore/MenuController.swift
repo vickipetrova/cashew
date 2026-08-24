@@ -37,6 +37,10 @@ final class MenuController: NSObject, NSMenuDelegate {
     private var lastError: Error?
     private var isMenuOpen = false
 
+    /// Read-only here. `AppDelegate` owns recording, because only it knows a fetch actually
+    /// succeeded — the menu is handed windows either way.
+    private let history: UsageHistory
+
     /// A row that can be rewritten in place while the menu sits open, so a menu held across a tick
     /// or a poll stays honest without being rebuilt underneath the user.
     ///
@@ -45,14 +49,29 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// one-poll-stale beats blanking the row or writing some other window's number into it.
     ///
     /// It performs the update rather than returning a string because rows are no longer all the same
-    /// kind — a view-backed row is refreshed by handing its `NSHostingView` a new `rootView`, which
-    /// the spike for this design confirmed does repaint while the menu is tracking.
+    /// kind — a view-backed row goes through `HostedRow.update`, which swaps the `rootView` *and*
+    /// re-measures the row's height. The spike for this design confirmed SwiftUI repaints while the
+    /// menu is tracking; the re-measure is what makes a row that changes height do so honestly.
     private struct LiveRow { let apply: () -> Void }
 
     /// Rebuilt with the menu, and cleared before it — these closures retain their views.
     private var liveRows: [LiveRow] = []
 
-    override init() {
+    init(history: UsageHistory = .default) {
+        self.history = history
+        // Start from the last good reading rather than from nothing. A launch whose first poll fails
+        // — an expired token, no network, or the endpoint rate-limiting us — otherwise shows an error
+        // over an empty panel, even though the numbers from an hour ago were both known and still
+        // roughly true. Once seeded, everything downstream already behaves: `rebuild` takes its
+        // non-empty branch, so the rows render with the error beneath them, and `message(for:)`
+        // appends "Showing data from 14:02" because `lastUpdated` is set.
+        //
+        // Nothing here is treated as a fresh poll. `Notifier.evaluate` and `history.record` run only
+        // on a real success, so restored numbers can't fire an alert or invent a sample.
+        if let restored = history.restorableSnapshot() {
+            windows = restored.windows
+            lastUpdated = restored.at
+        }
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -136,7 +155,8 @@ final class MenuController: NSObject, NSMenuDelegate {
                     .foregroundColor: NSColor.secondaryLabelColor,
                 ]))
             }
-            title.append(percentage(of: window, mode: mode))
+            let tinted = Forecast.tintsTitle(kind: window.kind, forecast: forecast(for: window))
+            title.append(percentage(of: window, mode: mode, onPace: tinted))
         }
         button.attributedTitle = title
     }
@@ -145,10 +165,22 @@ final class MenuController: NSObject, NSMenuDelegate {
         TitleSelection.windows(from: windows, selection: Settings.titleLimitIDs)
     }
 
-    private func percentage(of window: LimitWindow?, mode: Settings.ColorMode) -> NSAttributedString {
+    /// Where this window is heading, from the samples recorded so far.
+    ///
+    /// Recomputed on each render rather than cached with the window: the live rows re-run on every
+    /// 60-second tick, and a forecast pinned at build time would keep naming a hit date the newest
+    /// samples had already moved — the same trap that made held-open countdowns go stale.
+    private func forecast(for window: LimitWindow) -> Forecast {
+        Forecast.project(samples: history.samples(for: window.id),
+                         kind: window.kind, resetsAt: window.resetsAt, now: Date())
+    }
+
+    private func percentage(of window: LimitWindow?, mode: Settings.ColorMode,
+                            onPace: Bool = false) -> NSAttributedString {
         // Monospaced digits so the title doesn't shuffle sideways as the numbers tick over.
         NSAttributedString(string: Fmt.pct(window?.utilization), attributes: [
-            .foregroundColor: window.map { Fmt.color($0.utilization, mode: mode, role: .title) }
+            .foregroundColor: window
+                .map { Fmt.color($0.utilization, mode: mode, role: .title, onPace: onPace) }
                 ?? NSColor.secondaryLabelColor,
             .font: NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium),
         ])
@@ -338,14 +370,13 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// relabels windows still finds the right one.
     private func usageRow(for window: LimitWindow) -> NSMenuItem {
         let id = window.id
-        let row = UsageRow(window, mode: Settings.colorMode)
+        let row = UsageRow(window, mode: Settings.colorMode, forecast: forecast(for: window))
         let hosted = HostedRow(UsageRowView(row: row), title: row.spoken)
         liveRows.append(LiveRow { [weak self] in
             guard let self, let window = self.window(id: id) else { return }
-            let row = UsageRow(window, mode: Settings.colorMode)
-            // `update` re-measures. A usage row is a constant three lines today, so this costs a
-            // measurement that always agrees — but it is the same bug the message rows had, waiting
-            // for the first heading that wraps or the first row that grows a line.
+            let row = UsageRow(window, mode: Settings.colorMode, forecast: self.forecast(for: window))
+            // `update` re-measures, which this row now depends on rather than merely tolerating: the
+            // pace line appears and disappears, so the row's height is no longer constant.
             hosted.update(UsageRowView(row: row), title: row.spoken)
         })
         return hosted.item

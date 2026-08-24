@@ -6,8 +6,13 @@ import Foundation
 ///
 /// `label` is whatever the provider wants shown as that window's heading, so a future provider
 /// can say "TODAY" or "THIS MONTH" without MenuController learning anything about it.
-struct LimitWindow: Equatable {
-    enum Kind: Equatable {
+/// `Codable` so the last good reading survives a restart — see `UsageHistory.snapshot`. The encoded
+/// form is Headroom's own file, never anything sent anywhere, so the field names are free to change
+/// with the type; a snapshot that no longer decodes is simply discarded.
+struct LimitWindow: Equatable, Codable {
+    /// Backed by `String` rather than the default integer ordinal, so reordering these cases can't
+    /// silently reinterpret an already-written snapshot.
+    enum Kind: String, Equatable, Codable {
         /// The short rolling window (Claude Code: 5 hours).
         case session
         /// The long window, across everything.

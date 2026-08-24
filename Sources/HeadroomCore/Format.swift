@@ -127,11 +127,21 @@ enum Fmt {
 
     /// The single place utilization becomes a colour, for the menu bar title and the panel's bars
     /// alike, so the two can never disagree about what 80% looks like.
+    /// `onPace` promotes an otherwise-calm title percentage to yellow.
+    ///
+    /// The point of the ramp is "pay attention", and a weekly limit you will hit on Thursday deserves
+    /// that at 30% just as much as at 60% — the number alone can't say so. It only ever promotes:
+    /// 80%+ stays red, because a forecast is a weaker signal than already being there.
+    ///
+    /// Titles only. The bar keeps tracking utilization so the panel still reads as a measurement, and
+    /// the pace line underneath is where the forecast says its piece in words.
     static func color(_ utilization: Double,
                       mode: Settings.ColorMode,
-                      role: ColorRole) -> NSColor {
+                      role: ColorRole,
+                      onPace: Bool = false) -> NSColor {
         // `.system` ignores utilization entirely. That is not a missing branch — "fully monochrome"
         // means the thresholds don't apply, so the menu bar item looks like every other one up there.
+        // A forecast doesn't reopen that: choosing System is choosing no colour at all.
         guard mode == .alertsOnly else {
             return role == .title ? .labelColor : .secondaryLabelColor
         }
@@ -140,7 +150,9 @@ enum Fmt {
         // `ClaudeProvider` clamps before this point; the guard is for the next provider.
         guard utilization.isFinite else { return role == .title ? .labelColor : spark }
         switch utilization {
-        case ..<50: return role == .title ? .labelColor : spark
+        case ..<50:
+            if role == .title { return onPace ? .systemYellow : .labelColor }
+            return spark
         case ..<80: return .systemYellow
         default: return .systemRed
         }

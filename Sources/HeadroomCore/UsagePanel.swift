@@ -30,16 +30,34 @@ struct UsageRow {
     /// the menu bar title's and the two can't drift apart.
     let barColor: NSColor
 
+    /// "On pace to hit the limit ~Thu 14:00", and **nil for everything else**.
+    ///
+    /// Only `.onPace` produces a line. There is no "you're fine" copy on purpose: a row that says
+    /// something reassuring on every ordinary day trains you to stop reading it, and then it is
+    /// still being ignored on the day it matters.
+    let pace: String?
+
     /// The whole row as one sentence, for VoiceOver and for the menu item's `title` — which is what
     /// AppleScript reports, since a view-backed item draws no title of its own. Derived here so the
     /// two can't drift into describing the same row differently.
-    var spoken: String { "\(header), \(value) used, \(trailing)" }
+    var spoken: String {
+        let base = "\(header), \(value) used, \(trailing)"
+        return pace.map { "\(base), \($0)" } ?? base
+    }
 
     /// `mode` has no default on purpose. It used to default to `Settings.colorMode`, which made the
     /// type read a global while its own doc claimed purity — and because Swift evaluates default
     /// arguments at the call site, passing it explicitly changed nothing. Callers name it now.
-    init(_ window: LimitWindow, now: Date = Date(), mode: Settings.ColorMode) {
+    init(_ window: LimitWindow, now: Date = Date(), mode: Settings.ColorMode,
+         forecast: Forecast = .unknown) {
         barColor = Fmt.color(window.utilization, mode: mode, role: .bar)
+        // `Fmt.clock` already switches to a weekday-plus-time format past a day out, which is
+        // exactly what a pace date needs — a bare "14:00" for something four days away would be
+        // read as this afternoon.
+        pace = {
+            guard case .onPace(let hit) = forecast else { return nil }
+            return "On pace to hit the limit ~\(Fmt.clock(hit, from: now))"
+        }()
         header = window.label
         headerTrailing = window.resetsAt.map { Fmt.clock($0, from: now) } ?? ""
         value = Fmt.pct(window.utilization)
@@ -86,6 +104,17 @@ struct UsageRowView: View {
             }
 
             ProgressBar(fraction: row.fraction, color: row.barColor)
+
+            // Absent on an ordinary day, which is the whole design. Nothing below it reserves space
+            // either — the row is re-measured on every content swap (`HostedRow.update`), so it
+            // grows when the line appears rather than carrying a gap the rest of the time.
+            if let pace = row.pace {
+                Text(pace)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: PanelMetrics.textWrapWidth, alignment: .leading)
+            }
         }
         .padding(.horizontal, PanelMetrics.horizontalPadding)
         .padding(.vertical, 7)
