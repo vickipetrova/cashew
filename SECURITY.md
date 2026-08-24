@@ -71,6 +71,15 @@ numbers it last had, labelled with when they were from, instead of an error over
 As above, a per-model limit's identifier and heading contain the model's display name as the API
 reported it, so those names appear in both files.
 
+A third file may appear in the same directory, `statusline.json`, but **Headroom never writes it** —
+it only reads it. It exists if you opted into the Claude Code statusline shortcut described in the
+README, in which case your own statusline script writes it. The snippet in the README filters the
+payload down to `rate_limits` before writing, so the working directory, session id, transcript path
+and cost that Claude Code also passes stay out of it. If you wrote your own variant that stores more
+than that, it stores what you told it to; Headroom reads only `rate_limits` either way.
+
+Headroom does not edit `~/.claude/settings.json` or any other Claude Code configuration.
+
 That is everything. No token, nothing derived from a token, no account identifier, no request or
 response bodies, and nothing that says what you were working on — only how full each quota was and
 when. Delete them whenever you like; Headroom starts fresh and the forecast reappears once there are

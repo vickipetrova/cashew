@@ -113,6 +113,41 @@ macOS asks for notification permission the first time Headroom runs with alerts 
 decline — or later switch Headroom off in System Settings › Notifications — the menu says
 *"Alerts blocked — open Notification settings"* rather than silently never alerting you.
 
+## Optional: let Claude Code do the talking
+
+Claude Code already knows your plan usage — it hands `rate_limits.five_hour` and
+`rate_limits.seven_day` to whatever statusline command you've configured, every time it renders,
+which is far more often than Headroom polls. Let Headroom read that and **your session and weekly
+numbers become live instead of up to fifteen minutes old**, updating as you work rather than on a
+timer.
+
+Headroom will **not** edit `~/.claude/settings.json`. Your statusline is yours, and quietly replacing
+it to install a helper would be a bad trade for a menu bar app. Opting in is one line you add to your
+own script, right after it reads stdin:
+
+```bash
+input=$(cat)
+
+{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.headroom" \
+  && printf '%s' "$input" | jq -c '{rate_limits}' \
+     > "$HOME/Library/Application Support/com.vickipetrova.headroom/statusline.json"; } 2>/dev/null || true
+```
+
+Only `rate_limits` is written — not the working directory, session id, transcript path or cost that
+the rest of the payload carries. Every failure is swallowed, so a missing `jq` or a full disk costs
+you nothing but the shortcut. Delete the line to opt out.
+
+**It supplements polling rather than replacing it.** The statusline payload has no per-model
+breakdown, so a `WEEKLY · OPUS` row can only come from the API — and an earlier version of this that
+used the statusline *instead of* polling made that row blink in and out depending on whether a Claude
+Code session happened to be open, which was worse than either source alone. Headroom keeps polling on
+your normal schedule and overlays the live numbers on top, matched by limit, so no row ever
+disappears.
+
+Once the file is more than five minutes old Headroom stops trusting it and shows the polled numbers
+alone — an idle session isn't refreshing the file, but idle usage isn't moving either. Nothing to
+configure either way, and nothing changes if you skip this entirely.
+
 ## Why not the built-in menu bar?
 
 Claude Code will tell you a number. `/usage` gives you the same percentages Headroom reads, and you
