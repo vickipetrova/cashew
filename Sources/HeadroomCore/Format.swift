@@ -126,8 +126,16 @@ enum Fmt {
     /// cache would have to be invalidated on both mode changes and appearance changes.
     ///
     /// `rotation` spins the glyph while a Claude Code session is working. ✻ has eight spokes, so
-    /// four frames of 11.25° read as continuous motion, and rotating about the centre within the
-    /// unrotated canvas keeps the image the same size — the title must not jitter sideways.
+    /// four frames of 11.25° read as continuous motion. The spark is drawn into a *square* canvas —
+    /// sized to whichever of the glyph's width or height is larger, at every rotation including 0° —
+    /// and rotated about that square's centre. A canvas sized to just the unrotated glyph's box clips
+    /// the spokes the moment it turns: rendered at 4x, the unrotated frame had no ink in its outermost
+    /// column, but 11.25°/22.5°/33.75° each did, with the ink total drifting down (580 → 575 → 567 →
+    /// 563 in one measurement) as the corners of the rotated glyph fell outside the box — the frames
+    /// were changing shape, not just orientation, and `rotationDoesNotClipTheSpark` below is what
+    /// catches it. The square keeps the image the same size at every rotation, which is what keeps
+    /// the title from jittering sideways as it spins; the idle spark (rotation 0) gains a little
+    /// unused padding as the price of that.
     /// `permissionDot` draws a dot after the spark when a session is waiting on the user: yellow in
     /// Alerts-only, and part of the template (so monochrome) in System.
     static func statusImage(mode: Settings.ColorMode, rotation: CGFloat = 0,
@@ -142,31 +150,31 @@ enum Fmt {
             .foregroundColor: mode == .system ? NSColor.black : spark,
         ]
         let glyphSize = glyph.size(withAttributes: attributes)
-        let sparkWidth = ceil(glyphSize.width)
-        let height = ceil(glyphSize.height)
+        let side = ceil(max(glyphSize.width, glyphSize.height))
         let dotDiameter: CGFloat = 6
         let dotGap: CGFloat = 2
-        let width = sparkWidth + (permissionDot ? dotGap + dotDiameter : 0)
+        let width = side + (permissionDot ? dotGap + dotDiameter : 0)
+        let glyphOrigin = NSPoint(x: (side - glyphSize.width) / 2, y: (side - glyphSize.height) / 2)
 
         // `NSImage(size:flipped:drawingHandler:)` rather than lockFocus/unlockFocus: the handler is
         // re-run per destination scale, so the glyph stays sharp on a second display with a different
         // backing scale instead of being rasterized once at whatever the main screen happened to be.
         // (lockFocus is also deprecated as of macOS 14; the 13.0 deployment target is the only reason
         // it wasn't warning.)
-        let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
+        let image = NSImage(size: NSSize(width: width, height: side), flipped: false) { _ in
             if rotation != 0, let context = NSGraphicsContext.current?.cgContext {
                 context.saveGState()
-                context.translateBy(x: sparkWidth / 2, y: height / 2)
+                context.translateBy(x: side / 2, y: side / 2)
                 context.rotate(by: -rotation * .pi / 180)
-                context.translateBy(x: -sparkWidth / 2, y: -height / 2)
-                glyph.draw(at: .zero, withAttributes: attributes)
+                context.translateBy(x: -side / 2, y: -side / 2)
+                glyph.draw(at: glyphOrigin, withAttributes: attributes)
                 context.restoreGState()
             } else {
-                glyph.draw(at: .zero, withAttributes: attributes)
+                glyph.draw(at: glyphOrigin, withAttributes: attributes)
             }
             if permissionDot {
                 (mode == .system ? NSColor.black : NSColor.systemYellow).setFill()
-                NSBezierPath(ovalIn: NSRect(x: sparkWidth + dotGap, y: (height - dotDiameter) / 2,
+                NSBezierPath(ovalIn: NSRect(x: side + dotGap, y: (side - dotDiameter) / 2,
                                             width: dotDiameter, height: dotDiameter)).fill()
             }
             return true

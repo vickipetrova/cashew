@@ -310,4 +310,61 @@ import Testing
         // Rotation must not change the size, or the title would jitter sideways as it spins.
         #expect(Fmt.statusImage(mode: .alertsOnly, rotation: 33.75).size == plain.size)
     }
+
+    /// A canvas sized to the *unrotated* glyph clips the spokes once the glyph turns inside it — the
+    /// spinning frames were changing shape, not just orientation, and nothing above could see it
+    /// because none of it looks at pixels. This renders each frame at 4x into an offscreen bitmap and
+    /// counts ink (alpha > 0) directly.
+    @Test func rotationDoesNotClipTheSpark() {
+        let scale = 4
+        let rotations: [CGFloat] = [0, 11.25, 22.5, 33.75]
+        var counts: [CGFloat: Int] = [:]
+        var edgeHits: [CGFloat: Bool] = [:]
+
+        for rotation in rotations {
+            let image = Fmt.statusImage(mode: .alertsOnly, rotation: rotation)
+            let width = Int(image.size.width) * scale
+            let height = Int(image.size.height) * scale
+            let colorSpace = CGColorSpaceCreateDeviceRGB()
+            guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                          bytesPerRow: 0, space: colorSpace,
+                                          bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else {
+                Issue.record("could not create bitmap context for rotation \(rotation)")
+                continue
+            }
+            let nsContext = NSGraphicsContext(cgContext: context, flipped: false)
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = nsContext
+            image.draw(in: NSRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            NSGraphicsContext.restoreGraphicsState()
+
+            let buffer = context.data!.bindMemory(to: UInt8.self, capacity: context.bytesPerRow * height)
+            let bytesPerRow = context.bytesPerRow
+            var inkCount = 0
+            var edgeHit = false
+            for y in 0..<height {
+                for x in 0..<width {
+                    let alpha = buffer[y * bytesPerRow + x * 4 + 3]
+                    if alpha > 0 {
+                        inkCount += 1
+                        if x == 0 || x == width - 1 { edgeHit = true }
+                    }
+                }
+            }
+            counts[rotation] = inkCount
+            edgeHits[rotation] = edgeHit
+        }
+
+        for rotation in rotations {
+            #expect(edgeHits[rotation] == false,
+                    "ink touches the outer edge column of the spark square at rotation \(rotation)")
+        }
+        let baseline = counts[0] ?? 0
+        for rotation in rotations {
+            let count = counts[rotation] ?? 0
+            let tolerance = Double(baseline) * 0.05
+            #expect(Double(abs(count - baseline)) <= tolerance,
+                    "rotation \(rotation) ink count \(count) not within 5% of the 0° baseline \(baseline)")
+        }
+    }
 }
