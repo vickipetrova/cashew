@@ -30,11 +30,16 @@ final class TranscriptTail {
     }
 
     static func tail(of path: String) -> Data {
-        guard let handle = FileHandle(forReadingAtPath: path) else { return Data() }
+        // The legacy `seekToEndOfFile`/`seek(toFileOffset:)`/`readDataToEndOfFile` raise an
+        // Objective-C exception on I/O failure that Swift cannot catch, which would abort the whole
+        // app; the throwing equivalents (macOS 10.15.4+, well under this project's macOS 13 floor)
+        // let every failure degrade to an empty tail instead.
+        guard let handle = try? FileHandle(forReadingFrom: URL(fileURLWithPath: path)) else { return Data() }
         defer { try? handle.close() }
-        let size = handle.seekToEndOfFile()
-        handle.seek(toFileOffset: size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0)
-        return handle.readDataToEndOfFile()
+        guard let size = try? handle.seekToEnd() else { return Data() }
+        guard (try? handle.seek(toOffset: size > UInt64(tailBytes) ? size - UInt64(tailBytes) : 0)) != nil
+        else { return Data() }
+        return (try? handle.readToEnd()) ?? Data()
     }
 
     static func endsInInterrupt(_ data: Data) -> Bool {
