@@ -359,5 +359,35 @@ struct DefaultsBacked {
 
         // `Settings.launchAtLogin` is deliberately never touched: its setter registers a real login
         // item with macOS, which from a test process would point at the test binary.
+
+        @Test func sessionTrackingAndUpdateChecksDefaultOn() {
+            #expect(Settings.trackSessions)
+            #expect(Settings.checkForUpdates)
+            #expect(Settings.lastUpdateCheck == nil)
+            #expect(Settings.knownRelease == nil)
+        }
+
+        /// Same trap as the threshold: `bool(forKey:)` is false for a missing key, so "off" has to be
+        /// told apart from "never set" or turning it off would not survive a relaunch.
+        @Test func turningThemOffIsPersisted() {
+            Settings.trackSessions = false
+            Settings.checkForUpdates = false
+            #expect(!Settings.trackSessions)
+            #expect(!Settings.checkForUpdates)
+        }
+
+        @Test func knownReleaseRoundTripsAndIsRevalidated() throws {
+            let release = try #require(UpdateCheck.release(in: [
+                "tag_name": "v0.2.0",
+                "html_url": "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0",
+            ]))
+            Settings.knownRelease = release
+            #expect(Settings.knownRelease == release)
+            // A hand-edited plist can't smuggle in a link to somewhere else.
+            defaults.set(["tag_name": "v9.9.9", "html_url": "https://evil.example/"], forKey: "knownRelease")
+            #expect(Settings.knownRelease == nil)
+            Settings.knownRelease = nil
+            #expect(defaults.object(forKey: "knownRelease") == nil)
+        }
     }
 }

@@ -36,6 +36,10 @@ enum Settings {
         static let notifyThreshold = "notifyThreshold"
         static let colorMode = "colorMode"
         static let titleLimitIDs = "titleLimitIDs"
+        static let trackSessions = "trackSessions"
+        static let checkForUpdates = "checkForUpdates"
+        static let lastUpdateCheck = "lastUpdateCheck"
+        static let knownRelease = "knownRelease"
     }
 
     /// Which limits appear in the menu bar title, by `LimitWindow.id`.
@@ -101,6 +105,37 @@ enum Settings {
             return thresholdOptions.contains(stored) ? stored : 80
         }
         set { defaults.set(newValue, forKey: Key.notifyThreshold) }
+    }
+
+    /// On by default. Probed for existence first, because `bool(forKey:)` returns false for a missing
+    /// key and "off" has to survive a relaunch.
+    static var trackSessions: Bool {
+        get { defaults.object(forKey: Key.trackSessions) == nil ? true : defaults.bool(forKey: Key.trackSessions) }
+        set { defaults.set(newValue, forKey: Key.trackSessions) }
+    }
+
+    static var checkForUpdates: Bool {
+        get { defaults.object(forKey: Key.checkForUpdates) == nil ? true : defaults.bool(forKey: Key.checkForUpdates) }
+        set { defaults.set(newValue, forKey: Key.checkForUpdates) }
+    }
+
+    /// When the update check last *tried*, successful or not — so a network that is down doesn't turn
+    /// once a day into once an hour.
+    static var lastUpdateCheck: Date? {
+        get { defaults.object(forKey: Key.lastUpdateCheck) as? Date }
+        set { defaults.set(newValue, forKey: Key.lastUpdateCheck) }
+    }
+
+    /// The newest release seen, kept so an update found yesterday still shows after a restart today.
+    /// Stored in the API's own shape and re-read through `UpdateCheck.release(in:)`, so a hand-edited
+    /// plist gets the same URL checks as the network does.
+    static var knownRelease: Release? {
+        get { defaults.dictionary(forKey: Key.knownRelease).flatMap(UpdateCheck.release(in:)) }
+        set {
+            guard let newValue else { return defaults.removeObject(forKey: Key.knownRelease) }
+            defaults.set(["tag_name": newValue.tag, "html_url": newValue.url.absoluteString],
+                         forKey: Key.knownRelease)
+        }
     }
 
     /// Deliberately not mirrored into UserDefaults: macOS owns this state (the user can revoke it
