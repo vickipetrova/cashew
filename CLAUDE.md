@@ -10,6 +10,7 @@ swift test --disable-xctest       # the whole suite, ~0.05s
 ./build.sh --dmg                  # also -> build/Headroom.dmg
 ./build.sh --dmg-only             # DMG around the existing app, without rebuilding it
 open build/Headroom.app
+ls build/Headroom.app/Contents/Helpers/   # headroom-hook, the Claude Code hook helper
 pkill -f "MacOS/Headroom"         # stop it (menu bar app; there's no window to close)
 ```
 
@@ -30,7 +31,9 @@ is no override to reach for. The `build` check has to be green before the PR can
 
 | File | Responsibility |
 |---|---|
-| `Sources/Headroom/main.swift` | Six lines of top-level code. Top-level code can't live in a library target, so this is all the executable target holds |
+| `Sources/Headroom/main.swift` | Six lines of top-level code for the menu bar app. Top-level code can't live in a library target, so this and `headroom-hook`'s `main.swift` are the only two files outside a library |
+| `Sources/headroom-hook/main.swift` | The Claude Code hook helper. Top-level code only; reads the hook payload, writes one session file, exits 0. Bundled at `Contents/Helpers/` |
+| `Sources/HeadroomShared/` | Foundation-only code shared by the app and the helper: `SessionRecord` and its files, `HookEvent` (the hook → state machine), `SessionOwner`, `isJSONBoolean`. Must never import AppKit — the helper runs on every tool call |
 | `Sources/HeadroomCore/AppDelegate.swift` | Wires provider → menu, owns the poll timer and the 60s countdown tick, refreshes on wake. The **only** public symbol in the module |
 | `Sources/HeadroomCore/MenuController.swift` | The status item: menu bar title, dropdown, Settings submenu. Knows nothing about where usage comes from |
 | `Sources/HeadroomCore/UsagePanel.swift` | The dropdown's SwiftUI rows, and the pure `UsageRow` view model behind them. Which limits reach the *menu bar title* is `TitleSelection`, in MenuController.swift |
@@ -42,6 +45,13 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/HeadroomCore/UsageHistory.swift` | Everything Headroom writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
 | `Sources/HeadroomCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — Headroom never writes the file or touches `~/.claude/`. Also owns the setup snippet and the status shown in Settings; the README quotes the snippet and a test holds the two together |
 | `Sources/HeadroomCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
+| `Sources/HeadroomCore/HookInstaller.swift` | Adds/removes Headroom's hooks in `~/.claude/settings.json` and nothing else |
+| `Sources/HeadroomCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |
+| `Sources/HeadroomCore/TranscriptTail.swift` | Esc-interrupt detection from the end of a transcript |
+| `Sources/HeadroomCore/GitBranch.swift` | Branch from `.git/HEAD`, following worktree `gitdir:` files |
+| `Sources/HeadroomCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
+| `Sources/HeadroomCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
+| `Sources/HeadroomCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
 | `assets/Headroom.icon` | Icon Composer document — the icon's source of truth. Two gauge tracks, orange fills, cream gradient |
 | `assets/icon-1024.png` | A committed *render* of that document, and the only icon input on the CLT-only path |
 | `assets/render-icon.sh` | Regenerates the PNG from the document. Run it after editing the icon, commit both |
@@ -77,7 +87,12 @@ what makes adding a second provider one new file, so don't put Claude-specific s
    Keychain — but it must never contain or handle a certificate, an app-specific password, or
    anything notarization needs. Releasing stays a manual maintainer step (`docs/RELEASING.md`), and
    CI signs ad-hoc and drafts the release for a signed build to replace.
-5. **One network destination:** `api.anthropic.com`. No analytics, no update checks.
+5. **Two network destinations:** `api.anthropic.com` for usage, and `api.github.com` for a
+   once-a-day update check the user can turn off. No analytics, no identifiers, no downloads.
+6. **Headroom edits `~/.claude/settings.json` only to add or remove its own hooks** — entries whose
+   command contains `headroom-hook`. Never another key, never another tool's hook, never
+   `statusLine`. It never writes a file it could not parse, never replaces a symlink, writes only
+   when something changed, and backs the original up once to `settings.json.bak-headroom`.
 
 ## The response shape
 
@@ -237,6 +252,41 @@ A denial also latches, or a user who clicks Deny would be re-prompted on every p
 on a serial background queue because that prompt is modal and every `refresh()` caller is the main
 thread.
 
+## Claude Code sessions
+
+`HookInstaller` registers `headroom-hook` for eight events; the helper writes
+`~/Library/Application Support/com.vickipetrova.headroom/sessions/<id>.json`; `SessionActivity`
+reads the folder. Traps, each measured and each with a test:
+
+- **The hook command must be one bare command.** With `'<path>' <event>`, the helper's parent process
+  *is* Claude Code (verified on 2.1.273), which is what the liveness check keys on. A wrapper like
+  `PATH=… cmd` or `a && b` can put a short-lived shell in between, and every session would look dead
+  a second later. `SessionOwner` therefore skips shells. It cannot match on the name `claude`: a
+  native install's executable is named after its version (`…/claude/versions/2.1.273`), and an npm
+  install runs as `node`.
+- **`Stop` does not fire on Esc.** An interrupted turn is detected from the transcript, where it is
+  a `user` entry starting `[Request interrupted by user`. That entry is frequently **not the last
+  line** — `last-prompt`, `ai-title`, `mode`, `permission-mode`, `attachment` and
+  `file-history-snapshot` follow it — so `TranscriptTail` takes the last `user`/`assistant` entry. It
+  only trusts a transcript written after the session's last hook event, because a new prompt's hook
+  fires before the prompt reaches the transcript.
+- **Hooks load when a session starts.** Sessions open at first install don't appear until
+  restarted; the Settings status says so.
+- **A missing hook command is skipped silently by Claude Code**, so a deleted Headroom leaves
+  harmless dead hooks rather than broken sessions.
+- **Moving an existing hook to the end would fight other tools.** `HookInstaller.merged` leaves a
+  current hook where it is; re-appending it made two tools that both append rewrite the file forever.
+- **Transcript tails use the throwing `FileHandle` APIs** (`FileHandle(forReadingFrom:)`,
+  `seekToEnd()`, `seek(toOffset:)`, `readToEnd()`). The legacy `seekToEndOfFile()` /
+  `readDataToEndOfFile()` raise Objective-C exceptions Swift can't catch, so an I/O error on a
+  transcript (a synced volume, a file truncated mid-read) would abort the app instead of reading as
+  "not interrupted".
+- **The spinning spark draws in a square canvas** (side = the larger of the glyph's width and
+  height) at every rotation, including at rest. A canvas sized to the unrotated glyph clips the
+  spokes once it turns — measured: ink pixels fell and ink touched the canvas edge at
+  11.25°/22.5°/33.75°. `ElapsedAndImageTests.rotationDoesNotClipTheSpark` renders the pixels to hold
+  this.
+
 ## The app icon
 
 Headroom is `LSUIElement`: no Dock tile, no window. The bundle icon is what Finder, the DMG, the
@@ -288,6 +338,11 @@ Enforced by a CI grep, and worth understanding rather than working around:
   with a temp directory instead; that is why the location is a parameter and not a constant.
 - `StatuslineFeed.default` — reads the same real folder, and a test that seeded it would be feeding
   the running app. Same fix: construct it with a temp directory.
+- `HookInstaller.default` — edits the real `~/.claude/settings.json`. Construct it with a temp
+  `claudeDirectory` and a temp helper file. `beforeWrite` is a test seam for the changed-meanwhile
+  race, so no test needs the real file to exercise it either.
+- `SessionActivity.default` / `SessionFiles.defaultDirectory` — the running app's sessions folder.
+- `UpdateCheck.fetch` — real network. `available(data:response:error:currentVersion:)` is the pure part.
 
 ### Checking the live app
 

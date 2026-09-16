@@ -23,16 +23,20 @@ disk, or copies it anywhere. Nothing in the source prints or logs it, and CI fai
 
 ## Where it goes
 
-One destination, one request:
+Two destinations:
 
 ```
-GET https://api.anthropic.com/api/oauth/usage
+GET https://api.anthropic.com/api/oauth/usage                          (with your token)
+GET https://api.github.com/repos/vickipetrova/headroom/releases/latest   (no token, at most once a day)
 ```
 
-That's the entire network surface. No telemetry, no analytics, no crash reporting, no update
-checks, no third-party services. The URLSession is ephemeral, so no response is cached to disk, and
-it refuses every redirect — the token cannot be forwarded to another host even if the endpoint
-starts returning one.
+The second is the update check. It carries no token, cookie or identifier beyond a
+`User-Agent: Headroom/<version>` header, never downloads anything, and can be turned off under
+Settings. No telemetry, no analytics, no crash reporting, no third-party services.
+
+The URLSession used for the usage request is ephemeral, so no response is cached to disk, and it
+refuses every redirect — the token cannot be forwarded to another host even if the endpoint starts
+returning one.
 
 ## What it stores
 
@@ -78,7 +82,12 @@ payload down to `rate_limits` before writing, so the working directory, session 
 and cost that Claude Code also passes stay out of it. If you wrote your own variant that stores more
 than that, it stores what you told it to; Headroom reads only `rate_limits` either way.
 
-Headroom does not edit `~/.claude/settings.json` or any other Claude Code configuration.
+In `~/Library/Application Support/com.vickipetrova.headroom/sessions/`, one small file per live
+Claude Code session: its state, folder, transcript path, the tool *name* in use and the Claude Code
+process id. Never prompt text, tool input or output. Deleted when the session ends.
+
+In `~/.claude/settings.json`, Headroom's own hook entries (commands ending in `headroom-hook`), with a
+one-time backup of the original at `~/.claude/settings.json.bak-headroom`.
 
 That is everything. No token, nothing derived from a token, no account identifier, no request or
 response bodies, and nothing that says what you were working on — only how full each quota was and
@@ -95,6 +104,8 @@ you think your token has been exposed, sign out of Claude Code and sign back in 
 
 ## Scope note
 
-Headroom is unofficial and reads an undocumented endpoint. It cannot change your plan, spend money,
-or modify anything in your Claude Code setup; it only reads. But it is a side project maintained by
-one person and audited by whoever reads the source — which is the point of keeping it this small.
+Headroom is unofficial and reads an undocumented endpoint. It cannot change your plan or spend
+money, and the only thing it ever writes into your Claude Code setup is its own hook entries in
+`~/.claude/settings.json`, toggled from Settings and removed the moment you turn tracking off. But
+it is a side project maintained by one person and audited by whoever reads the source — which is the
+point of keeping it this small.

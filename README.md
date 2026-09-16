@@ -282,11 +282,29 @@ General › Login Items).
 Those three lines are everything: the app, the usage history the forecast is computed from, and your
 preferences. No caches, no logs, no config files anywhere else.
 
+## Claude Code sessions
+
+Headroom also shows what Claude Code is doing. The spark in the menu bar spins while a session is
+working and gains a dot when one is waiting for your permission, and the dropdown lists each live
+session with its project, branch, current step and how long the turn has run.
+
+To do that, Headroom adds a small set of hooks to `~/.claude/settings.json` the first time it runs.
+It changes nothing else in that file, keeps a one-time backup at
+`~/.claude/settings.json.bak-headroom`, and records only each session's state, folder and tool
+*names* — never your prompts or tool input. Sessions already open when the hooks are added appear
+once they're restarted.
+
+Turn it off under **Settings › Track Claude Code Sessions**, which removes the hooks. **Turn it off
+before deleting Headroom**; if you forget, the leftover hooks do nothing and Claude Code ignores them.
+
+Session tracking was inspired by [claude-status-bar](https://github.com/m1ckc3s/claude-status-bar)
+by Mick Cesanek.
+
 ## Security
 
 Headroom reads your OAuth token, holds it in memory for one request, and sends it to exactly one
-place: `api.anthropic.com`. No telemetry, no analytics, no update checks. See
-[SECURITY.md](SECURITY.md).
+place: `api.anthropic.com`. It also asks GitHub once a day whether a newer Headroom exists (turn it
+off under Settings). No telemetry, no analytics, no identifiers. See [SECURITY.md](SECURITY.md).
 
 ## Trademark / Not affiliated
 
