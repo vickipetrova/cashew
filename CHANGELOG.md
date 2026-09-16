@@ -18,6 +18,9 @@ All notable changes to Headroom are documented here. The format follows
   Headroom never edits `~/.claude/settings.json`; opting in and out is a line you control, and the
   snippet writes only `rate_limits` rather than the cwd, session id, transcript path and cost the
   rest of the payload carries.
+  **Settings › Live from Claude Code** says whether it's on, off, or not working because `jq` is
+  missing, and when it isn't working offers **Set Up Live Updates…**, a dialog that explains the
+  feature and copies the line. The README now has a complete starter script for anyone without a statusline yet.
 - **Burn-rate forecasting.** A percentage can't tell you whether you'll make it to the reset — 40% an
   hour into a five-hour window and 40% four hours in read identically. Headroom now keeps a rolling
   history of utilization samples and projects the rate forward. When a limit is on pace to hit 100%

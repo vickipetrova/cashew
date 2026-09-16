@@ -36,18 +36,119 @@ struct StatuslineFeed {
     /// Nil is not an error. It means "poll instead", which is the normal state for anyone who hasn't
     /// opted in and for anyone whose Claude Code isn't running.
     func read(now: Date = Date()) -> [LimitWindow]? {
+        guard case .live(let windows, _) = load(now: now) else { return nil }
+        return windows
+    }
+
+    /// Whether the feed is working, for the Settings submenu.
+    ///
+    /// Exists because the opt-in is a line in a script the app can't see: without it, a user who
+    /// pasted the line wrong, or who is missing `jq`, gets polling and no hint that anything failed —
+    /// every error in the snippet is swallowed on purpose.
+    func status(now: Date = Date()) -> Status {
+        switch load(now: now) {
+        case .notSetUp: return .notSetUp
+        case .live(_, let written): return .live(since: written)
+        case .idle(let written): return .idle(since: written)
+        case .unreadable: return .unreadable
+        case .noLimits: return .noLimits
+        }
+    }
+
+    enum Status: Equatable {
+        /// No file: the line was never added, or Claude Code hasn't rendered a statusline since.
+        case notSetUp
+        case live(since: Date)
+        /// Older than `maxAge`, or dated in the future. Normal whenever Claude Code is closed.
+        case idle(since: Date)
+        /// Fresh but not JSON. What a missing `jq` produces: the shell creates the file for the
+        /// redirect before `jq` fails to run, so it is rewritten empty on every render.
+        case unreadable
+        /// Fresh JSON with no usable window — an account without plan limits, or a session that
+        /// hasn't heard back from the API yet.
+        case noLimits
+
+        /// Phrased as a feature being on or off. "Live · updated just now" sat directly under the
+        /// refresh settings and read as one more note about polling, which left the setup command
+        /// beneath it looking unexplained.
+        func label(now: Date = Date()) -> String {
+            switch self {
+            case .notSetUp: return "Off"
+            case .live(let since): return "On · updated \(Fmt.age(of: since, from: now))"
+            case .idle(let since) where since > now: return "On · waiting for Claude Code"
+            case .idle(let since): return "On · last reading \(Fmt.age(of: since, from: now))"
+            case .unreadable: return "Not working — is jq installed?"
+            case .noLimits: return "On · no plan limits reported"
+            }
+        }
+
+        /// Whether the menu offers setup. Only where it could help: once readings arrive — live, idle,
+        /// or carrying no limits because of the plan — the snippet is already doing its job, and a
+        /// standing command to copy it again is exactly what looked unexplained.
+        var offersSetup: Bool {
+            switch self {
+            case .notSetUp, .unreadable: return true
+            case .live, .idle, .noLimits: return false
+            }
+        }
+    }
+
+    /// Menu and dialog copy, kept here rather than in `MenuController`, which stays free of
+    /// Claude-specific strings.
+    static let menuHeading = "LIVE FROM CLAUDE CODE"
+    static let setupMenuTitle = "Set Up Live Updates…"
+    static let setupDialogTitle = "Live updates from Claude Code"
+    static let setupDialogMessage = """
+        Headroom checks your usage every few minutes. While you're using Claude Code, it can update \
+        live instead — Claude Code already passes your usage to its statusline, and one line in your \
+        statusline script hands it to Headroom.
+
+        Add the line below to your statusline script, right after the line that reads its input. It \
+        needs jq, which macOS 15 and later include.
+
+        No statusline yet? The Headroom README has a complete starter script.
+        """
+    static let setupCopyButton = "Copy Snippet"
+
+    /// The one line a user adds to their statusline script. The README quotes it verbatim, and a
+    /// test holds the two together — a copy that drifted from the docs would be the worse of both.
+    static let setupCommand = """
+        { mkdir -p "$HOME/Library/Application Support/com.vickipetrova.headroom" \\
+          && printf '%s' "$input" | jq -c '{rate_limits}' \\
+             > "$HOME/Library/Application Support/com.vickipetrova.headroom/statusline.json"; } 2>/dev/null || true
+        """
+
+    /// What Copy Snippet puts on the clipboard: the command, with enough comment around it to
+    /// still make sense when it is pasted somewhere an hour later.
+    static let setupSnippet = """
+        # Headroom: live plan usage in the menu bar. Goes in your Claude Code statusline script,
+        # right after `input=$(cat)`. No statusline yet? See
+        # https://github.com/vickipetrova/headroom#live-usage-from-claude-code
+        \(setupCommand)
+
+        """
+
+    private enum Loaded {
+        case notSetUp
+        case live([LimitWindow], written: Date)
+        case idle(Date)
+        case unreadable
+        case noLimits
+    }
+
+    private func load(now: Date) -> Loaded {
         guard let written = try? FileManager.default
-            .attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date else { return nil }
+            .attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date else { return .notSetUp }
         // The payload carries no timestamp of its own, so the file's mtime is the only answer to
         // "how old is this" — and it is the honest one, since the script rewrites on every render.
-        guard now.timeIntervalSince(written) <= Self.maxAge, written <= now else { return nil }
+        guard now.timeIntervalSince(written) <= Self.maxAge, written <= now else { return .idle(written) }
 
         guard let data = try? Data(contentsOf: fileURL),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-        else { return nil }
+        else { return .unreadable }
 
         let windows = Self.windows(in: object)
-        return windows.isEmpty ? nil : windows
+        return windows.isEmpty ? .noLimits : .live(windows, written: written)
     }
 
     /// Pure, so every shape this file can take is reachable from a test.
