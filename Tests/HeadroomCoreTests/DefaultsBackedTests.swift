@@ -367,6 +367,14 @@ struct DefaultsBacked {
             #expect(Settings.knownRelease == nil)
         }
 
+        /// A developer switch: a dev bundle installing hooks rewrites the real settings.json to point
+        /// into a build folder, so it has to be asked for.
+        @Test func hooksOutsideApplicationsDefaultOff() {
+            #expect(!Settings.allowHooksOutsideApplications)
+            defaults.set(true, forKey: "allowHooksOutsideApplications")
+            #expect(Settings.allowHooksOutsideApplications)
+        }
+
         /// Same trap as the threshold: `bool(forKey:)` is false for a missing key, so "off" has to be
         /// told apart from "never set" or turning it off would not survive a relaunch.
         @Test func turningThemOffIsPersisted() {

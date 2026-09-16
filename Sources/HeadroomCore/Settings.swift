@@ -38,6 +38,7 @@ enum Settings {
         static let titleLimitIDs = "titleLimitIDs"
         static let trackSessions = "trackSessions"
         static let checkForUpdates = "checkForUpdates"
+        static let allowHooksOutsideApplications = "allowHooksOutsideApplications"
         static let lastUpdateCheck = "lastUpdateCheck"
         static let knownRelease = "knownRelease"
     }
@@ -117,6 +118,15 @@ enum Settings {
     static var checkForUpdates: Bool {
         get { defaults.object(forKey: Key.checkForUpdates) == nil ? true : defaults.bool(forKey: Key.checkForUpdates) }
         set { defaults.set(newValue, forKey: Key.checkForUpdates) }
+    }
+
+    /// A developer switch, with no menu item: lets a bundle outside `/Applications` and
+    /// `~/Applications` install its hooks. Off by default, because doing so points the real
+    /// `~/.claude/settings.json` at that bundle — a build folder that gets cleaned. Set it with
+    /// `defaults write com.vickipetrova.headroom allowHooksOutsideApplications -bool true`.
+    static var allowHooksOutsideApplications: Bool {
+        get { defaults.bool(forKey: Key.allowHooksOutsideApplications) }
+        set { defaults.set(newValue, forKey: Key.allowHooksOutsideApplications) }
     }
 
     /// When the update check last *tried*, successful or not — so a network that is down doesn't turn

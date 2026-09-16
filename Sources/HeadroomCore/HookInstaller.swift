@@ -4,7 +4,7 @@ import HeadroomShared
 /// Keeps Headroom's hooks in `~/.claude/settings.json`.
 ///
 /// **The only thing Headroom ever changes in that file is its own hooks** — entries whose command
-/// contains `headroom-hook`. Every other key, and every other tool's hook, is carried through.
+/// runs its bundled `Contents/Helpers/headroom-hook`. Every other key, and every other tool's hook, is carried through.
 ///
 /// Claude Code has no drop-in directory for another app's hooks (a plugin would need the user to run
 /// `/plugin install`), so editing the user's settings is the only automatic route. Three things
@@ -12,10 +12,14 @@ import HeadroomShared
 /// read when a session *starts*, so already-open sessions don't see them; and a hook whose command no
 /// longer exists is skipped silently, so a deleted Headroom leaves harmless leftovers.
 struct HookInstaller {
-    static let marker = "headroom-hook"
+    /// What makes a hook Headroom's. The bundle path, not just the helper's name, so a user's own
+    /// `my-headroom-hook-script.sh` is never mistaken for one and removed.
+    static let marker = "/Contents/Helpers/headroom-hook"
 
     let claudeDirectory: URL
     let helperPath: String
+    /// `Settings.allowHooksOutsideApplications`: lets a dev build install hooks. See `isRunnableLocation`.
+    let allowOutsideApplications: Bool
 
     /// Test seam: runs between reading and the modification-date re-check, so a test can change the
     /// file in the window a real concurrent write would.
@@ -26,15 +30,17 @@ struct HookInstaller {
         claudeDirectory: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude", isDirectory: true),
         helperPath: Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers/headroom-hook").path)
+            .appendingPathComponent("Contents/Helpers/headroom-hook").path,
+        allowOutsideApplications: Settings.allowHooksOutsideApplications)
 
     var settingsURL: URL { claudeDirectory.appendingPathComponent("settings.json") }
     var backupURL: URL { claudeDirectory.appendingPathComponent("settings.json.bak-headroom") }
 
     enum Outcome: Equatable {
         case claudeNotFound
-        /// Running from a DMG or a translocated copy: that path disappears, and hooks would point
-        /// at nothing.
+        /// Running from anywhere but `/Applications` or `~/Applications` — a DMG, a translocated
+        /// copy, a Downloads folder, a build folder. Those paths go away, and hooks would point at
+        /// nothing.
         case notInApplications
         case helperMissing
         /// Not JSON, or `hooks` isn't an object. Never written to.
@@ -53,7 +59,9 @@ struct HookInstaller {
         guard fileManager.fileExists(atPath: claudeDirectory.path, isDirectory: &isDirectory),
               isDirectory.boolValue else { return .claudeNotFound }
         if enabled {
-            guard Self.isRunnableLocation(helperPath) else { return .notInApplications }
+            guard Self.isRunnableLocation(helperPath, home: fileManager.homeDirectoryForCurrentUser.path,
+                                          allowAnywhere: allowOutsideApplications)
+            else { return .notInApplications }
             guard fileManager.isExecutableFile(atPath: helperPath) else { return .helperMissing }
         }
 
@@ -64,6 +72,12 @@ struct HookInstaller {
         guard !NSDictionary(dictionary: loaded.settings).isEqual(to: next) else { return .upToDate }
         beforeWrite()
         guard Self.modificationDate(of: target) == loaded.modified else { return .changedMeanwhile }
+        // An atomic write replaces the file through its directory, so it would succeed over a file
+        // the user locked read-only. Respect the lock instead — and take no backup of a file that
+        // isn't going to change.
+        if fileManager.fileExists(atPath: target.path), !fileManager.isWritableFile(atPath: target.path) {
+            return .writeFailed
+        }
 
         do {
             if loaded.modified != nil, !fileManager.fileExists(atPath: backupURL.path) {
@@ -143,8 +157,11 @@ struct HookInstaller {
         return "[ -x \(quoted) ] || exit 0; exec \(quoted) \(event.rawValue)"
     }
 
-    static func isRunnableLocation(_ path: String) -> Bool {
-        !path.contains("/AppTranslocation/") && !path.hasPrefix("/Volumes/")
+    /// Only the Applications folders, where an app is expected to stay put. A translocated copy is
+    /// refused even with `allowAnywhere`: its path is random and gone after a relaunch.
+    static func isRunnableLocation(_ path: String, home: String, allowAnywhere: Bool) -> Bool {
+        guard !path.contains("/AppTranslocation/") else { return false }
+        return allowAnywhere || path.hasPrefix("/Applications/") || path.hasPrefix("\(home)/Applications/")
     }
 
     private static func entry(for event: HookEvent, helperPath: String) -> [String: Any] {

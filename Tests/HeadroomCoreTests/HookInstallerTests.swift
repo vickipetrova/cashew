@@ -93,9 +93,20 @@ import Testing
         let settings = try object("""
             {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
               {"type": "command", "command": "other-tool pre"},
-              {"type": "command", "command": "'/old/headroom-hook' pre"}]}]}}
+              {"type": "command", "command": "'/Users/v/Old/Headroom.app/Contents/Helpers/headroom-hook' pre"}]}]}}
             """)
         #expect(commands(HookInstaller.merged(settings, helperPath: nil), "PreToolUse") == ["other-tool pre"])
+    }
+
+    /// Only the bundled helper is Headroom's. A user's own script that happens to share the name is
+    /// theirs, and survives both install and removal.
+    @Test func aLookalikeUserHookIsLeftAlone() throws {
+        let settings = try object("""
+            {"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "~/bin/my-headroom-hook-script.sh"}]}]}}
+            """)
+        #expect(commands(HookInstaller.merged(settings, helperPath: nil), "Stop") == ["~/bin/my-headroom-hook-script.sh"])
+        #expect(commands(HookInstaller.merged(settings, helperPath: helper), "Stop")
+                == ["~/bin/my-headroom-hook-script.sh", HookInstaller.command(helperPath: helper, event: .stop)])
     }
 
     @Test func oddEntriesSurviveInstallAndRemoval() throws {
@@ -135,11 +146,23 @@ import Testing
         #expect(errors.isEmpty)
     }
 
-    @Test func translocatedAndMountedLocationsAreRefused() {
-        #expect(!HookInstaller.isRunnableLocation(
-            "/private/var/folders/x/T/AppTranslocation/ABC/d/Headroom.app/Contents/Helpers/headroom-hook"))
-        #expect(!HookInstaller.isRunnableLocation("/Volumes/Headroom/Headroom.app/Contents/Helpers/headroom-hook"))
-        #expect(HookInstaller.isRunnableLocation(helper))
+    @Test func onlyApplicationsFoldersAreRunnable() {
+        let home = "/Users/x"
+        let suffix = "Headroom.app/Contents/Helpers/headroom-hook"
+        #expect(HookInstaller.isRunnableLocation(helper, home: home, allowAnywhere: false))
+        #expect(HookInstaller.isRunnableLocation("/Users/x/Applications/\(suffix)", home: home, allowAnywhere: false))
+        // A dev build: its hooks would point into a folder that gets cleaned.
+        let dev = "/Users/x/dev/headroom/build/\(suffix)"
+        #expect(!HookInstaller.isRunnableLocation(dev, home: home, allowAnywhere: false))
+        #expect(HookInstaller.isRunnableLocation(dev, home: home, allowAnywhere: true))
+        #expect(!HookInstaller.isRunnableLocation("/Volumes/Headroom/\(suffix)", home: home, allowAnywhere: false))
+        // Someone else's ~/Applications isn't this user's.
+        #expect(!HookInstaller.isRunnableLocation("/Users/y/Applications/\(suffix)", home: home, allowAnywhere: false))
+        let translocated = "/private/var/folders/x/T/AppTranslocation/ABC/d/\(suffix)"
+        #expect(!HookInstaller.isRunnableLocation(translocated, home: home, allowAnywhere: false))
+        #expect(!HookInstaller.isRunnableLocation(translocated, home: home, allowAnywhere: true))
+        #expect(!HookInstaller.isRunnableLocation("/Applications/AppTranslocation/\(suffix)", home: home,
+                                                  allowAnywhere: false))
     }
 
     // MARK: Files
@@ -150,7 +173,7 @@ import Testing
         var claude: URL { root.appendingPathComponent(".claude", isDirectory: true) }
         var settings: URL { claude.appendingPathComponent("settings.json") }
         var backup: URL { claude.appendingPathComponent("settings.json.bak-headroom") }
-        var helper: URL { root.appendingPathComponent("headroom-hook") }
+        var helper: URL { root.appendingPathComponent("Headroom.app/Contents/Helpers/headroom-hook") }
 
         func make(claudeDirectory: Bool = true, helper makeHelper: Bool = true) throws -> HookInstaller {
             if claudeDirectory {
@@ -159,10 +182,13 @@ import Testing
                 try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             }
             if makeHelper {
+                try FileManager.default.createDirectory(at: helper.deletingLastPathComponent(),
+                                                        withIntermediateDirectories: true)
                 try Data().write(to: helper)
                 try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: helper.path)
             }
-            return HookInstaller(claudeDirectory: claude, helperPath: helper.path)
+            // The helper lives in a temp folder, not /Applications.
+            return HookInstaller(claudeDirectory: claude, helperPath: helper.path, allowOutsideApplications: true)
         }
     }
 
@@ -241,6 +267,31 @@ import Testing
         #expect(installer.apply(enabled: true) == .changedMeanwhile)
         #expect(try Data(contentsOf: sandbox.settings) == Data(#"{"model": "sonnet"}"#.utf8))
         #expect(!FileManager.default.fileExists(atPath: sandbox.backup.path))
+    }
+
+    /// The target isn't writable (locked by the user, or owned by root): report it, and don't take
+    /// a backup of a file that won't be changed.
+    @Test func readOnlySettingsAreNotWritten() throws {
+        let sandbox = Sandbox()
+        let installer = try sandbox.make()
+        let original = Data(#"{"model": "opus"}"#.utf8)
+        try original.write(to: sandbox.settings)
+        try FileManager.default.setAttributes([.posixPermissions: 0o444], ofItemAtPath: sandbox.settings.path)
+        defer {
+            try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: sandbox.settings.path)
+        }
+        #expect(installer.apply(enabled: true) == .writeFailed)
+        #expect(try Data(contentsOf: sandbox.settings) == original)
+        #expect(!FileManager.default.fileExists(atPath: sandbox.backup.path))
+    }
+
+    @Test func outsideApplicationsIsRefusedUnlessAllowed() throws {
+        let sandbox = Sandbox()
+        let allowed = try sandbox.make()
+        let refused = HookInstaller(claudeDirectory: allowed.claudeDirectory, helperPath: allowed.helperPath,
+                                    allowOutsideApplications: false)
+        #expect(refused.apply(enabled: true) == .notInApplications)
+        #expect(!FileManager.default.fileExists(atPath: sandbox.settings.path))
     }
 
     // MARK: Status
