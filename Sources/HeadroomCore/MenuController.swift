@@ -1,4 +1,5 @@
 import AppKit
+import HeadroomShared
 
 /// Which limits the menu bar title shows, given what the response reported and what the user picked.
 ///
@@ -29,6 +30,15 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Called when a preference changes, so the poll timer can be rescheduled.
     var onSettingsChanged: (() -> Void)?
 
+    /// Called when Track Claude Code Sessions is toggled, so hooks are installed or removed.
+    var onTrackSessionsChanged: (() -> Void)?
+
+    /// Called when automatic update checks are toggled.
+    var onCheckForUpdatesChanged: (() -> Void)?
+
+    /// The last result of installing hooks, for the Settings status line.
+    var hookOutcome: HookInstaller.Outcome?
+
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
 
@@ -36,6 +46,11 @@ final class MenuController: NSObject, NSMenuDelegate {
     private var lastUpdated: Date?
     private var lastError: Error?
     private var isMenuOpen = false
+
+    /// Most urgent first (`SessionActivity` sorts them), so the first one decides the title.
+    private var sessions: [Session] = []
+    private var animationFrame = 0
+    private var availableRelease: Release?
 
     /// Read-only here. `AppDelegate` owns recording, because only it knows a fetch actually
     /// succeeded — the menu is handed windows either way.
@@ -110,6 +125,24 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Refreshes the live rows without rebuilding the menu, for the case where it's held open.
     func tick() { refreshLiveRows() }
 
+    func update(sessions: [Session]) {
+        self.sessions = sessions
+        renderTitle()
+        refreshLiveRows()
+    }
+
+    func update(release: Release?) {
+        availableRelease = release
+        // Shape change (an item appears), so it shows on the next open, like any new row.
+    }
+
+    /// One step of the working spark. Driven by `AppDelegate`'s fast timer, which only runs while a
+    /// session is active.
+    func advanceAnimation() {
+        animationFrame = (animationFrame + 1) % 4
+        renderTitle()
+    }
+
     // MARK: - In-place refresh
     //
     // Every live row recomputes together, from all three entry points (tick, poll, poll failure), so
@@ -139,7 +172,15 @@ final class MenuController: NSObject, NSMenuDelegate {
         // The spark is an image rather than a character in the title so that System mode can hand it
         // to macOS as a template and have it adapt exactly like a built-in menu bar control —
         // including inverting when the item is highlighted, which coloured text does not do.
-        button.image = Fmt.statusImage(mode: Settings.colorMode)
+        let activity = sessions.first?.state
+        let working = activity == .thinking || activity == .tool
+        let rotation: CGFloat
+        if !working { rotation = 0 }
+        // Reduce Motion: a still, visibly turned spark instead of a spinning one.
+        else if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { rotation = 22.5 }
+        else { rotation = CGFloat(animationFrame) * 11.25 }
+        button.image = Fmt.statusImage(mode: Settings.colorMode, rotation: rotation,
+                                       permissionDot: activity == .permission)
         button.imagePosition = .imageLeading
 
         guard !displayWindows().isEmpty else {
@@ -260,6 +301,19 @@ final class MenuController: NSObject, NSMenuDelegate {
             }
         }
 
+        if !sessions.isEmpty {
+            menu.addItem(.separator())
+            menu.addItem(headingRow(SessionActivity.menuHeading))
+            let visible = SessionPanel.visible(sessions)
+            for session in visible.shown {
+                menu.addItem(sessionRow(for: session))
+            }
+            if visible.hidden > 0 {
+                let label = SessionActivity.moreLabel(visible.hidden)
+                menu.addItem(textRow { label })
+            }
+        }
+
         if Settings.notifyThreshold > 0, Notifier.alertsBlocked {
             menu.addItem(.separator())
             let item = action("Alerts blocked — open Notification settings",
@@ -268,6 +322,10 @@ final class MenuController: NSObject, NSMenuDelegate {
         }
 
         menu.addItem(.separator())
+        if let release = availableRelease {
+            let item = action(UpdateCheck.menuTitle(release), key: "", selector: #selector(openRelease))
+            menu.addItem(item)
+        }
         menu.addItem(refreshRow())
         menu.addItem(settingsItem())
         menu.addItem(action("Quit Headroom", key: "q", selector: #selector(quitClicked)))
@@ -335,6 +393,18 @@ final class MenuController: NSObject, NSMenuDelegate {
             submenu.addItem(item)
         }
 
+        submenu.addItem(.separator())
+        submenu.addItem(header(SessionActivity.settingsHeading))
+        let track = action(SessionActivity.trackMenuTitle, key: "", selector: #selector(toggleTrackSessions))
+        track.state = Settings.trackSessions ? .on : .off
+        submenu.addItem(track)
+        let hookStatus = NSMenuItem(
+            title: HookInstaller.statusLabel(hookOutcome, enabled: Settings.trackSessions,
+                                             sessionCount: sessions.count),
+            action: nil, keyEquivalent: "")
+        hookStatus.isEnabled = false
+        submenu.addItem(hookStatus)
+
         // A status line and a way in. The opt-in is a line in the user's own statusline script, which
         // Headroom deliberately never edits — so the menu's job is to make it findable and to say
         // whether it's working. Read fresh on every open, like the checkmarks above.
@@ -353,6 +423,10 @@ final class MenuController: NSObject, NSMenuDelegate {
         let launch = action("Launch at Login", key: "", selector: #selector(toggleLaunchAtLogin))
         launch.state = Settings.launchAtLogin ? .on : .off
         submenu.addItem(launch)
+
+        let updates = action(UpdateCheck.settingsTitle, key: "", selector: #selector(toggleCheckForUpdates))
+        updates.state = Settings.checkForUpdates ? .on : .off
+        submenu.addItem(updates)
 
         let item = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
         item.isEnabled = true
@@ -419,6 +493,22 @@ final class MenuController: NSObject, NSMenuDelegate {
         Settings.launchAtLogin.toggle()
     }
 
+    /// Not `onSettingsChanged`: neither toggle has anything to do with polling usage.
+    @objc private func toggleTrackSessions() {
+        Settings.trackSessions.toggle()
+        onTrackSessionsChanged?()
+    }
+
+    @objc private func toggleCheckForUpdates() {
+        Settings.checkForUpdates.toggle()
+        onCheckForUpdatesChanged?()
+    }
+
+    @objc private func openRelease() {
+        guard let url = availableRelease?.url else { return }
+        NSWorkspace.shared.open(url)
+    }
+
     // MARK: - Live rows
 
     /// One usage section: heading with its reset time, the percentage with a countdown, and the bar.
@@ -451,6 +541,29 @@ final class MenuController: NSObject, NSMenuDelegate {
             hosted.update(PanelTextView(text: latest), title: latest)
         })
         return hosted.item
+    }
+
+    /// A session, kept current while the menu is open. Closes over the session's **id** and looks
+    /// it up each time — the same lesson as `window(id:)`. A session that ended while the menu is
+    /// open says so rather than vanishing, because an open menu can't lose rows.
+    private func sessionRow(for session: Session) -> NSMenuItem {
+        let id = session.id
+        var row = SessionRow(session, now: Date())
+        let hosted = HostedRow(SessionRowView(row: row, mode: Settings.colorMode), title: row.spoken)
+        liveRows.append(LiveRow { [weak self] in
+            guard let self else { return }
+            if let current = self.sessions.first(where: { $0.id == id }) {
+                row = SessionRow(current, now: Date())
+            } else {
+                row = row.ended
+            }
+            hosted.update(SessionRowView(row: row, mode: Settings.colorMode), title: row.spoken)
+        })
+        return hosted.item
+    }
+
+    private func headingRow(_ text: String) -> NSMenuItem {
+        HostedRow(PanelHeadingView(text: text), title: text).item
     }
 
     /// Errors only. How fresh the numbers are is shown on the Refresh Now row instead, where it sits
