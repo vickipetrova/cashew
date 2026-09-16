@@ -92,7 +92,7 @@ Behaviour:
 - Always exits 0, prints nothing — a hook must never disturb a session.
 
 **Parent process.** Verified on Claude Code 2.1.273: when the hook command is a single bare
-command, the helper's parent is the `claude` process, stable across events in a session. A shell
+command, the helper's parent is Claude Code's own process, stable across events in a session. A shell
 wrapper (`PATH=… cmd`, `a && b`) could interpose a short-lived shell, so:
 
 - The installer writes the command as exactly `'<path>' <event>` — nothing else.
