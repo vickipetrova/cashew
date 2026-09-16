@@ -280,8 +280,34 @@ import Testing
     /// The spark is a template only in System mode — that is what lets macOS invert it on highlight
     /// and follow the menu bar between appearances, which a colour-baked image cannot do.
     @Test func sparkIsATemplateOnlyInSystemMode() {
-        #expect(Fmt.sparkImage(mode: .system).isTemplate)
-        #expect(!Fmt.sparkImage(mode: .alertsOnly).isTemplate)
-        #expect(Fmt.sparkImage(mode: .system).size.width > 0)
+        #expect(Fmt.statusImage(mode: .system).isTemplate)
+        #expect(!Fmt.statusImage(mode: .alertsOnly).isTemplate)
+        #expect(Fmt.statusImage(mode: .system).size.width > 0)
+    }
+}
+
+@Suite struct ElapsedAndImageTests {
+    private let now = Date(timeIntervalSince1970: 1_790_000_000)
+
+    @Test(arguments: [(0.0, "0s"), (59, "59s"), (60, "1m 00s"), (65, "1m 05s"),
+                      (3599, "59m 59s"), (3600, "1h 00m"), (3720, "1h 02m")])
+    func elapsed(_ seconds: Double, _ expected: String) {
+        #expect(Fmt.elapsed(since: now.addingTimeInterval(-seconds), now: now) == expected)
+    }
+
+    @Test func elapsedEdges() {
+        #expect(Fmt.elapsed(since: nil, now: now) == "")
+        #expect(Fmt.elapsed(since: now.addingTimeInterval(30), now: now) == "0s")
+    }
+
+    @Test func statusImage() {
+        let plain = Fmt.statusImage(mode: .alertsOnly)
+        let dotted = Fmt.statusImage(mode: .alertsOnly, permissionDot: true)
+        #expect(dotted.size.width > plain.size.width)
+        #expect(dotted.size.height == plain.size.height)
+        #expect(!plain.isTemplate)
+        #expect(Fmt.statusImage(mode: .system, rotation: 22.5, permissionDot: true).isTemplate)
+        // Rotation must not change the size, or the title would jitter sideways as it spins.
+        #expect(Fmt.statusImage(mode: .alertsOnly, rotation: 33.75).size == plain.size)
     }
 }

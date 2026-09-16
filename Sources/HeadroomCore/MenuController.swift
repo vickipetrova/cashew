@@ -139,7 +139,7 @@ final class MenuController: NSObject, NSMenuDelegate {
         // The spark is an image rather than a character in the title so that System mode can hand it
         // to macOS as a template and have it adapt exactly like a built-in menu bar control —
         // including inverting when the item is highlighted, which coloured text does not do.
-        button.image = Fmt.sparkImage(mode: Settings.colorMode)
+        button.image = Fmt.statusImage(mode: Settings.colorMode)
         button.imagePosition = .imageLeading
 
         guard !displayWindows().isEmpty else {

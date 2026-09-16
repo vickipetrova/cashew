@@ -101,6 +101,19 @@ enum Fmt {
         return "Resets \(clock(date, from: now)) — in \(countdown(to: date, from: now))"
     }
 
+    /// How long a turn has been running: `12s`, `1m 05s`, `1h 02m`. Empty without a start.
+    static func elapsed(since start: Date?, now: Date = Date()) -> String {
+        guard let start else { return "" }
+        let interval = now.timeIntervalSince(start)
+        // Bounded before the Int conversion, which traps on anything non-finite or out of range.
+        guard interval.isFinite, interval < 1_000_000_000 else { return "" }
+        let seconds = max(0, Int(interval))
+        if seconds < 60 { return "\(seconds)s" }
+        let minutes = seconds / 60
+        if minutes < 60 { return String(format: "%dm %02ds", minutes, seconds % 60) }
+        return String(format: "%dh %02dm", minutes / 60, minutes % 60)
+    }
+
     /// The spark for the menu bar, drawn as an image rather than set as a character in the title.
     ///
     /// In `.system` mode the image is a *template*: macOS then draws it in whatever colour a
@@ -111,7 +124,14 @@ enum Fmt {
     ///
     /// Rebuilt per render rather than cached: it is one small glyph a few times a minute, and a
     /// cache would have to be invalidated on both mode changes and appearance changes.
-    static func sparkImage(mode: Settings.ColorMode) -> NSImage {
+    ///
+    /// `rotation` spins the glyph while a Claude Code session is working. ✻ has eight spokes, so
+    /// four frames of 11.25° read as continuous motion, and rotating about the centre within the
+    /// unrotated canvas keeps the image the same size — the title must not jitter sideways.
+    /// `permissionDot` draws a dot after the spark when a session is waiting on the user: yellow in
+    /// Alerts-only, and part of the template (so monochrome) in System.
+    static func statusImage(mode: Settings.ColorMode, rotation: CGFloat = 0,
+                            permissionDot: Bool = false) -> NSImage {
         let glyph = "✻" as NSString
         let attributes: [NSAttributedString.Key: Any] = [
             .font: NSFont.systemFont(ofSize: 13),
@@ -121,15 +141,34 @@ enum Fmt {
             // template items either side of it. Which is the one thing System mode exists to avoid.
             .foregroundColor: mode == .system ? NSColor.black : spark,
         ]
-        let size = glyph.size(withAttributes: attributes)
+        let glyphSize = glyph.size(withAttributes: attributes)
+        let sparkWidth = ceil(glyphSize.width)
+        let height = ceil(glyphSize.height)
+        let dotDiameter: CGFloat = 6
+        let dotGap: CGFloat = 2
+        let width = sparkWidth + (permissionDot ? dotGap + dotDiameter : 0)
+
         // `NSImage(size:flipped:drawingHandler:)` rather than lockFocus/unlockFocus: the handler is
         // re-run per destination scale, so the glyph stays sharp on a second display with a different
         // backing scale instead of being rasterized once at whatever the main screen happened to be.
         // (lockFocus is also deprecated as of macOS 14; the 13.0 deployment target is the only reason
         // it wasn't warning.)
-        let image = NSImage(size: NSSize(width: ceil(size.width), height: ceil(size.height)),
-                            flipped: false) { _ in
-            glyph.draw(at: .zero, withAttributes: attributes)
+        let image = NSImage(size: NSSize(width: width, height: height), flipped: false) { _ in
+            if rotation != 0, let context = NSGraphicsContext.current?.cgContext {
+                context.saveGState()
+                context.translateBy(x: sparkWidth / 2, y: height / 2)
+                context.rotate(by: -rotation * .pi / 180)
+                context.translateBy(x: -sparkWidth / 2, y: -height / 2)
+                glyph.draw(at: .zero, withAttributes: attributes)
+                context.restoreGState()
+            } else {
+                glyph.draw(at: .zero, withAttributes: attributes)
+            }
+            if permissionDot {
+                (mode == .system ? NSColor.black : NSColor.systemYellow).setFill()
+                NSBezierPath(ovalIn: NSRect(x: sparkWidth + dotGap, y: (height - dotDiameter) / 2,
+                                            width: dotDiameter, height: dotDiameter)).fill()
+            }
             return true
         }
         image.isTemplate = mode == .system
