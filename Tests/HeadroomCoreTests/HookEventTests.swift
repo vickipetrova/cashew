@@ -116,11 +116,74 @@ import Testing
         #expect(record.pid == 7)
     }
 
+    /// `Stop` doesn't fire when a turn ends on an API error; `StopFailure` does.
+    @Test func stopFailureEndsTheTurnLikeStop() throws {
+        let previous = SessionRecord(state: .tool, label: "Editing", tool: "Edit", started: true,
+                                     turnStartedAt: now, updatedAt: now)
+        let failed = HookEvent.stopfail.outcome(payload: try payload(base), previous: previous, pid: 9, now: now)
+        #expect(failed == HookEvent.stop.outcome(payload: try payload(base), previous: previous, pid: 9, now: now))
+        let record = try #require(failed.record)
+        #expect(record.state == .idle)
+        #expect(record.turnStartedAt == nil)
+    }
+
+    /// `PostToolUse` fires only after a tool *succeeds*; without this a failed tool call stays
+    /// "Editing" until the next event.
+    @Test func postToolFailureGoesBackToThinkingLikePost() throws {
+        let previous = SessionRecord(state: .tool, label: "Editing", tool: "Edit", started: true,
+                                     turnStartedAt: now.addingTimeInterval(-30), updatedAt: now)
+        let failed = HookEvent.postfail.outcome(payload: try payload(base), previous: previous, pid: 9, now: now)
+        #expect(failed == HookEvent.post.outcome(payload: try payload(base), previous: previous, pid: 9, now: now))
+        let record = try #require(failed.record)
+        #expect(record.state == .thinking)
+        #expect(record.turnStartedAt == now.addingTimeInterval(-30))
+    }
+
+    /// `SessionStart` fires with source "compact" in the middle of a turn. Resetting there hid a
+    /// session that was still working.
+    @Test func compactionKeepsTheTurn() throws {
+        let previous = SessionRecord(state: .tool, label: "Editing", tool: "Edit", cwd: "/old",
+                                     transcript: "/t/old.jsonl", pid: 7, started: true,
+                                     turnStartedAt: now.addingTimeInterval(-90),
+                                     updatedAt: now.addingTimeInterval(-5))
+        let record = try #require(HookEvent.start.outcome(
+            payload: try payload(#"{"source": "compact", "cwd": "/new", "transcript_path": "/t/new.jsonl"}"#),
+            previous: previous, pid: 8, now: now).record)
+        #expect(record.state == .tool)
+        #expect(record.label == "Editing")
+        #expect(record.tool == "Edit")
+        #expect(record.started)
+        #expect(record.turnStartedAt == now.addingTimeInterval(-90))
+        #expect(record.cwd == "/new")
+        #expect(record.transcript == "/t/new.jsonl")
+        #expect(record.pid == 8)
+        #expect(record.updatedAt == now)
+    }
+
+    @Test(arguments: ["startup", "resume", "clear"])
+    func otherSessionStartsReset(_ source: String) throws {
+        let previous = SessionRecord(state: .tool, label: "Editing", tool: "Edit", started: true,
+                                     turnStartedAt: now.addingTimeInterval(-90), updatedAt: now)
+        let record = try #require(HookEvent.start.outcome(
+            payload: try payload(#"{"source": "\#(source)"}"#), previous: previous, pid: nil, now: now).record)
+        #expect(record.state == .idle)
+        #expect(record.started == false)
+        #expect(record.turnStartedAt == nil)
+    }
+
+    @Test func compactionWithNoPreviousIsAnUnstartedIdleSession() throws {
+        let record = try #require(HookEvent.start.outcome(
+            payload: try payload(#"{"source": "compact"}"#), previous: nil, pid: nil, now: now).record)
+        #expect(record.state == .idle)
+        #expect(record.started == false)
+        #expect(record.turnStartedAt == nil)
+    }
+
     @Test func hookNamesMatchClaudeCode() {
         #expect(HookEvent.allCases.map(\.hookName) == [
-            "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse",
-            "Notification", "PermissionRequest", "Stop", "SessionEnd",
+            "SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure",
+            "Notification", "PermissionRequest", "Stop", "StopFailure", "SessionEnd",
         ])
-        #expect(HookEvent.allCases.filter(\.needsMatcher) == [.pre, .post, .permreq])
+        #expect(HookEvent.allCases.filter(\.needsMatcher) == [.pre, .post, .postfail, .permreq])
     }
 }

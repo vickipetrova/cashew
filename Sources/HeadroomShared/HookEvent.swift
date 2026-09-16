@@ -6,9 +6,15 @@ public enum HookEvent: String, CaseIterable {
     case prompt
     case pre
     case post
+    /// "`PostToolUseFailure` | After a tool call fails" — `PostToolUse` fires only "After a tool call
+    /// succeeds" (Claude Code hooks reference), so a failed tool would otherwise stay on its label.
+    case postfail
     case notify
     case permreq
     case stop
+    /// "`StopFailure` | When the turn ends due to an API error" — `Stop` fires only "When Claude
+    /// finishes responding" (Claude Code hooks reference), so an errored turn would stay working.
+    case stopfail
     case end
 
     /// The event name in `~/.claude/settings.json`.
@@ -18,16 +24,18 @@ public enum HookEvent: String, CaseIterable {
         case .prompt: return "UserPromptSubmit"
         case .pre: return "PreToolUse"
         case .post: return "PostToolUse"
+        case .postfail: return "PostToolUseFailure"
         case .notify: return "Notification"
         case .permreq: return "PermissionRequest"
         case .stop: return "Stop"
+        case .stopfail: return "StopFailure"
         case .end: return "SessionEnd"
         }
     }
 
     /// Tool events take a `matcher`; the rest don't.
     public var needsMatcher: Bool {
-        self == .pre || self == .post || self == .permreq
+        self == .pre || self == .post || self == .postfail || self == .permreq
     }
 
     public enum Outcome: Equatable {
@@ -60,9 +68,19 @@ public enum HookEvent: String, CaseIterable {
 
         switch self {
         case .start:
-            // Also fires on resume, where no turn is running — so this clears rather than carries.
-            record.started = false
-            record.turnStartedAt = nil
+            if payload["source"] as? String == "compact", let previous {
+                // Compaction fires `SessionStart` in the middle of a turn that carries on afterwards.
+                // Resetting here hid a session that was still working.
+                record.state = previous.state
+                record.label = previous.label
+                record.tool = previous.tool
+                record.started = previous.started
+                record.turnStartedAt = previous.turnStartedAt
+            } else {
+                // Also fires on resume, where no turn is running — so this clears rather than carries.
+                record.started = false
+                record.turnStartedAt = nil
+            }
         case .prompt:
             record.state = .thinking
             record.label = SessionLabels.thinking
@@ -75,7 +93,7 @@ public enum HookEvent: String, CaseIterable {
             record.label = Self.label(forTool: tool)
             record.turnStartedAt = previous?.turnStartedAt ?? now
             record.started = true
-        case .post:
+        case .post, .postfail:
             record.state = .thinking
             record.label = SessionLabels.thinking
             record.turnStartedAt = previous?.turnStartedAt ?? now
@@ -89,7 +107,7 @@ public enum HookEvent: String, CaseIterable {
             record.state = .permission
             record.label = SessionLabels.permission
             record.started = true
-        case .stop:
+        case .stop, .stopfail:
             record.turnStartedAt = nil
             record.started = true
         case .end:
