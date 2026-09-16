@@ -10,7 +10,9 @@ import HeadroomShared
 /// `/plugin install`), so editing the user's settings is the only automatic route. Three things
 /// about it were checked against the docs: hooks added this way are not flagged or refused; they are
 /// read when a session *starts*, so already-open sessions don't see them; and a hook whose command no
-/// longer exists is skipped silently, so a deleted Headroom leaves harmless leftovers.
+/// longer exists is **not** skipped — the shell exits 127 and Claude Code shows a hook error notice.
+/// That last one is why `command(helperPath:event:)` checks the helper is there before running it,
+/// so a deleted Headroom's leftover hooks exit 0 and say nothing.
 struct HookInstaller {
     /// What makes a hook Headroom's. The bundle path, not just the helper's name, so a user's own
     /// `my-headroom-hook-script.sh` is never mistaken for one and removed.

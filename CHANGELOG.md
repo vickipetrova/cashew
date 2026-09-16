@@ -10,9 +10,13 @@ All notable changes to Headroom are documented here. The format follows
 
 - **Claude Code session activity.** The menu bar spark spins while a session is working and shows a
   dot when one is waiting for permission; the dropdown lists live sessions with project, branch,
-  current step and elapsed time. Headroom installs its own hooks into `~/.claude/settings.json`
-  (nothing else in the file is touched, the original is backed up once) and removes them when the
-  setting is turned off. An Esc-interrupted turn is detected from the transcript, since Claude Code
+  current step and elapsed time. Headroom installs its own hooks for ten Claude Code events
+  (including `StopFailure` and `PostToolUseFailure`, so an errored turn or a failed tool doesn't
+  stay "working") into `~/.claude/settings.json` — only when running from `/Applications` or
+  `~/Applications`, never over a read-only file, nothing else in the file touched, the original
+  backed up once — and removes them when the setting is turned off. Each hook command checks the
+  helper exists before running it, so a deleted Headroom's leftover hooks exit quietly instead of
+  showing hook errors. Compaction mid-turn keeps the session's state. An Esc-interrupted turn is detected from the transcript, since Claude Code
   fires no hook for it. Inspired by claude-status-bar.
 - **Update checks.** Once a day Headroom asks GitHub for the latest release and offers a menu item
   when a newer one exists. No identifiers are sent and nothing is downloaded; it can be turned off.

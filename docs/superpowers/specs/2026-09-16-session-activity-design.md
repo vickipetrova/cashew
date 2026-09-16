@@ -35,7 +35,7 @@ Two hard rules in `CLAUDE.md` change deliberately, for usability:
   `api.github.com` for a once-a-day update check the user can turn off. No analytics, no
   identifiers.*
 - **New rule:** *Headroom edits `~/.claude/settings.json` only to add or remove its own hooks —
-  commands containing `headroom-hook` — and never touches any other key, other hooks, or the
+  commands that run the bundled `Contents/Helpers/headroom-hook` — and never touches any other key, other hooks, or the
   statusline.*
 
 The `StatuslineFeed` doc comment ("Headroom never edits `~/.claude/settings.json`") is corrected to
@@ -67,17 +67,20 @@ not load AppKit/SwiftUI. Still zero third-party dependencies; `swiftLanguageMode
 
 ## Component 1: `headroom-hook`
 
-Invoked as `'<app>/Contents/Helpers/headroom-hook' <event>` where event is one of:
+Invoked as `[ -x '<helper>' ] || exit 0; exec '<helper>' <event>`, where `<helper>` is
+`<app>/Contents/Helpers/headroom-hook` and event is one of:
 
 | Event arg | Claude Code hook | Resulting state |
 |---|---|---|
-| `start` | SessionStart | `idle`, `started: false` (seeds the file; not shown until real activity) |
+| `start` | SessionStart | `idle`, `started: false` (seeds the file; not shown until real activity). **Except** `source: "compact"` with a previous file: compaction fires mid-turn, so state, label, tool, `started` and turn start carry over |
 | `prompt` | UserPromptSubmit | `thinking`, turn start = now |
 | `pre` | PreToolUse (`matcher: "*"`) | `tool` with a label from `tool_name` (`Editing`, `Reading`, `Running command`, `Searching`, …, default `Using tool`) |
 | `post` | PostToolUse (`matcher: "*"`) | `thinking` |
+| `postfail` | PostToolUseFailure (`matcher: "*"`) | `thinking`, as `post` — `PostToolUse` fires only after a tool call succeeds |
 | `notify` | Notification | `permission` **only** if `notification_type == "permission_prompt"` or the message mentions permission/approve/allow; otherwise no write |
 | `permreq` | PermissionRequest (`matcher: "*"`) | `permission` |
 | `stop` | Stop | `idle`, turn start cleared |
+| `stopfail` | StopFailure | `idle`, as `stop` — `Stop` does not fire when the turn ends on an API error |
 | `end` | SessionEnd | file deleted |
 
 Behaviour:
@@ -91,11 +94,13 @@ Behaviour:
 - Atomic write: temp file in the same directory, then `rename`. Creates the directory if needed.
 - Always exits 0, prints nothing — a hook must never disturb a session.
 
-**Parent process.** Verified on Claude Code 2.1.273: when the hook command is a single bare
-command, the helper's parent is Claude Code's own process, stable across events in a session. A shell
-wrapper (`PATH=… cmd`, `a && b`) could interpose a short-lived shell, so:
+**Parent process.** Verified on Claude Code 2.1.273: when the hook command runs the helper
+directly, the helper's parent is Claude Code's own process, stable across events in a session. A shell
+wrapper that doesn't `exec` (`PATH=… cmd`, `a && b`) could interpose a short-lived shell, so:
 
-- The installer writes the command as exactly `'<path>' <event>` — nothing else.
+- The installer writes the command as exactly `[ -x '<path>' ] || exit 0; exec '<path>' <event>`.
+  `exec` replaces the shell, so the parent is still Claude Code; the guard makes a missing helper
+  exit 0 with no output (see Component 2).
 - The helper takes its parent unless that parent is a shell (`sh`, `bash`, `zsh`, `dash`, `fish`,
   `ksh`, `tcsh`, `csh`), in which case it walks up (bounded, 5 levels) to the first non-shell.
   Matching on the name `claude` does not work: measured, a native install's executable is named
@@ -107,19 +112,24 @@ wrapper (`PATH=… cmd`, `a && b`) could interpose a short-lived shell, so:
 Runs at launch, and when the setting is toggled.
 
 1. If `~/.claude/` does not exist → do nothing (status: Claude Code not found).
-2. If the app is running from an App Translocation path or under `/Volumes/` → do nothing
-   (status: *Move Headroom to Applications*). The path would not survive.
+2. When enabling: if the helper is not under `/Applications/` or `~/Applications/` → do nothing
+   (status: *Move Headroom to Applications to turn this on*). A DMG, a translocated copy, Downloads
+   or a build folder would not survive. A translocated path is refused always; any other location is
+   allowed only with the developer default `allowHooksOutsideApplications` (off by default).
 3. Read `~/.claude/settings.json` (a missing file is `{}`). If it does not parse as a JSON object →
-   **do not touch it** (status: *Couldn't read Claude Code settings*).
+   **do not touch it** (status: *Couldn't read Claude Code's settings.json*).
 4. Pure merge, `HookInstaller.merged(settings:helperPath:enabled:) -> [String: Any]`:
-   - In each hook event array, remove every hook whose `command` contains `headroom-hook`; drop
+   - In each hook event array, remove every hook whose `command` contains
+     `/Contents/Helpers/headroom-hook` (not the bare name, so a user's `my-headroom-hook-script.sh`
+     survives); drop
      entries left with no hooks; drop event keys left empty **only if we emptied them**.
-   - If enabled, append our entry for each of the eight events.
+   - If enabled, append our entry for each of the ten events.
    - Every other key, event and hook is preserved as-is.
 5. If the merged object equals the current one → **no write**. A normal launch never touches the
    file.
 6. Otherwise: re-read the file and abort if its modification date changed since step 3 (Claude Code
-   wrote it meanwhile; retry next launch). On the first write ever, copy it to
+   wrote it meanwhile; retry next launch). If the file exists but is not writable → do not write or
+   back up (status: *Couldn't update Claude Code's settings.json*). On the first write ever, copy it to
    `settings.json.bak-headroom` (never overwritten). Write pretty-printed, sorted keys, without
    escaping slashes, to a temp file and rename over the original, preserving its permissions.
 
@@ -132,9 +142,10 @@ as `limits` in the usage response: one unexpected entry must not discard the arr
 **Hooks load at session start** (Claude Code docs). Sessions already open when hooks are first
 installed do not appear until restarted; the status says so after a first install.
 
-A missing or non-executable hook command is skipped silently by Claude Code (docs), so deleting
-Headroom without turning the setting off leaves harmless dead hooks. The README's uninstall section
-says to turn it off first.
+A missing or non-executable hook command is **not** skipped by Claude Code: the shell exits 127 and
+the session shows a hook error notice (hooks reference). The `[ -x … ] || exit 0` guard is what
+makes the leftovers of a Headroom deleted without turning the setting off exit 0 with no output. The
+README's uninstall section still says to turn it off first, so the entries are removed.
 
 ### Setting
 
@@ -142,11 +153,16 @@ says to turn it off first.
 
 | Status | Label |
 |---|---|
-| installed, sessions seen | `On · 2 sessions` |
+| installed, sessions seen | `On · 1 session`, `On · 2 sessions` |
+| installed, none seen | `On · no active sessions` |
 | installed, just now | `On · new Claude Code sessions will appear` |
+| before the first apply | `Starting…` |
 | off | `Off` |
-| unparseable settings | `Couldn't read Claude Code settings` |
-| translocated / DMG | `Move Headroom to Applications` |
+| off, removal failed | `Off · couldn't remove hooks from settings.json` |
+| unparseable settings | `Couldn't read Claude Code's settings.json` |
+| changed meanwhile / not writable / write error | `Couldn't update Claude Code's settings.json` |
+| not in an Applications folder | `Move Headroom to Applications to turn this on` |
+| helper missing from the bundle | `Headroom is incomplete — reinstall it` |
 | no `~/.claude` | `Claude Code not found` |
 
 ## Component 3: `SessionActivity`
@@ -164,8 +180,8 @@ Pipeline:
 2. **Hide unstarted** sessions (`started: false`).
 3. **Liveness:** if `pid` is present, `kill(pid, 0)` failing with `ESRCH` → the session is gone;
    the file is deleted (it is Headroom's own directory). The check is injected for tests. Without a
-   `pid`: a non-idle state older than 2 hours is treated as `idle`, and any file untouched for 24
-   hours is ignored.
+   `pid`: a non-idle state older than 2 hours is treated as `idle`. Any file untouched for 24 hours
+   is deleted, with or without a `pid`.
 4. **Interrupt detection** for `thinking`/`tool` sessions — `Stop` does not fire on Esc (docs):
    read the last 64 KB of the transcript, parse lines from the end, **skip every entry whose `type`
    is not `user` or `assistant`**, and if the last conversational entry is a `user` message whose
@@ -177,7 +193,8 @@ Pipeline:
    `gitdir:` (worktrees). `ref: refs/heads/x` → `x`; a bare SHA → first 7 chars. No `git` process.
    Cached by `HEAD`'s modification date.
 6. **Project name:** `basename(cwd)`; when two live sessions share it, `parent/name`.
-7. **Order:** permission, tool, thinking, idle; then most recently updated.
+7. **Order:** permission, tool, thinking, idle; then most recently updated; then `id`, so full
+   ties don't swap places between refreshes.
 
 `aggregate` returns the highest-priority state across sessions, for the title.
 
@@ -185,8 +202,11 @@ Pipeline:
 
 - A `DispatchSource` file-system object source on the sessions directory (`.write`), debounced
   ~100 ms, calls into `AppDelegate`, which hands sessions to `MenuController`.
-- A 0.25 s timer runs **only** while some session is `thinking`, `tool` or `permission` — it drives
-  the title animation and elapsed times — and is invalidated when all are idle. Scheduled in
+- A 0.25 s timer runs **only** while some session is `thinking` or `tool` — it drives the spinning
+  spark and re-reads sessions every second — and is invalidated otherwise. A session only awaiting
+  permission draws a still dot, so it doesn't run the timer; the directory watch and the 60 s tick
+  keep it current. Stopping needs no extra render: handing the sessions to the menu re-renders the
+  title at rest. Scheduled in
   `.common` mode, like the existing timers.
 - The existing 60 s tick also re-reads sessions, so a killed process disappears even when nothing
   writes.
@@ -269,7 +289,7 @@ terminal, toggle the setting off and confirm the hooks are gone.
 ## Documentation
 
 `CLAUDE.md`: rule changes above, architecture table rows for `HeadroomShared`, `headroom-hook`,
-`HookInstaller.swift`, `SessionActivity.swift`, `UpdateCheck.swift`, and the measured traps (bare
-hook command / parent process; interrupt marker not on the last line; hooks load at session start).
+`HookInstaller.swift`, `SessionActivity.swift`, `UpdateCheck.swift`, and the measured traps (guarded
+`exec` hook command / parent process; missing command shows a hook error; compaction; interrupt marker not on the last line; hooks load at session start).
 `README.md`: session tracking section, update check, uninstall note, acknowledgement of
 claude-status-bar. `SECURITY.md`, `CHANGELOG.md` as above.

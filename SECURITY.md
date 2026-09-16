@@ -84,14 +84,19 @@ than that, it stores what you told it to; Headroom reads only `rate_limits` eith
 
 In `~/Library/Application Support/com.vickipetrova.headroom/sessions/`, one small file per live
 Claude Code session: its state, folder, transcript path, the tool *name* in use and the Claude Code
-process id. Never prompt text, tool input or output. Deleted when the session ends.
+process id. Never prompt text, tool input or output. Deleted when the session ends, or after a day
+untouched.
 
-In `~/.claude/settings.json`, Headroom's own hook entries (commands ending in `headroom-hook`), with a
-one-time backup of the original at `~/.claude/settings.json.bak-headroom`.
+In `~/.claude/settings.json`, Headroom's own hook entries for ten events (`SessionStart`,
+`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`,
+`PermissionRequest`, `Stop`, `StopFailure`, `SessionEnd`) — commands that run Headroom's bundled
+`Contents/Helpers/headroom-hook` — with a one-time backup of the original at
+`~/.claude/settings.json.bak-headroom`.
 
 That is everything. No token, nothing derived from a token, no account identifier, no request or
-response bodies, and nothing that says what you were working on — only how full each quota was and
-when. Delete them whenever you like; Headroom starts fresh and the forecast reappears once there are
+response bodies, and no prompt text, tool input or tool output. The usage files say only how full
+each quota was and when; the session files do say *where* you were working — the project folder and
+the transcript's path — and which tool was running, but not what the conversation contained. Delete them whenever you like; Headroom starts fresh and the forecast reappears once there are
 samples to draw a line through.
 
 ## Reporting a problem

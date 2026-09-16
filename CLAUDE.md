@@ -90,7 +90,7 @@ what makes adding a second provider one new file, so don't put Claude-specific s
 5. **Two network destinations:** `api.anthropic.com` for usage, and `api.github.com` for a
    once-a-day update check the user can turn off. No analytics, no identifiers, no downloads.
 6. **Headroom edits `~/.claude/settings.json` only to add or remove its own hooks** — entries whose
-   command contains `headroom-hook`. Never another key, never another tool's hook, never
+   command runs the bundled `Contents/Helpers/headroom-hook`. Never another key, never another tool's hook, never
    `statusLine`. It never writes a file it could not parse, never replaces a symlink, writes only
    when something changed, and backs the original up once to `settings.json.bak-headroom`.
 
@@ -254,14 +254,19 @@ thread.
 
 ## Claude Code sessions
 
-`HookInstaller` registers `headroom-hook` for eight events; the helper writes
+`HookInstaller` registers `headroom-hook` for ten events — `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `Stop`,
+`StopFailure`, `SessionEnd`; the helper writes
 `~/Library/Application Support/com.vickipetrova.headroom/sessions/<id>.json`; `SessionActivity`
 reads the folder. Traps, each measured and each with a test:
 
-- **The hook command must be one bare command.** With `'<path>' <event>`, the helper's parent process
-  *is* Claude Code (verified on 2.1.273), which is what the liveness check keys on. A wrapper like
-  `PATH=… cmd` or `a && b` can put a short-lived shell in between, and every session would look dead
-  a second later. `SessionOwner` therefore skips shells. It cannot match on the name `claude`: a
+- **The hook command must be one command that `exec`s the helper:**
+  `[ -x '<path>' ] || exit 0; exec '<path>' <event>`. Run directly, the helper's parent process *is*
+  Claude Code (verified on 2.1.273), which is what the liveness check keys on; `exec` replaces the
+  shell the guard runs in, so that still holds. A wrapper that doesn't `exec` — `PATH=… cmd`,
+  `a && b` — can leave a short-lived shell in between, and every session would look dead a second
+  later. `SessionOwner` therefore skips shells, as a backstop. The guard is the other half: see the
+  missing-command trap below. It cannot match on the name `claude`: a
   native install's executable is named after its version (`…/claude/versions/2.1.273`), and an npm
   install runs as `node`.
 - **`Stop` does not fire on Esc.** An interrupted turn is detected from the transcript, where it is
@@ -272,8 +277,26 @@ reads the folder. Traps, each measured and each with a test:
   fires before the prompt reaches the transcript.
 - **Hooks load when a session starts.** Sessions open at first install don't appear until
   restarted; the Settings status says so.
-- **A missing hook command is skipped silently by Claude Code**, so a deleted Headroom leaves
-  harmless dead hooks rather than broken sessions.
+- **A missing hook command is not skipped.** Claude Code runs it anyway, the shell exits 127, and
+  the session shows a hook error notice (Claude Code hooks reference) — on every event, for anyone
+  who deleted or moved Headroom without turning tracking off. Hence the `[ -x … ] || exit 0` guard:
+  leftover hooks exit 0 and print nothing. A test runs the command through `/bin/sh -c` with a
+  nonexistent path. Existing installs pick the guarded command up on the next launch, because the
+  old entry is stripped by its marker and the new one appended.
+- **`Stop` and `PostToolUse` fire only on success.** A turn that ends on an API error fires
+  `StopFailure`, and a failed tool call fires `PostToolUseFailure`; without them a session stayed
+  "working" or on a tool's label until something else happened. They map exactly like `Stop` and
+  `PostToolUse`.
+- **`SessionStart` also fires on compaction, mid-turn,** with `source: "compact"`. Resetting the
+  session there hid one that was still working, so a compact carries the previous state, label,
+  tool and turn start; `startup`, `resume` and `clear` still reset.
+- **Only a command containing `/Contents/Helpers/headroom-hook` is Headroom's.** Matching the bare
+  name would remove a user's own `my-headroom-hook-script.sh` along with ours.
+- **Hooks install only from `/Applications` or `~/Applications`.** Anywhere else — a DMG, a
+  translocated copy, Downloads, `build/` — the path goes away and the hooks would point at nothing.
+- **A read-only `settings.json` is reported, not overwritten.** The write is atomic, which replaces
+  the file through its directory and would succeed over a file the user locked; `apply` checks
+  `isWritableFile` first and returns `.writeFailed` without taking a backup.
 - **Moving an existing hook to the end would fight other tools.** `HookInstaller.merged` leaves a
   current hook where it is; re-appending it made two tools that both append rewrite the file forever.
 - **Transcript tails use the throwing `FileHandle` APIs** (`FileHandle(forReadingFrom:)`,
@@ -355,7 +378,14 @@ osascript -e 'tell application "System Events" to tell process "Headroom" \
 
 For error states that the unit tests can't reach (the real 401 path, a dead network with stale data
 on screen), copy `Sources/` to a scratch directory, patch the copy, and build a throwaway bundle from
-it. **Never delete or rename the `Claude Code-credentials` Keychain item** — that is Claude Code's
+it.
+
+**A dev bundle doesn't install hooks** — `build/Headroom.app` isn't in an Applications folder, so
+session tracking reports "Move Headroom to Applications" — unless you opt in with
+`defaults write com.vickipetrova.headroom allowHooksOutsideApplications -bool true`. Doing so
+rewrites the real `~/.claude/settings.json` to point at the dev bundle. Before deleting that build,
+turn Track Claude Code Sessions off, or unset the default and relaunch the `/Applications` copy so
+it points the hooks back at itself. **Never delete or rename the `Claude Code-credentials` Keychain item** — that is Claude Code's
 live login, not test data.
 
 ## Releasing

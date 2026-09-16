@@ -2,8 +2,9 @@ import Foundation
 
 /// Which process owns this session, for the app's liveness check.
 ///
-/// The helper's parent is Claude Code when the hook command is a single bare command — verified on
-/// 2.1.273, stable across events in one session. Matching Claude Code by *name* does not work: a
+/// The helper's parent is Claude Code when the hook command runs it directly or `exec`s it — verified
+/// on 2.1.273 for a direct command, stable across events in one session; `exec` replaces the shell,
+/// so the parent is the same. Matching Claude Code by *name* does not work: a
 /// native install's executable is `~/.local/share/claude/versions/<version>`, and an npm install
 /// runs as `node`. What can be recognised reliably is a shell, which is the one thing that should
 /// never be taken as the owner — it exits with the hook, and every session would look dead a second
