@@ -183,14 +183,17 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshSessions() {
         let sessions = Settings.trackSessions ? sessionActivity.sessions() : []
+        // Also re-renders the title, so when the timer stops below the spark is already drawn at rest.
         menuController.update(sessions: sessions)
-        let active = sessions.contains { $0.state != .idle }
-        if active, animationTimer == nil {
+        // The fast timer is for the spinning spark, so only a working session runs it. A session
+        // waiting on permission draws a still dot and is picked up by the directory watcher and the
+        // 60-second tick like an idle one — no reason to wake four times a second for it.
+        let working = sessions.contains { $0.state == .thinking || $0.state == .tool }
+        if working, animationTimer == nil {
             animationTimer = schedule(every: 0.25) { [weak self] in self?.animationTick() }
-        } else if !active, let timer = animationTimer {
+        } else if !working, let timer = animationTimer {
             timer.invalidate()
             animationTimer = nil
-            menuController.advanceAnimation()  // Re-render the title at rest.
         }
     }
 
