@@ -96,10 +96,11 @@ command, the helper's parent is the `claude` process, stable across events in a 
 wrapper (`PATH=… cmd`, `a && b`) could interpose a short-lived shell, so:
 
 - The installer writes the command as exactly `'<path>' <event>` — nothing else.
-- The helper checks its parent's executable name. If it is not `claude`, it walks up the process
-  tree (bounded, ~5 levels) for one that is. If none is found it omits `pid`, and the reader falls
-  back to the age cap instead of the liveness check. This also covers the Desktop app, which was not
-  tested.
+- The helper takes its parent unless that parent is a shell (`sh`, `bash`, `zsh`, `dash`, `fish`,
+  `ksh`, `tcsh`, `csh`), in which case it walks up (bounded, 5 levels) to the first non-shell.
+  Matching on the name `claude` does not work: measured, a native install's executable is named
+  after its version (`…/claude/versions/2.1.273`), and an npm install runs as `node`. If no
+  non-shell is found it omits `pid`, and the reader falls back to the age cap.
 
 ## Component 2: `HookInstaller`
 
