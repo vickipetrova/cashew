@@ -127,6 +127,85 @@ import Testing
         let feed = StatuslineFeed(directory: scratch(), seed: real, now: now, age: -3_600)
         #expect(feed.read(now: now) == nil)
     }
+
+    // MARK: - Status
+
+    @Test func statusWithNoFileIsNotSetUp() {
+        #expect(StatuslineFeed(directory: scratch()).status(now: now) == .notSetUp)
+    }
+
+    @Test func statusOfAFreshReadingIsLive() {
+        let feed = StatuslineFeed(directory: scratch(), seed: real, now: now, age: 120)
+        #expect(feed.status(now: now) == .live(since: now.addingTimeInterval(-120)))
+        #expect(feed.status(now: now).label(now: now) == "On · updated 2m ago")
+    }
+
+    @Test func statusOfAStaleReadingIsIdleNotBroken() {
+        let feed = StatuslineFeed(directory: scratch(), seed: real, now: now, age: 3 * 3_600)
+        #expect(feed.status(now: now) == .idle(since: now.addingTimeInterval(-3 * 3_600)))
+        #expect(feed.status(now: now).label(now: now) == "On · last reading 3h ago")
+    }
+
+    /// "last reading just now" would be a lie — `Fmt.age` reads a future date as now.
+    @Test func aFutureDatedFileIsIdleWithoutAnAge() {
+        let feed = StatuslineFeed(directory: scratch(), seed: real, now: now, age: -3_600)
+        #expect(feed.status(now: now).label(now: now) == "On · waiting for Claude Code")
+    }
+
+    /// Exactly what a missing `jq` leaves behind: the shell creates the file for the redirect, then
+    /// the command fails, so it is rewritten empty on every render and always looks fresh.
+    @Test func anEmptyFreshFileIsUnreadable() {
+        let feed = StatuslineFeed(directory: scratch(), seed: "", now: now)
+        #expect(feed.status(now: now) == .unreadable)
+        #expect(feed.read(now: now) == nil)
+    }
+
+    /// `jq -c '{rate_limits}'` on a payload without the key writes `{"rate_limits":null}`.
+    @Test func freshJSONWithoutLimitsIsNoLimits() {
+        let feed = StatuslineFeed(directory: scratch(), seed: #"{"rate_limits":null}"#, now: now)
+        #expect(feed.status(now: now) == .noLimits)
+        #expect(feed.read(now: now) == nil)
+    }
+
+    /// Staleness wins over content: an empty file from yesterday is Claude Code being closed, not
+    /// a broken setup, and shouldn't send the user looking for `jq`.
+    @Test func aStaleEmptyFileIsIdle() {
+        let feed = StatuslineFeed(directory: scratch(), seed: "", now: now, age: 86_400)
+        #expect(feed.status(now: now) == .idle(since: now.addingTimeInterval(-86_400)))
+    }
+
+    /// Setup is offered only where it could help. A standing "copy this" under a feature that is
+    /// already working is what made the command look unexplained.
+    @Test func setupIsOfferedOnlyWhenReadingsAreNotArriving() {
+        #expect(StatuslineFeed.Status.notSetUp.offersSetup)
+        #expect(StatuslineFeed.Status.unreadable.offersSetup)
+        #expect(!StatuslineFeed.Status.live(since: now).offersSetup)
+        #expect(!StatuslineFeed.Status.idle(since: now).offersSetup)
+        #expect(!StatuslineFeed.Status.noLimits.offersSetup)
+    }
+
+    // MARK: - Setup copy
+
+    /// The menu's Copy Setup Snippet and the README must hand out the same command. Two copies that
+    /// drifted would leave one of them quietly writing a file Headroom doesn't read.
+    @Test func theReadmeQuotesTheSetupCommandVerbatim() throws {
+        let readme = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("README.md")
+        let text = try String(contentsOf: readme, encoding: .utf8)
+        #expect(text.contains(StatuslineFeed.setupCommand))
+        #expect(StatuslineFeed.setupSnippet.contains(StatuslineFeed.setupCommand))
+    }
+
+    /// The link in the copied snippet lands on the README heading, which GitHub derives from its text.
+    @Test func theSnippetLinksToAHeadingThatExists() throws {
+        let readme = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("README.md")
+        let text = try String(contentsOf: readme, encoding: .utf8)
+        #expect(StatuslineFeed.setupSnippet.contains("#live-usage-from-claude-code"))
+        #expect(text.contains("\n## Live usage from Claude Code\n"))
+    }
 }
 
 /// Combining a live statusline reading with the last poll.

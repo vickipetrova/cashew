@@ -41,6 +41,10 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// succeeded — the menu is handed windows either way.
     private let history: UsageHistory
 
+    /// Read only for its status. `AppDelegate` merges the readings; the menu just says whether they
+    /// are arriving, since nothing else would tell a user their setup line isn't working.
+    private let statusline: StatuslineFeed
+
     /// A row that can be rewritten in place while the menu sits open, so a menu held across a tick
     /// or a poll stays honest without being rebuilt underneath the user.
     ///
@@ -57,8 +61,9 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Rebuilt with the menu, and cleared before it — these closures retain their views.
     private var liveRows: [LiveRow] = []
 
-    init(history: UsageHistory = .default) {
+    init(history: UsageHistory = .default, statusline: StatuslineFeed = .default) {
         self.history = history
+        self.statusline = statusline
         // Start from the last good reading rather than from nothing. A launch whose first poll fails
         // — an expired token, no network, or the endpoint rate-limiting us — otherwise shows an error
         // over an empty panel, even though the numbers from an hour ago were both known and still
@@ -330,6 +335,20 @@ final class MenuController: NSObject, NSMenuDelegate {
             submenu.addItem(item)
         }
 
+        // A status line and a way in. The opt-in is a line in the user's own statusline script, which
+        // Headroom deliberately never edits — so the menu's job is to make it findable and to say
+        // whether it's working. Read fresh on every open, like the checkmarks above.
+        submenu.addItem(.separator())
+        submenu.addItem(header(StatuslineFeed.menuHeading))
+        let status = statusline.status()
+        let statusItem = NSMenuItem(title: status.label(), action: nil, keyEquivalent: "")
+        statusItem.isEnabled = false
+        submenu.addItem(statusItem)
+        if status.offersSetup {
+            submenu.addItem(action(StatuslineFeed.setupMenuTitle,
+                                   key: "", selector: #selector(showLiveSetup)))
+        }
+
         submenu.addItem(.separator())
         let launch = action("Launch at Login", key: "", selector: #selector(toggleLaunchAtLogin))
         launch.state = Settings.launchAtLogin ? .on : .off
@@ -369,6 +388,31 @@ final class MenuController: NSObject, NSMenuDelegate {
         // applies to a colour, and calling it would spend a request on the usage endpoint and reset
         // the poll phase every time someone toggled a swatch.
         renderTitle()
+    }
+
+    /// A dialog rather than a bare copy command. Copying silently from a menu gave no sign anything
+    /// happened and no hint what the clipboard now held or where it went; the dialog explains, shows
+    /// the line itself, and copies only when asked.
+    @objc private func showLiveSetup() {
+        let alert = NSAlert()
+        alert.messageText = StatuslineFeed.setupDialogTitle
+        alert.informativeText = StatuslineFeed.setupDialogMessage
+        alert.addButton(withTitle: StatuslineFeed.setupCopyButton)
+        alert.addButton(withTitle: "Cancel")
+
+        let snippet = NSTextField(wrappingLabelWithString: StatuslineFeed.setupCommand)
+        snippet.font = .monospacedSystemFont(ofSize: 10, weight: .regular)
+        snippet.isSelectable = true
+        snippet.preferredMaxLayoutWidth = 460
+        snippet.frame.size = snippet.fittingSize
+        alert.accessoryView = snippet
+
+        // An accessory app has no window to bring forward, so without this the dialog opens behind
+        // whatever app was frontmost when the menu was clicked.
+        NSApp.activate(ignoringOtherApps: true)
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(StatuslineFeed.setupSnippet, forType: .string)
     }
 
     @objc private func toggleLaunchAtLogin() {

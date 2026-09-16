@@ -93,6 +93,7 @@ Everything lives in the dropdown under **Settings**:
 | Notify above | Off / 50% / 80% / 90% | 80% |
 | Show in Menu Bar | any combination of the limits your plan reports | Session + Weekly |
 | Colors | Alerts only / System | Alerts only |
+| Live from Claude Code | on / off status, and setup when it's off — see [below](#live-usage-from-claude-code) | off |
 | Launch at Login | on / off | off |
 
 **Show in Menu Bar** picks which numbers appear in the title. The list is built from whatever the
@@ -113,7 +114,9 @@ macOS asks for notification permission the first time Headroom runs with alerts 
 decline — or later switch Headroom off in System Settings › Notifications — the menu says
 *"Alerts blocked — open Notification settings"* rather than silently never alerting you.
 
-## Optional: let Claude Code do the talking
+## Live usage from Claude Code
+
+Optional, and off until you add one line.
 
 Claude Code already knows your plan usage — it hands `rate_limits.five_hour` and
 `rate_limits.seven_day` to whatever statusline command you've configured, every time it renders,
@@ -122,20 +125,67 @@ numbers become live instead of up to fifteen minutes old**, updating as you work
 timer.
 
 Headroom will **not** edit `~/.claude/settings.json`. Your statusline is yours, and quietly replacing
-it to install a helper would be a bad trade for a menu bar app. Opting in is one line you add to your
-own script, right after it reads stdin:
+it to install a helper would be a bad trade for a menu bar app. So opting in is something you do, in
+one of two ways depending on whether you already have a statusline.
+
+### You already have a statusline script
+
+Add this right after the line that reads stdin (usually `input=$(cat)`). **Settings › Set Up Live
+Updates…** shows the same line with a button to copy it:
 
 ```bash
-input=$(cat)
-
 { mkdir -p "$HOME/Library/Application Support/com.vickipetrova.headroom" \
   && printf '%s' "$input" | jq -c '{rate_limits}' \
      > "$HOME/Library/Application Support/com.vickipetrova.headroom/statusline.json"; } 2>/dev/null || true
 ```
 
+If your script stores stdin under a different name than `input`, change `$input` to match.
+
+### You don't have one yet
+
+Most people don't. Save this as `~/.claude/headroom-statusline.sh` — it shows the model and the
+current folder, and hands the usage numbers to Headroom:
+
+```bash
+#!/bin/bash
+input=$(cat)
+
+{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.headroom" \
+  && printf '%s' "$input" | jq -c '{rate_limits}' \
+     > "$HOME/Library/Application Support/com.vickipetrova.headroom/statusline.json"; } 2>/dev/null || true
+
+printf '%s' "$input" | jq -r '"\(.model.display_name // "Claude") · \(.workspace.current_dir // "" | split("/") | last // "")"'
+```
+
+Then point Claude Code at it by adding this to `~/.claude/settings.json` (merge it into the existing
+object if the file already has settings in it):
+
+```json
+{
+  "statusLine": {
+    "type": "command",
+    "command": "bash ~/.claude/headroom-statusline.sh"
+  }
+}
+```
+
+The statusline appears the next time Claude Code renders one — send a message in any session.
+
+### Checking it works
+
+**Settings › Live from Claude Code** shows what Headroom sees:
+
+| Status | Meaning |
+|---|---|
+| On · updated 1m ago | Working. |
+| On · last reading 3h ago | Set up, but Claude Code hasn't rendered a statusline in the last five minutes — normal when it's closed. Headroom falls back to polling. |
+| Off | No reading has ever arrived. The line isn't in your script, or the script isn't the one in `settings.json`. |
+| Not working — is jq installed? | The script runs but writes nothing. The snippet needs `jq`, which macOS 15 and later include; on macOS 13 or 14, `brew install jq`. |
+| On · no plan limits reported | Readings arrive but carry no usage — an account without plan limits, or a session that hasn't made a request yet. |
+
 Only `rate_limits` is written — not the working directory, session id, transcript path or cost that
-the rest of the payload carries. Every failure is swallowed, so a missing `jq` or a full disk costs
-you nothing but the shortcut. Delete the line to opt out.
+the rest of the payload carries. Every failure is swallowed, so a broken snippet can never break your
+statusline, which is also why the status above exists. Delete the line to opt out.
 
 **It supplements polling rather than replacing it.** The statusline payload has no per-model
 breakdown, so a `WEEKLY · OPUS` row can only come from the API — and an earlier version of this that
@@ -185,7 +235,6 @@ Deliberately small for v0.1. Not planned by me, but very welcome as contribution
 
 - A historical sparkline of the session window — [#2](../../issues/2)
 - Graceful mode for non-Pro/Max accounts — [#5](../../issues/5)
-- Reading usage from Claude Code's statusline stdin instead of polling — [#6](../../issues/6)
 - Additional providers — Cursor, Codex, Copilot — behind the existing `UsageProvider` protocol — [#1](../../issues/1)
 - Multiple accounts in one menu — [#12](../../issues/12)
 

@@ -14,7 +14,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let provider: UsageProvider = ClaudeProvider()
     private let history = UsageHistory.default
     private let statusline = StatuslineFeed.default
-    private lazy var menuController = MenuController(history: history)
+    private lazy var menuController = MenuController(history: history, statusline: statusline)
 
     private var pollTimer: Timer?
     private var tickTimer: Timer?
