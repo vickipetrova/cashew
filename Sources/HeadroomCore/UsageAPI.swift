@@ -151,9 +151,10 @@ struct ClaudeProvider: UsageProvider {
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     /// Refuses every redirect, so the bearer token can only ever be sent to the one host in
-    /// `endpoint`. SECURITY.md promises exactly one network destination; without this that promise
-    /// rests on CFNetwork's uncontracted behaviour for `Authorization` across a cross-host hop, for
-    /// an endpoint we already expect to drift. A 3xx now surfaces as an ordinary `UsageError.http`.
+    /// `endpoint`. SECURITY.md promises the token goes to exactly one destination; without this that
+    /// promise rests on CFNetwork's uncontracted behaviour for `Authorization` across a cross-host
+    /// hop, for an endpoint we already expect to drift. A 3xx now surfaces as an ordinary
+    /// `UsageError.http`.
     private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
         func urlSession(_ session: URLSession, task: URLSessionTask,
                         willPerformHTTPRedirection response: HTTPURLResponse,

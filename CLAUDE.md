@@ -43,7 +43,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/HeadroomCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/HeadroomCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
 | `Sources/HeadroomCore/UsageHistory.swift` | Everything Headroom writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
-| `Sources/HeadroomCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — Headroom never writes the file or touches `~/.claude/`. Also owns the setup snippet and the status shown in Settings; the README quotes the snippet and a test holds the two together |
+| `Sources/HeadroomCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — the feed never writes the file or touches `~/.claude/`; hook installation is `HookInstaller`'s, and only for its own hooks. Also owns the setup snippet and the status shown in Settings; the README quotes the snippet and a test holds the two together |
 | `Sources/HeadroomCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
 | `Sources/HeadroomCore/HookInstaller.swift` | Adds/removes Headroom's hooks in `~/.claude/settings.json` and nothing else |
 | `Sources/HeadroomCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |
