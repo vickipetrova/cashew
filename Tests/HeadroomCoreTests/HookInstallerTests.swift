@@ -34,7 +34,8 @@ import Testing
     @Test func installsEveryEventIntoEmptySettings() {
         let merged = HookInstaller.merged([:], helperPath: helper)
         for event in HookEvent.allCases {
-            #expect(commands(merged, event.hookName) == ["'\(helper)' \(event.rawValue)"])
+            #expect(commands(merged, event.hookName)
+                    == ["[ -x '\(helper)' ] || exit 0; exec '\(helper)' \(event.rawValue)"])
             let entry = entries(merged, event.hookName).first as? [String: Any]
             #expect((entry?["matcher"] as? String) == (event.needsMatcher ? "*" : nil))
         }
@@ -49,7 +50,7 @@ import Testing
         #expect(merged["model"] as? String == "opus")
         #expect(same(try #require(merged["statusLine"] as? [String: Any]),
                      try #require(settings["statusLine"] as? [String: Any])))
-        #expect(commands(merged, "Stop") == ["afplay done.aiff", "'\(helper)' stop"])
+        #expect(commands(merged, "Stop") == ["afplay done.aiff", HookInstaller.command(helperPath: helper, event: .stop)])
     }
 
     @Test func replacesAStalePath() throws {
@@ -57,7 +58,8 @@ import Testing
             {"hooks": {"Stop": [{"hooks": [{"type": "command",
               "command": "'/Volumes/Headroom/Headroom.app/Contents/Helpers/headroom-hook' stop"}]}]}}
             """)
-        #expect(commands(HookInstaller.merged(settings, helperPath: helper), "Stop") == ["'\(helper)' stop"])
+        #expect(commands(HookInstaller.merged(settings, helperPath: helper), "Stop")
+                == [HookInstaller.command(helperPath: helper, event: .stop)])
     }
 
     /// A later tool appending its own hook after ours must not make Headroom move itself to the end
@@ -111,7 +113,26 @@ import Testing
     @Test func pathsAreShellQuoted() {
         #expect(HookInstaller.command(helperPath: "/Users/o'neil/Headroom.app/Contents/Helpers/headroom-hook",
                                       event: .stop)
-                == #"'/Users/o'\''neil/Headroom.app/Contents/Helpers/headroom-hook' stop"#)
+                == #"[ -x '/Users/o'\''neil/Headroom.app/Contents/Helpers/headroom-hook' ] || exit 0; "#
+                    + #"exec '/Users/o'\''neil/Headroom.app/Contents/Helpers/headroom-hook' stop"#)
+    }
+
+    /// Claude Code shows a hook error notice for a command that isn't there, so a deleted or moved
+    /// Headroom must make its leftover hooks exit 0 quietly. Runs the real shell, never ~/.claude.
+    @Test func missingHelperIsAQuietNoOp() throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("headroom-missing-\(UUID().uuidString)/it's gone/headroom-hook").path
+        process.arguments = ["-c", HookInstaller.command(helperPath: missing, event: .stop)]
+        let stderr = Pipe()
+        process.standardError = stderr
+        process.standardOutput = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        let errors = stderr.fileHandleForReading.readDataToEndOfFile()
+        #expect(process.terminationStatus == 0)
+        #expect(errors.isEmpty)
     }
 
     @Test func translocatedAndMountedLocationsAreRefused() {

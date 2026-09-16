@@ -131,10 +131,16 @@ struct HookInstaller {
         return result
     }
 
-    /// A single bare command, deliberately. The helper finds Claude Code as its parent process; a
-    /// wrapper like `PATH=… cmd` or `a && b` can put a shell in between.
+    /// `[ -x '<helper>' ] || exit 0; exec '<helper>' <event>` — both halves are load-bearing.
+    ///
+    /// The guard: Claude Code does *not* skip a hook whose command is missing. The shell exits 127
+    /// and the session shows a "hook error" notice on every event, so a deleted or moved Headroom
+    /// must leave hooks that exit 0 without a word. The `exec`: the helper finds Claude Code as its
+    /// parent process, and `exec` replaces the shell rather than running the helper under it, so
+    /// the parent is still Claude Code. (`SessionOwner` skips shells anyway, as a backstop.)
     static func command(helperPath: String, event: HookEvent) -> String {
-        "'\(helperPath.replacingOccurrences(of: "'", with: #"'\''"#))' \(event.rawValue)"
+        let quoted = "'\(helperPath.replacingOccurrences(of: "'", with: #"'\''"#))'"
+        return "[ -x \(quoted) ] || exit 0; exec \(quoted) \(event.rawValue)"
     }
 
     static func isRunnableLocation(_ path: String) -> Bool {
