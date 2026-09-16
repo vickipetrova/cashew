@@ -204,6 +204,24 @@ import Testing
         #expect(!commands(written, "Stop").isEmpty)
     }
 
+    /// If Claude Code (or another tool) rewrites settings.json in the window between our read and our
+    /// write, we must not clobber that write with one based on stale contents.
+    @Test func concurrentChangeIsNotOverwritten() throws {
+        let sandbox = Sandbox()
+        var installer = try sandbox.make()
+        let originalDate = Date(timeIntervalSince1970: 1_790_000_000)
+        try Data(#"{"model": "opus"}"#.utf8).write(to: sandbox.settings)
+        try FileManager.default.setAttributes([.modificationDate: originalDate], ofItemAtPath: sandbox.settings.path)
+        installer.beforeWrite = {
+            try? Data(#"{"model": "sonnet"}"#.utf8).write(to: sandbox.settings)
+            try? FileManager.default.setAttributes(
+                [.modificationDate: originalDate.addingTimeInterval(60)], ofItemAtPath: sandbox.settings.path)
+        }
+        #expect(installer.apply(enabled: true) == .changedMeanwhile)
+        #expect(try Data(contentsOf: sandbox.settings) == Data(#"{"model": "sonnet"}"#.utf8))
+        #expect(!FileManager.default.fileExists(atPath: sandbox.backup.path))
+    }
+
     // MARK: Status
 
     @Test func statusLabels() {

@@ -17,6 +17,10 @@ struct HookInstaller {
     let claudeDirectory: URL
     let helperPath: String
 
+    /// Test seam: runs between reading and the modification-date re-check, so a test can change the
+    /// file in the window a real concurrent write would.
+    var beforeWrite: () -> Void = {}
+
     /// Never call from a test — it is the real `~/.claude`.
     static let `default` = HookInstaller(
         claudeDirectory: FileManager.default.homeDirectoryForCurrentUser
@@ -58,6 +62,7 @@ struct HookInstaller {
         guard let loaded = Self.load(target) else { return .unreadableSettings }
         let next = Self.merged(loaded.settings, helperPath: enabled ? helperPath : nil)
         guard !NSDictionary(dictionary: loaded.settings).isEqual(to: next) else { return .upToDate }
+        beforeWrite()
         guard Self.modificationDate(of: target) == loaded.modified else { return .changedMeanwhile }
 
         do {
