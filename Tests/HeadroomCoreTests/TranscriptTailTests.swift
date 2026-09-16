@@ -40,8 +40,14 @@ import Testing
     }
 
     /// The tail starts mid-file, so its first line is usually a fragment.
+    /// The fragment has to be the line the scan actually reaches, or this proves nothing: after it
+    /// come only non-conversational entries (or nothing), so the loop gets to it and must move past.
     @Test func partialFirstLineIsSkipped() {
-        #expect(TranscriptTail.endsInInterrupt(lines(#"nt":[{"type":"text"}]}}"#, interrupt)))
+        // A fragment of an interrupt entry: it must not count as one just because it contains the text.
+        let fragment = #"t":[{"type":"text","text":"[Request interrupted by user]"}]}}"#
+        #expect(!TranscriptTail.endsInInterrupt(lines(fragment, #"{"type":"attachment"}"#, #"{"type":"mode"}"#)))
+        #expect(!TranscriptTail.endsInInterrupt(lines(fragment)))
+        #expect(TranscriptTail.endsInInterrupt(lines(fragment, interrupt, #"{"type":"attachment"}"#)))
         #expect(!TranscriptTail.endsInInterrupt(Data()))
     }
 

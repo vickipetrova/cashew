@@ -70,7 +70,12 @@ import Testing
     /// Also guards PID reuse: a recycled pid would otherwise keep a long-gone session alive.
     @Test func anythingUntouchedForADayIsIgnored() throws {
         try seed("old", .idle, age: 24 * 3600 + 1)
-        #expect(activity().sessions(now: now).isEmpty)
+        try seed("recent", .idle, age: 24 * 3600 - 1)
+        #expect(activity().sessions(now: now).map(\.id) == ["recent"])
+        // Deleted, not just skipped: a session killed without a SessionEnd would otherwise leave its
+        // file behind for good.
+        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("old.json").path))
+        #expect(FileManager.default.fileExists(atPath: directory.appendingPathComponent("recent.json").path))
     }
 
     @Test func anInterruptedTurnIsIdle() throws {
@@ -88,6 +93,15 @@ import Testing
         try seed("tool-new", .tool, age: 3)
         try seed("permission", .permission, age: 50)
         #expect(activity().sessions(now: now).map(\.id) == ["permission", "tool-new", "tool-old", "thinking", "idle"])
+    }
+
+    /// Directory listing order isn't stable, so without a last key two sessions tied on both could
+    /// swap places between refreshes.
+    @Test func tiesSortById() throws {
+        try seed("c", .tool, age: 7)
+        try seed("a", .tool, age: 7)
+        try seed("b", .tool, age: 7)
+        #expect(activity().sessions(now: now).map(\.id) == ["a", "b", "c"])
     }
 
     @Test func sameNamedProjectsShowTheirParent() {

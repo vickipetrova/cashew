@@ -31,7 +31,8 @@ struct SessionActivity {
     /// Without a process to check, a session still "working" this long after its last event is
     /// assumed to have stopped without saying so.
     static let unownedWorkingLimit: TimeInterval = 2 * 3600
-    /// Past this, a file is ignored whatever it says. Also covers a pid recycled by another process.
+    /// Past this, a file is deleted whatever it says — a session killed without `SessionEnd` would
+    /// otherwise leave it forever. Also covers a pid recycled by another process.
     static let ignoredAfter: TimeInterval = 24 * 3600
 
     func sessions(now: Date = Date()) -> [Session] {
@@ -47,7 +48,11 @@ struct SessionActivity {
                 try? fileManager.removeItem(at: url)
                 continue
             }
-            guard record.started, now.timeIntervalSince(record.updatedAt) <= Self.ignoredAfter else { continue }
+            guard now.timeIntervalSince(record.updatedAt) <= Self.ignoredAfter else {
+                try? fileManager.removeItem(at: url)
+                continue
+            }
+            guard record.started else { continue }
             records.append((String(name.dropLast(".json".count)), record))
         }
 
@@ -60,7 +65,9 @@ struct SessionActivity {
         }
         return sessions.sorted {
             let (left, right) = (Self.priority($0.state), Self.priority($1.state))
-            return left != right ? left < right : $0.updatedAt > $1.updatedAt
+            if left != right { return left < right }
+            // Last, the id: directory order isn't stable, so full ties would otherwise swap rows.
+            return $0.updatedAt != $1.updatedAt ? $0.updatedAt > $1.updatedAt : $0.id < $1.id
         }
     }
 
