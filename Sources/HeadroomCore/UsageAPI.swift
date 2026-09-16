@@ -1,4 +1,5 @@
 import Foundation
+import HeadroomShared
 
 // MARK: - Provider-neutral model
 
@@ -57,14 +58,6 @@ struct LimitWindow: Equatable, Codable {
 /// exists so Cursor/Codex/Copilot providers can be added without MenuController changing.
 protocol UsageProvider {
     func fetch(completion: @escaping (Result<[LimitWindow], Error>) -> Void)
-}
-
-/// `JSONSerialization` turns `true`/`false` into `NSNumber`s, and `NSNumber as? Double` happily
-/// yields 1.0 and 0.0 — so a boolean sails through any numeric parse unless it is rejected first.
-/// Comparing the CoreFoundation type id is the only reliable discriminator: `as? Bool` is no good,
-/// because `NSNumber(42) as? Bool` also succeeds. Shared by the usage parser and `Credentials`.
-func isJSONBoolean(_ any: Any) -> Bool {
-    CFGetTypeID(any as CFTypeRef) == CFBooleanGetTypeID()
 }
 
 /// Which of the numbers still on screen are worth showing.

@@ -12,9 +12,13 @@ let package = Package(
     // macOS 10.13, which would contradict LSMinimumSystemVersion in build.sh's Info.plist.
     platforms: [.macOS(.v13)],
     targets: [
-        .target(name: "HeadroomCore"),
+        // Foundation only. Shared by the app and by `headroom-hook`, which Claude Code runs on every
+        // prompt and tool call — so it must never pull in AppKit or SwiftUI, and neither may this.
+        .target(name: "HeadroomShared"),
+        .target(name: "HeadroomCore", dependencies: ["HeadroomShared"]),
         .executableTarget(name: "Headroom", dependencies: ["HeadroomCore"]),
-        .testTarget(name: "HeadroomCoreTests", dependencies: ["HeadroomCore"]),
+        .executableTarget(name: "headroom-hook", dependencies: ["HeadroomShared"]),
+        .testTarget(name: "HeadroomCoreTests", dependencies: ["HeadroomCore", "HeadroomShared"]),
     ],
     // Matches what `swiftc` does by default, which is what this project compiled with before SPM.
     // Swift 6 mode rejects the static mutable state in Notifier and the cached formatters; moving to
