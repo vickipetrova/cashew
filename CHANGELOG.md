@@ -8,6 +8,18 @@ All notable changes to Headroom are documented here. The format follows
 
 ### Added
 
+- **Claude Code session activity.** The menu bar spark spins while a session is working and shows a
+  dot when one is waiting for permission; the dropdown lists live sessions with project, branch,
+  current step and elapsed time. Headroom installs its own hooks for ten Claude Code events
+  (including `StopFailure` and `PostToolUseFailure`, so an errored turn or a failed tool doesn't
+  stay "working") into `~/.claude/settings.json` — only when running from `/Applications` or
+  `~/Applications`, never over a read-only file, nothing else in the file touched, the original
+  backed up once — and removes them when the setting is turned off. Each hook command checks the
+  helper exists before running it, so a deleted Headroom's leftover hooks exit quietly instead of
+  showing hook errors. Compaction mid-turn keeps the session's state. An Esc-interrupted turn is detected from the transcript, since Claude Code
+  fires no hook for it. Inspired by claude-status-bar.
+- **Update checks.** Once a day Headroom asks GitHub for the latest release and offers a menu item
+  when a newer one exists. No identifiers are sent and nothing is downloaded; it can be turned off.
 - **Optional: live numbers from Claude Code's statusline.** Claude Code hands
   `rate_limits.five_hour` and `rate_limits.seven_day` to whatever statusline command you have
   configured, every time it renders — far more often than Headroom polls. One line added to your own
@@ -15,9 +27,10 @@ All notable changes to Headroom are documented here. The format follows
   weekly update as you work instead of on a timer. It **supplements** polling rather than replacing
   it: the payload has no per-model breakdown, and an earlier version that used it *instead of*
   polling made the `WEEKLY · OPUS` row blink in and out depending on whether a session was open.
-  Headroom never edits `~/.claude/settings.json`; opting in and out is a line you control, and the
-  snippet writes only `rate_limits` rather than the cwd, session id, transcript path and cost the
-  rest of the payload carries.
+  Headroom never edits the statusline itself — the hooks above are a separate mechanism and never
+  touch the `statusLine` key; opting in and out of this is a line you control, and the snippet writes
+  only `rate_limits` rather than the cwd, session id, transcript path and cost the rest of the payload
+  carries.
   **Settings › Live from Claude Code** says whether it's on, off, or not working because `jq` is
   missing, and when it isn't working offers **Set Up Live Updates…**, a dialog that explains the
   feature and copies the line. The README now has a complete starter script for anyone without a statusline yet.

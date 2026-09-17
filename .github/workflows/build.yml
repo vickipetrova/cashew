@@ -32,21 +32,25 @@ jobs:
       - name: Verify the app bundle
         run: |
           set -euo pipefail
-          BIN="build/Headroom.app/Contents/MacOS/Headroom"
-          test -x "$BIN"
           test -f "build/Headroom.app/Contents/Info.plist"
-          # Must be a universal binary — a single-arch slice means the lipo step silently regressed.
-          lipo -info "$BIN" | tee /dev/stderr | grep -q "arm64"
-          lipo -info "$BIN" | grep -q "x86_64"
-          # `platforms:` in Package.swift is the only thing pinning the deployment target now, and a
-          # typo there ships a macOS 10.13 binary that would pass every check above.
-          test "$(otool -l "$BIN" | grep -c 'minos 13.0')" -eq 2
-          # `swift build -c release` compiles with -g by default; without -debug-info-format none the
-          # binary carries a debug map full of absolute paths from the build machine.
-          test "$(nm -a "$BIN" | grep -c OSO)" -eq 0
+          # The app and the Claude Code hook helper get the same checks: the helper is run by Claude
+          # Code on every tool call, so a single-arch or 10.13 helper breaks sessions, not just Headroom.
+          for BIN in build/Headroom.app/Contents/MacOS/Headroom \
+                     build/Headroom.app/Contents/Helpers/headroom-hook; do
+            test -x "$BIN"
+            # Must be a universal binary — a single-arch slice means the lipo step silently regressed.
+            lipo -info "$BIN" | tee /dev/stderr | grep -q "arm64"
+            lipo -info "$BIN" | grep -q "x86_64"
+            # `platforms:` in Package.swift is the only thing pinning the deployment target now, and a
+            # typo there ships a macOS 10.13 binary that would pass every check above.
+            test "$(otool -l "$BIN" | grep -c 'minos 13.0')" -eq 2
+            # `swift build -c release` compiles with -g by default; without -debug-info-format none the
+            # binary carries a debug map full of absolute paths from the build machine.
+            test "$(nm -a "$BIN" | grep -c OSO)" -eq 0
+          done
           # Everything above passes just as well on a bundle macOS won't start. The signature is the
           # property that actually gates launch on Apple Silicon, and nothing else here looks at it.
-          codesign --verify --verbose build/Headroom.app
+          codesign --verify --strict --verbose build/Headroom.app
 
       - name: Verify the app icon
         run: |
@@ -143,7 +147,10 @@ jobs:
           # UsageHistory.default is the newest: it writes into the running app's own Application
           # Support folder. Tests pass a temp directory, and the location is a constructor parameter
           # rather than a constant precisely so that stays enforceable from here.
-          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|UsageHistory\.default|StatuslineFeed\.default' Tests/ \
+          # HookInstaller.default edits the real ~/.claude/settings.json; SessionActivity.default and
+          # SessionFiles.defaultDirectory are the running app's sessions; UpdateCheck.fetch is the
+          # network.
+          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|UsageHistory\.default|StatuslineFeed\.default|HookInstaller\.default|SessionActivity\.default|SessionFiles\.defaultDirectory|UpdateCheck\.fetch' Tests/ \
                   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|///)' || true)"
           if [ -n "$hits" ]; then
             echo "$hits"

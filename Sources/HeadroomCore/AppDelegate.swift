@@ -1,4 +1,5 @@
 import AppKit
+import HeadroomShared
 
 /// Wiring: a provider, a menu, and two timers.
 ///
@@ -15,6 +16,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private let history = UsageHistory.default
     private let statusline = StatuslineFeed.default
     private lazy var menuController = MenuController(history: history, statusline: statusline)
+    private let sessionActivity = SessionActivity.default
+    private let hookInstaller = HookInstaller.default
+    private var sessionWatcher: DirectoryWatcher?
+    /// Runs only while a session is working or waiting. Drives the spinning spark and, once a
+    /// second, a re-read — elapsed times in an open menu, and interrupts, which write no hook.
+    private var animationTimer: Timer?
+    private var animationTicks = 0
+    private var updateTimer: Timer?
 
     private var pollTimer: Timer?
     private var tickTimer: Timer?
@@ -24,10 +33,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
         menuController.onRefresh = { [weak self] in self?.refresh() }
         menuController.onSettingsChanged = { [weak self] in self?.settingsChanged() }
+        menuController.onTrackSessionsChanged = { [weak self] in self?.startSessionTracking() }
+        menuController.onCheckForUpdatesChanged = { [weak self] in self?.startUpdateChecks() }
         Notifier.requestAuthorizationIfNeeded()
 
         refresh()
         reschedulePoll()
+        startSessionTracking()
+        startUpdateChecks()
         tickTimer = schedule(every: 60) { [weak self] in
             guard let self else { return }
             // The countdown tick is also where a live reading gets picked up: the statusline file is
@@ -36,6 +49,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             if !self.polled.isEmpty || self.statusline.read() != nil {
                 self.publishMergingLiveReadings(at: Date())
             }
+            // Catches a killed terminal even when nothing is writing session files.
+            self.refreshSessions()
             self.menuController.tick()
         }
 
@@ -46,7 +61,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             name: NSWorkspace.didWakeNotification, object: nil)
     }
 
-    @objc private func didWake() { refresh() }
+    @objc private func didWake() {
+        refresh()
+        refreshSessions()
+        checkForUpdatesIfDue()
+    }
 
     /// Any preference change re-polls: a shorter interval should feel immediate, and a lowered
     /// alert threshold should be evaluated against current usage rather than at the next tick.
@@ -142,6 +161,82 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                 }
             }
         }
+    }
+
+    // MARK: - Claude Code sessions
+
+    /// Installs or removes hooks to match the setting, and starts or stops watching for sessions.
+    /// Runs at every launch, which is also what repairs the hook path after the app has moved.
+    private func startSessionTracking() {
+        menuController.hookOutcome = hookInstaller.apply(enabled: Settings.trackSessions)
+        if Settings.trackSessions {
+            if sessionWatcher == nil {
+                sessionWatcher = DirectoryWatcher(directory: sessionActivity.directory) { [weak self] in
+                    self?.refreshSessions()
+                }
+            }
+        } else {
+            sessionWatcher = nil
+        }
+        refreshSessions()
+    }
+
+    private func refreshSessions() {
+        let sessions = Settings.trackSessions ? sessionActivity.sessions() : []
+        // Also re-renders the title, so when the timer stops below the spark is already drawn at rest.
+        menuController.update(sessions: sessions)
+        // The fast timer is for the spinning spark, so only a working session runs it. A session
+        // waiting on permission draws a still dot and is picked up by the directory watcher and the
+        // 60-second tick like an idle one — no reason to wake four times a second for it.
+        let working = sessions.contains { $0.state == .thinking || $0.state == .tool }
+        if working, animationTimer == nil {
+            animationTimer = schedule(every: 0.25) { [weak self] in self?.animationTick() }
+        } else if !working, let timer = animationTimer {
+            timer.invalidate()
+            animationTimer = nil
+        }
+    }
+
+    private func animationTick() {
+        menuController.advanceAnimation()
+        animationTicks += 1
+        if animationTicks % 4 == 0 { refreshSessions() }
+    }
+
+    // MARK: - Update checks
+
+    private func startUpdateChecks() {
+        updateTimer?.invalidate()
+        updateTimer = nil
+        menuController.update(release: Settings.checkForUpdates
+            ? UpdateCheck.pending(known: Settings.knownRelease, currentVersion: Self.appVersion) : nil)
+        guard Settings.checkForUpdates else { return }
+        let first = Timer(timeInterval: UpdateCheck.launchDelay, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.checkForUpdatesIfDue()
+            // Hourly *look*; `isDue` keeps the actual request to once a day.
+            self.updateTimer = self.schedule(every: 3600) { [weak self] in self?.checkForUpdatesIfDue() }
+        }
+        RunLoop.main.add(first, forMode: .common)
+        updateTimer = first
+    }
+
+    private func checkForUpdatesIfDue() {
+        guard Settings.checkForUpdates,
+              UpdateCheck.isDue(lastAttempt: Settings.lastUpdateCheck, now: Date()) else { return }
+        Settings.lastUpdateCheck = Date()
+        UpdateCheck.fetch(currentVersion: Self.appVersion) { [weak self] release in
+            DispatchQueue.main.async {
+                guard let self, Settings.checkForUpdates else { return }
+                if let release { Settings.knownRelease = release }
+                self.menuController.update(release: UpdateCheck.pending(
+                    known: Settings.knownRelease, currentVersion: Self.appVersion))
+            }
+        }
+    }
+
+    private static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0"
     }
 
     /// `.common` mode matters: a timer in the default mode stops firing while a menu is open,

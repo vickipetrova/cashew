@@ -124,7 +124,8 @@ which is far more often than Headroom polls. Let Headroom read that and **your s
 numbers become live instead of up to fifteen minutes old**, updating as you work rather than on a
 timer.
 
-Headroom will **not** edit `~/.claude/settings.json`. Your statusline is yours, and quietly replacing
+Headroom will **not** edit the `statusLine` in `~/.claude/settings.json` (the only thing it ever
+changes there is its own session-tracking hooks). Your statusline is yours, and quietly replacing
 it to install a helper would be a bad trade for a menu bar app. So opting in is something you do, in
 one of two ways depending on whether you already have a statusline.
 
@@ -270,23 +271,51 @@ Headroom's one distinguishing bet is that you shouldn't have to set anything up.
 
 ## Uninstall
 
+First, if you use session tracking, turn off **Settings › Track Claude Code Sessions** while
+Headroom is still installed — that removes its hooks from `~/.claude/settings.json`. If you turned
+on Launch at Login, switch that off too (or remove Headroom from System Settings › General › Login
+Items). Then:
+
 ```bash
 rm -rf /Applications/Headroom.app
 rm -rf ~/Library/Application\ Support/com.vickipetrova.headroom
 defaults delete com.vickipetrova.headroom
+rm -f ~/.claude/settings.json.bak-headroom
 ```
 
-If you turned on Launch at Login, switch it off first (or remove Headroom from System Settings ›
-General › Login Items).
+That is everything: the app; the usage history the forecast is computed from and the session files;
+your preferences; and `settings.json.bak-headroom`, the one-time backup of your Claude Code settings
+Headroom took before first adding its hooks — safe to delete, nothing reads it. No caches, no logs,
+no other files.
 
-Those three lines are everything: the app, the usage history the forecast is computed from, and your
-preferences. No caches, no logs, no config files anywhere else.
+## Claude Code sessions
+
+Headroom also shows what Claude Code is doing. The spark in the menu bar spins while a session is
+working and gains a dot when one is waiting for your permission, and the dropdown lists each live
+session with its project, branch, current step and how long the turn has run.
+
+To do that, Headroom adds hooks for ten Claude Code events to `~/.claude/settings.json` the first
+time it runs from `/Applications` (or `~/Applications`): `SessionStart`, `UserPromptSubmit`,
+`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `Stop`,
+`StopFailure` and `SessionEnd`. It changes nothing else in that file, keeps a one-time backup at
+`~/.claude/settings.json.bak-headroom`, and records only each session's state, folder, transcript
+path and tool *name* — never your prompts, tool input or output. Sessions already open when the hooks are added appear
+once they're restarted.
+
+Turn it off under **Settings › Track Claude Code Sessions**, which removes the hooks. **Turn it off
+before deleting Headroom.** If you forget, each leftover hook checks that Headroom's helper is still
+there and exits quietly when it isn't, so your sessions are unaffected — but the entries stay in
+`settings.json` until you remove them (reinstalling Headroom and turning tracking off does it for
+you).
+
+Session tracking was inspired by [claude-status-bar](https://github.com/m1ckc3s/claude-status-bar)
+by Mick Cesanek.
 
 ## Security
 
 Headroom reads your OAuth token, holds it in memory for one request, and sends it to exactly one
-place: `api.anthropic.com`. No telemetry, no analytics, no update checks. See
-[SECURITY.md](SECURITY.md).
+place: `api.anthropic.com`. It also asks GitHub once a day whether a newer Headroom exists (turn it
+off under Settings). No telemetry, no analytics, no identifiers. See [SECURITY.md](SECURITY.md).
 
 ## Trademark / Not affiliated
 

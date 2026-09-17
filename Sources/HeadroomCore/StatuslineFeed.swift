@@ -8,9 +8,11 @@ import Foundation
 /// it. No token, no request, no Keychain prompt, and the numbers are live rather than up to fifteen
 /// minutes stale.
 ///
-/// **Headroom never edits `~/.claude/settings.json`.** The user's statusline is theirs — this one
-/// already renders their directory, branch, model and context — and silently replacing it to install
-/// a helper would be a poor trade for a menu bar app. Opting in is a line they paste and can delete.
+/// **Headroom never edits the user's statusline.** It is theirs — this one already renders their
+/// directory, branch, model and context — and silently replacing it to install a helper would be a
+/// poor trade for a menu bar app. Opting in is a line they paste and can delete. (Headroom does add
+/// its own *hooks* to `~/.claude/settings.json` for session tracking — see `HookInstaller` — and
+/// never touches the `statusLine` key.)
 struct StatuslineFeed {
     /// How stale the file may be before Headroom stops trusting it.
     ///

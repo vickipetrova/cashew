@@ -1,4 +1,5 @@
 import Foundation
+import HeadroomShared
 import Security
 
 /// Finds the OAuth token Claude Code already holds, so Headroom needs no setup of its own.

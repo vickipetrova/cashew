@@ -38,8 +38,9 @@ about the shape.
   zero-dependency build is a feature, not an accident — `Package.swift` has no `dependencies:` array
   and shouldn't grow one, for tests either.
 - **Anything that logs, caches, or writes the OAuth token.** See below.
-- **A second network destination.** No analytics, no telemetry, no update checks, no crash
-  reporting. One request, to `api.anthropic.com`.
+- **Another network destination.** No analytics, no telemetry, no crash reporting. Usage goes to
+  `api.anthropic.com`; the only other request is the once-a-day, user-disableable update check to
+  `api.github.com`.
 - **Cost dashboards, spend estimation, billing history.** Other projects do this well and the README
   links them. Headroom keeps a small rolling history of utilization samples for the burn-rate
   forecast — seven days, deleted on uninstall, documented in `SECURITY.md` — and that is as far as

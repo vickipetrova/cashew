@@ -1,4 +1,5 @@
 import Foundation
+import HeadroomShared
 
 // MARK: - Provider-neutral model
 
@@ -57,14 +58,6 @@ struct LimitWindow: Equatable, Codable {
 /// exists so Cursor/Codex/Copilot providers can be added without MenuController changing.
 protocol UsageProvider {
     func fetch(completion: @escaping (Result<[LimitWindow], Error>) -> Void)
-}
-
-/// `JSONSerialization` turns `true`/`false` into `NSNumber`s, and `NSNumber as? Double` happily
-/// yields 1.0 and 0.0 — so a boolean sails through any numeric parse unless it is rejected first.
-/// Comparing the CoreFoundation type id is the only reliable discriminator: `as? Bool` is no good,
-/// because `NSNumber(42) as? Bool` also succeeds. Shared by the usage parser and `Credentials`.
-func isJSONBoolean(_ any: Any) -> Bool {
-    CFGetTypeID(any as CFTypeRef) == CFBooleanGetTypeID()
 }
 
 /// Which of the numbers still on screen are worth showing.
@@ -158,9 +151,10 @@ struct ClaudeProvider: UsageProvider {
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     /// Refuses every redirect, so the bearer token can only ever be sent to the one host in
-    /// `endpoint`. SECURITY.md promises exactly one network destination; without this that promise
-    /// rests on CFNetwork's uncontracted behaviour for `Authorization` across a cross-host hop, for
-    /// an endpoint we already expect to drift. A 3xx now surfaces as an ordinary `UsageError.http`.
+    /// `endpoint`. SECURITY.md promises the token goes to exactly one destination; without this that
+    /// promise rests on CFNetwork's uncontracted behaviour for `Authorization` across a cross-host
+    /// hop, for an endpoint we already expect to drift. A 3xx now surfaces as an ordinary
+    /// `UsageError.http`.
     private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
         func urlSession(_ session: URLSession, task: URLSessionTask,
                         willPerformHTTPRedirection response: HTTPURLResponse,

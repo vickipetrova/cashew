@@ -22,6 +22,9 @@ MIN_MACOS="13.0"
 MODE="${1:-}"
 APP="build/$APP_NAME.app"
 BIN="$APP/Contents/MacOS/$APP_NAME"
+# The Claude Code hook helper. Contents/Helpers is Apple's documented home for helper tools.
+HOOK_NAME="headroom-hook"
+HOOK="$APP/Contents/Helpers/$HOOK_NAME"
 
 if [[ "$MODE" == "--dmg-only" ]]; then
   [[ -d "$APP" ]] || { echo "error: $APP not found — run ./build.sh first." >&2; exit 1; }
@@ -29,7 +32,7 @@ if [[ "$MODE" == "--dmg-only" ]]; then
 else
 
 rm -rf "$APP"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Helpers"
 
 echo "Compiling universal binary (arm64 + x86_64)…"
 # Universal so it runs natively on Apple Silicon and Intel without Rosetta. SwiftPM builds one arch
@@ -47,14 +50,18 @@ echo "Compiling universal binary (arm64 + x86_64)…"
 # rewrites the version component on Darwin, so the build machine's OS cannot leak in.
 SPM_FLAGS=(-c release -debug-info-format none)
 SLICES=()
+HOOK_SLICES=()
 for TRIPLE in arm64-apple-macosx x86_64-apple-macosx; do
   swift build "${SPM_FLAGS[@]}" --triple "$TRIPLE"
   # Ask SwiftPM where it put things rather than hardcoding a path. Note .build/release is a
   # compatibility symlink pointing at whichever triple built last — using it would lipo one slice
   # with itself. The flags must match the build exactly, hence the shared array.
-  SLICES+=("$(swift build "${SPM_FLAGS[@]}" --triple "$TRIPLE" --show-bin-path)/$APP_NAME")
+  BIN_PATH="$(swift build "${SPM_FLAGS[@]}" --triple "$TRIPLE" --show-bin-path)"
+  SLICES+=("$BIN_PATH/$APP_NAME")
+  HOOK_SLICES+=("$BIN_PATH/$HOOK_NAME")
 done
 lipo -create "${SLICES[@]}" -output "$BIN"
+lipo -create "${HOOK_SLICES[@]}" -output "$HOOK"
 
 # --- App icon ---------------------------------------------------------------------------------
 #
@@ -198,11 +205,15 @@ PLIST
 # Nothing else may be swallowed. Apple Silicon refuses to launch a binary carrying no signature at
 # all, so hiding a codesign failure here does not produce an unsigned-but-working app — it produces
 # a build that dies at launch as "Headroom is damaged", with the actual error discarded.
+# Inside-out: the helper is signed before the app that contains it, because signing the app seals
+# its contents. Never --deep, which Apple names as the most common cause of notarization failures.
 xattr -cr "$APP"
 if [[ -n "${HEADROOM_SIGN_ID:-}" ]]; then
   echo "Signing with: $HEADROOM_SIGN_ID"
+  codesign --force --options runtime --timestamp --sign "$HEADROOM_SIGN_ID" "$HOOK"
   codesign --force --options runtime --timestamp --sign "$HEADROOM_SIGN_ID" "$APP"
 else
+  codesign --force --sign - "$HOOK"
   codesign --force --sign - "$APP"
 fi
 

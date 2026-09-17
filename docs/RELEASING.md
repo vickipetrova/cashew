@@ -54,7 +54,10 @@ Then, per release:
 SIGN_ID="Developer ID Application: Your Name (YOURTEAMID)"
 
 # Sign and notarize the .app first, so a copy dragged out of the DMG carries its own ticket.
+# Inside-out: the Claude Code hook helper before the app. The notary service requires the hardened
+# runtime on every executable in the bundle, helpers included, and rejects the app otherwise.
 xattr -cr build/Headroom.app
+codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Headroom.app/Contents/Helpers/headroom-hook
 codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Headroom.app
 ditto -c -k --keepParent build/Headroom.app build/app-notarize.zip
 xcrun notarytool submit build/app-notarize.zip --keychain-profile "headroom" --wait
@@ -69,6 +72,9 @@ codesign --force --timestamp --sign "$SIGN_ID" build/Headroom.dmg
 xcrun notarytool submit build/Headroom.dmg --keychain-profile "headroom" --wait
 xcrun stapler staple build/Headroom.dmg
 ```
+
+(Equivalent: `HEADROOM_SIGN_ID="$SIGN_ID" ./build.sh --dmg` now signs both correctly; the manual lines
+stay for the existing procedure.)
 
 Verify before publishing:
 
