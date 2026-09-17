@@ -139,8 +139,11 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// One step of the working spark. Driven by `AppDelegate`'s fast timer, which only runs while a
     /// session is active.
     func advanceAnimation() {
-        animationFrame = (animationFrame + 1) % 4
-        renderTitle()
+        animationFrame = (animationFrame + 1) % MenuBarAnimation.globalCycleFrames
+        // Only the image, not the whole title: at twelve frames a second, re-running the title's
+        // forecasts and attributed-string building for every frame would be a lot of work to
+        // produce the same text.
+        renderStatusImage()
     }
 
     // MARK: - In-place refresh
@@ -166,22 +169,33 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     // MARK: - Menu bar title
 
+    /// Just the image, which is all that changes between animation frames.
+    ///
+    /// The image rather than a character in the title so that System mode can hand it to macOS as a
+    /// template and have it adapt exactly like a built-in menu bar control — including inverting
+    /// when the item is highlighted, which coloured text does not do.
+    private func renderStatusImage() {
+        guard let button = statusItem.button else { return }
+        // Most urgent first, so one session decides both the image and the word — see
+        // `SessionActivity`'s ordering. Several sessions' worth of text would not fit a menu bar.
+        let activity = sessions.first
+        let working = activity?.state == .thinking || activity?.state == .tool
+        button.image = Settings.menuBarAnimation.image(
+            mode: Settings.colorMode, frame: animationFrame, working: working,
+            attention: activity?.state == .permission,
+            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        button.imagePosition = .imageLeading
+    }
+
     private func renderTitle() {
         guard let button = statusItem.button else { return }
 
         // The spark is an image rather than a character in the title so that System mode can hand it
         // to macOS as a template and have it adapt exactly like a built-in menu bar control —
         // including inverting when the item is highlighted, which coloured text does not do.
-        let activity = sessions.first?.state
-        let working = activity == .thinking || activity == .tool
-        let rotation: CGFloat
-        if !working { rotation = 0 }
-        // Reduce Motion: a still, visibly turned spark instead of a spinning one.
-        else if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion { rotation = 22.5 }
-        else { rotation = CGFloat(animationFrame) * 11.25 }
-        button.image = Fmt.statusImage(mode: Settings.colorMode, rotation: rotation,
-                                       permissionDot: activity == .permission)
-        button.imagePosition = .imageLeading
+        // Most urgent first, so one session decides both the image and the word — see
+        // `SessionActivity`'s ordering. Several sessions' worth of text would not fit a menu bar.
+        renderStatusImage()
 
         guard !displayWindows().isEmpty else {
             button.attributedTitle = NSAttributedString()
@@ -195,6 +209,14 @@ final class MenuController: NSObject, NSMenuDelegate {
 
         let mode = Settings.colorMode
         let title = NSMutableAttributedString()
+        // The word goes first, where the eye already is: the image is to its left, and the numbers
+        // it prefixes are the thing it is interrupting. Secondary colour so the percentages, which
+        // carry the alert colours, stay the loudest thing in the item.
+        if Settings.showStatusWords, let word = StatusWords.title(for: sessions.first) {
+            title.append(NSAttributedString(string: "\(word) · ", attributes: [
+                .foregroundColor: NSColor.secondaryLabelColor,
+            ]))
+        }
         for (index, window) in titleWindows().enumerated() {
             if index > 0 {
                 title.append(NSAttributedString(string: " · ", attributes: [
@@ -405,6 +427,22 @@ final class MenuController: NSObject, NSMenuDelegate {
         hookStatus.isEnabled = false
         submenu.addItem(hookStatus)
 
+        let words = action(SessionActivity.statusWordsMenuTitle,
+                           key: "", selector: #selector(toggleStatusWords))
+        words.state = Settings.showStatusWords ? .on : .off
+        submenu.addItem(words)
+
+        submenu.addItem(.separator())
+        submenu.addItem(header(SessionActivity.animationHeading))
+        for style in MenuBarAnimation.allCases {
+            let item = action(style.label, key: "", selector: #selector(setAnimation(_:)))
+            // `representedObject`, not `tag`: tags are Int, and a positional tag would break the
+            // moment the list is reordered.
+            item.representedObject = style
+            item.state = Settings.menuBarAnimation == style ? .on : .off
+            submenu.addItem(item)
+        }
+
         // A status line and a way in. The opt-in is a line in the user's own statusline script, which
         // Headroom deliberately never edits — so the menu's job is to make it findable and to say
         // whether it's working. Read fresh on every open, like the checkmarks above.
@@ -497,6 +535,20 @@ final class MenuController: NSObject, NSMenuDelegate {
     @objc private func toggleTrackSessions() {
         Settings.trackSessions.toggle()
         onTrackSessionsChanged?()
+    }
+
+    /// Both of these repaint the menu bar immediately and nothing else — deliberately *not*
+    /// `onSettingsChanged`, which exists so a shortened poll interval feels immediate. Neither has
+    /// anything to do with polling, and calling it would spend a usage request on a preference.
+    @objc private func toggleStatusWords() {
+        Settings.showStatusWords.toggle()
+        renderTitle()
+    }
+
+    @objc private func setAnimation(_ sender: NSMenuItem) {
+        guard let style = sender.representedObject as? MenuBarAnimation else { return }
+        Settings.menuBarAnimation = style
+        renderTitle()
     }
 
     @objc private func toggleCheckForUpdates() {

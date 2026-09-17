@@ -26,8 +26,8 @@ import Testing
     }
 
     @Test func permissionNeedsAttention() {
-        let row = SessionRow(session(.permission, label: "Awaiting permission"), now: now)
-        #expect(row.status == "Awaiting permission")
+        let row = SessionRow(session(.permission, label: "Awaiting approval"), now: now)
+        #expect(row.status == "Awaiting approval")
         #expect(row.needsAttention)
     }
 
@@ -38,7 +38,7 @@ import Testing
     }
 
     @Test func endedKeepsTheTitle() {
-        let ended = SessionRow(session(.permission, label: "Awaiting permission"), now: now).ended
+        let ended = SessionRow(session(.permission, label: "Awaiting approval"), now: now).ended
         #expect(ended.title == "headroom · main")
         #expect(ended.status == "Ended")
         #expect(!ended.needsAttention)

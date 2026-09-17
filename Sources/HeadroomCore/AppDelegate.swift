@@ -190,7 +190,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // 60-second tick like an idle one — no reason to wake four times a second for it.
         let working = sessions.contains { $0.state == .thinking || $0.state == .tool }
         if working, animationTimer == nil {
-            animationTimer = schedule(every: 0.25) { [weak self] in self?.animationTick() }
+            animationTimer = schedule(every: MenuBarAnimation.tickInterval) { [weak self] in
+                self?.animationTick()
+            }
         } else if !working, let timer = animationTimer {
             timer.invalidate()
             animationTimer = nil
@@ -200,7 +202,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func animationTick() {
         menuController.advanceAnimation()
         animationTicks += 1
-        if animationTicks % 4 == 0 { refreshSessions() }
+        // Once a second, not every frame: re-reading the session files, their transcripts and
+        // their branches twelve times a second would be wasteful, and nothing in them moves that
+        // fast. The frames in between only redraw one small image.
+        if animationTicks % MenuBarAnimation.framesPerSecond == 0 { refreshSessions() }
     }
 
     // MARK: - Update checks
