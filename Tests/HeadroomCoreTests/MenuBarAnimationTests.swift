@@ -100,6 +100,9 @@ struct MenuBarAnimationTests {
         case .sparkPulse: tolerance = 0.5
         // These two genuinely draw different amounts per frame — that is the animation.
         case .meterBars, .gaugeSweep: tolerance = 0.7
+        // Drawn art whose whole animation is how much of it is filled in. The edge check above is
+        // what holds its geometry; there is no constant ink to hold here.
+        case .cashew: tolerance = 1
         }
         #expect(Double(largest - smallest) / Double(largest) <= tolerance,
                 "\(style) ink varies \(counts)")
@@ -138,8 +141,14 @@ struct MenuBarAnimationTests {
 
         let alerts = image(style, frame: 0, attention: true)
         #expect(!alerts.isTemplate)
-        #expect(alerts.size == image(style, frame: 0).size)
         #expect(alerts.tiffRepresentation != image(style, frame: 0).tiffRepresentation)
+        if style == .cashew {
+            // Drawn art carries its own colours, so recolouring it yellow would just make a yellow
+            // blob. It says "waiting" with the dot in both modes, and widens in both.
+            #expect(alerts.size.width > image(style, frame: 0).size.width)
+        } else {
+            #expect(alerts.size == image(style, frame: 0).size)
+        }
     }
 
     /// One counter drives every style, so where it wraps has to be a whole number of *each* style's
@@ -152,6 +161,22 @@ struct MenuBarAnimationTests {
         // The frame after the last is the first: same image, no jump.
         let afterWrap = image(style, frame: MenuBarAnimation.globalCycleFrames)
         #expect(afterWrap.tiffRepresentation == image(style, frame: 0).tiffRepresentation)
+    }
+
+    /// The sprite sheets are the one place a style's frames can go missing — a bad regeneration, a
+    /// truncated base64 string — and a style that silently draws nothing would look like the app
+    /// had frozen rather than like a bug.
+    @Test func cashewSheetsAreCompleteAndMatched() {
+        #expect(cashewFramePNGs.count == cashewTemplateFramePNGs.count)
+        #expect(MenuBarAnimation.cashewFrameCount == cashewFramePNGs.count)
+        #expect(MenuBarAnimation.cashewFrameCount >= 2)
+        for (index, encoded) in zip(cashewFramePNGs, cashewTemplateFramePNGs).enumerated().map({ ($0.0, $0.1) }) {
+            let colour = NSImage(data: Data(base64Encoded: encoded.0) ?? Data())
+            let template = NSImage(data: Data(base64Encoded: encoded.1) ?? Data())
+            #expect(colour != nil, "colour frame \(index) does not decode")
+            #expect(template != nil, "template frame \(index) does not decode")
+            #expect(colour?.size == template?.size, "frame \(index) differs in size between sheets")
+        }
     }
 
     @Test func labelsAreDistinctAndShort() {
