@@ -12,7 +12,7 @@ public enum SessionState: String, Equatable {
 /// helper's writes can't disagree about the words.
 public enum SessionLabels {
     public static let thinking = "Thinking"
-    public static let permission = "Awaiting permission"
+    public static let permission = "Awaiting approval"
 }
 
 /// One session's file: written by `headroom-hook`, read by `SessionActivity`.

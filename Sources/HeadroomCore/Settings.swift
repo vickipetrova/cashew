@@ -37,6 +37,8 @@ enum Settings {
         static let colorMode = "colorMode"
         static let titleLimitIDs = "titleLimitIDs"
         static let trackSessions = "trackSessions"
+        static let menuBarAnimation = "menuBarAnimation"
+        static let showStatusWords = "showStatusWords"
         static let checkForUpdates = "checkForUpdates"
         static let allowHooksOutsideApplications = "allowHooksOutsideApplications"
         static let lastUpdateCheck = "lastUpdateCheck"
@@ -106,6 +108,27 @@ enum Settings {
             return thresholdOptions.contains(stored) ? stored : 80
         }
         set { defaults.set(newValue, forKey: Key.notifyThreshold) }
+    }
+
+    /// Which of the menu bar's working animations is drawn. A stored value we don't recognise falls
+    /// back to the default rather than leaving the item blank.
+    static var menuBarAnimation: MenuBarAnimation {
+        get {
+            defaults.string(forKey: Key.menuBarAnimation).flatMap(MenuBarAnimation.init(rawValue:))
+                ?? .sparkSpin
+        }
+        set { defaults.set(newValue.rawValue, forKey: Key.menuBarAnimation) }
+    }
+
+    /// Whether the menu bar says what a session is doing ("Percolating…", "Awaiting approval") next
+    /// to the numbers. On by default; off leaves the animation to say it, and the animation turns
+    /// yellow when a session is waiting.
+    static var showStatusWords: Bool {
+        get {
+            defaults.object(forKey: Key.showStatusWords) == nil
+                ? true : defaults.bool(forKey: Key.showStatusWords)
+        }
+        set { defaults.set(newValue, forKey: Key.showStatusWords) }
     }
 
     /// On by default. Probed for existence first, because `bool(forKey:)` returns false for a missing

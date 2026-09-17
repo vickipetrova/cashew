@@ -7,7 +7,7 @@ import SwiftUI
 struct SessionRow: Equatable {
     /// "headroom · feat/session-activity"
     let title: String
-    /// "Editing · 1m 05s", "Awaiting permission", "Idle"
+    /// "Editing · 1m 05s", "Awaiting approval", "Idle"
     let status: String
     let needsAttention: Bool
 

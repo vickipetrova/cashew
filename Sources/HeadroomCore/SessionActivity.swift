@@ -116,6 +116,8 @@ struct SessionActivity {
     static let menuHeading = "CLAUDE CODE"
     static let settingsHeading = "CLAUDE CODE SESSIONS"
     static let trackMenuTitle = "Track Claude Code Sessions"
+    static let statusWordsMenuTitle = "Show Status Words"
+    static let animationHeading = "MENU BAR ANIMATION"
     static let idleLabel = "Idle"
     static let workingLabel = "Working"
     static let endedLabel = "Ended"
