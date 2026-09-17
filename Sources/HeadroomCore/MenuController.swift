@@ -139,7 +139,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// One step of the working spark. Driven by `AppDelegate`'s fast timer, which only runs while a
     /// session is active.
     func advanceAnimation() {
-        animationFrame = (animationFrame + 1) % MenuBarAnimation.maxCycleFrames
+        animationFrame = (animationFrame + 1) % MenuBarAnimation.globalCycleFrames
         // Only the image, not the whole title: at twelve frames a second, re-running the title's
         // forecasts and attributed-string building for every frame would be a lot of work to
         // produce the same text.

@@ -142,6 +142,18 @@ struct MenuBarAnimationTests {
         #expect(alerts.tiffRepresentation != image(style, frame: 0).tiffRepresentation)
     }
 
+    /// One counter drives every style, so where it wraps has to be a whole number of *each* style's
+    /// loops. It used to wrap at the longest cycle (30) while the gauge looped every 24, which sent
+    /// the gauge five frames backwards every two and a half seconds — a visible jump in the one
+    /// style whose whole job is travelling smoothly.
+    @Test(arguments: MenuBarAnimation.allCases)
+    func theSharedCounterWrapsOnEveryStylesLoop(_ style: MenuBarAnimation) {
+        #expect(MenuBarAnimation.globalCycleFrames % style.cycleFrames == 0)
+        // The frame after the last is the first: same image, no jump.
+        let afterWrap = image(style, frame: MenuBarAnimation.globalCycleFrames)
+        #expect(afterWrap.tiffRepresentation == image(style, frame: 0).tiffRepresentation)
+    }
+
     @Test func labelsAreDistinctAndShort() {
         let labels = MenuBarAnimation.allCases.map(\.label)
         #expect(Set(labels).count == labels.count)

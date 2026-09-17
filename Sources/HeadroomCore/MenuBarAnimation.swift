@@ -53,9 +53,18 @@ enum MenuBarAnimation: String, CaseIterable {
         }
     }
 
-    /// The longest cycle any style uses, so a single timer can drive all of them without the frame
-    /// counter needing to know which style is current.
-    static let maxCycleFrames = allCases.map(\.cycleFrames).max() ?? 1
+    /// Where the shared frame counter wraps.
+    ///
+    /// A *common multiple* of every style's cycle, not the longest one. Wrapping at the longest (30)
+    /// while the gauge looped every 24 sent it from frame 29 to frame 0 — five frames backwards,
+    /// once every two and a half seconds — which is exactly the jump the smooth-motion work was
+    /// supposed to remove. Every style now meets the wrap at the start of its own loop.
+    static let globalCycleFrames: Int = allCases.reduce(1) { total, style in
+        let a = total, b = style.cycleFrames
+        var (x, y) = (a, b)
+        while y != 0 { (x, y) = (y, x % y) }   // gcd
+        return a / x * b                       // lcm
+    }
 
     var label: String {
         switch self {
@@ -70,7 +79,10 @@ enum MenuBarAnimation: String, CaseIterable {
     // MARK: - Drawing
 
     private static let glyph = "✻" as NSString
-    private static let font = NSFont.systemFont(ofSize: 13)
+    /// 15pt, not the 13pt of menu bar *text*: the spark is a glyph standing in for an icon, and at
+    /// text size it read as small and timid beside neighbouring apps' icons. The canvas below is
+    /// sized from it, and `MenuBarAnimationTests` holds the whole thing inside its bounds.
+    private static let font = NSFont.systemFont(ofSize: 15)
 
     /// The square every style draws into, and the one number that keeps the styles interchangeable:
     /// switching style in Settings must not move the percentages beside the image.
@@ -80,7 +92,7 @@ enum MenuBarAnimation: String, CaseIterable {
     /// be clipped exactly the way the rotating spark once was.
     private static var side: CGFloat {
         let size = glyph.size(withAttributes: [.font: font])
-        return ceil(max(size.width, size.height) * 1.16)
+        return ceil(max(size.width, size.height) * 1.14)
     }
 
     private static let dotDiameter: CGFloat = 6
@@ -116,7 +128,7 @@ enum MenuBarAnimation: String, CaseIterable {
                 // size rather than only shrinking — at 4 frames between 1.0 and 0.84 the breath was
                 // invisible.
                 let eased = (1 - cos(phase * 2 * .pi)) / 2
-                Self.drawSpark(side: side, ink: ink, scale: CGFloat(0.86 + 0.26 * eased))
+                Self.drawSpark(side: side, ink: ink, scale: CGFloat(0.76 + 0.36 * eased))
             case .gaugeSweep: Self.drawGauge(side: side, ink: ink, phase: phase, working: moving)
             case .orbitingDot: Self.drawOrbit(side: side, ink: ink, phase: phase, working: moving)
             case .meterBars: Self.drawBars(side: side, ink: ink, phase: phase, working: moving)
