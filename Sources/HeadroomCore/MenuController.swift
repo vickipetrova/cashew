@@ -139,8 +139,11 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// One step of the working spark. Driven by `AppDelegate`'s fast timer, which only runs while a
     /// session is active.
     func advanceAnimation() {
-        animationFrame = (animationFrame + 1) % 4
-        renderTitle()
+        animationFrame = (animationFrame + 1) % MenuBarAnimation.maxCycleFrames
+        // Only the image, not the whole title: at twelve frames a second, re-running the title's
+        // forecasts and attributed-string building for every frame would be a lot of work to
+        // produce the same text.
+        renderStatusImage()
     }
 
     // MARK: - In-place refresh
@@ -166,12 +169,13 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     // MARK: - Menu bar title
 
-    private func renderTitle() {
+    /// Just the image, which is all that changes between animation frames.
+    ///
+    /// The image rather than a character in the title so that System mode can hand it to macOS as a
+    /// template and have it adapt exactly like a built-in menu bar control — including inverting
+    /// when the item is highlighted, which coloured text does not do.
+    private func renderStatusImage() {
         guard let button = statusItem.button else { return }
-
-        // The spark is an image rather than a character in the title so that System mode can hand it
-        // to macOS as a template and have it adapt exactly like a built-in menu bar control —
-        // including inverting when the item is highlighted, which coloured text does not do.
         // Most urgent first, so one session decides both the image and the word — see
         // `SessionActivity`'s ordering. Several sessions' worth of text would not fit a menu bar.
         let activity = sessions.first
@@ -181,6 +185,17 @@ final class MenuController: NSObject, NSMenuDelegate {
             attention: activity?.state == .permission,
             reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
         button.imagePosition = .imageLeading
+    }
+
+    private func renderTitle() {
+        guard let button = statusItem.button else { return }
+
+        // The spark is an image rather than a character in the title so that System mode can hand it
+        // to macOS as a template and have it adapt exactly like a built-in menu bar control —
+        // including inverting when the item is highlighted, which coloured text does not do.
+        // Most urgent first, so one session decides both the image and the word — see
+        // `SessionActivity`'s ordering. Several sessions' worth of text would not fit a menu bar.
+        renderStatusImage()
 
         guard !displayWindows().isEmpty else {
             button.attributedTitle = NSAttributedString()
@@ -197,7 +212,7 @@ final class MenuController: NSObject, NSMenuDelegate {
         // The word goes first, where the eye already is: the image is to its left, and the numbers
         // it prefixes are the thing it is interrupting. Secondary colour so the percentages, which
         // carry the alert colours, stay the loudest thing in the item.
-        if Settings.showStatusWords, let word = StatusWords.title(for: activity) {
+        if Settings.showStatusWords, let word = StatusWords.title(for: sessions.first) {
             title.append(NSAttributedString(string: "\(word) · ", attributes: [
                 .foregroundColor: NSColor.secondaryLabelColor,
             ]))

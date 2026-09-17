@@ -59,7 +59,7 @@ struct MenuBarAnimationTests {
     /// shuffles every menu bar item to its left.
     @Test(arguments: MenuBarAnimation.allCases)
     func everyFrameIsTheSameSize(_ style: MenuBarAnimation) {
-        let sizes = Set((0..<MenuBarAnimation.frameCount).map { image(style, frame: $0).size })
+        let sizes = Set((0..<style.cycleFrames).map { image(style, frame: $0).size })
         #expect(sizes.count == 1)
         // And resting matches working, so starting and stopping doesn't jump either.
         #expect(image(style, frame: 0, working: false).size == sizes.first)
@@ -74,7 +74,7 @@ struct MenuBarAnimationTests {
 
     @Test(arguments: MenuBarAnimation.allCases)
     func everyFrameDrawsSomethingAndStaysInsideItsCanvas(_ style: MenuBarAnimation) {
-        for frame in 0..<MenuBarAnimation.frameCount {
+        for frame in 0..<style.cycleFrames {
             let measured = ink(image(style, frame: frame))
             #expect(measured.pixels > 0, "\(style) frame \(frame) drew nothing")
             #expect(!measured.touchesEdge, "\(style) frame \(frame) is clipped at the canvas edge")
@@ -84,19 +84,22 @@ struct MenuBarAnimationTests {
     /// Turning a glyph preserves its area, so a spinning frame that loses ink is a frame being cut
     /// off — the failure that shipped once already, and the one a size check cannot see.
     ///
-    /// Only the styles whose ink *should* be constant are held to that: the pulse scales (area goes
-    /// with the square of the scale, so ~25% at 0.84), the bars and the gauge arc draw deliberately
-    /// different amounts per frame. Clipping in those is caught by the edge check above instead.
+    /// Only the styles whose ink *should* be constant are held to that, and only loosely: a glyph
+    /// drawn at 20° covers more partially-lit pixels than one at 0°, so anti-aliasing alone moves
+    /// the count by a few per cent across a smooth turn. Clipping is caught by the edge check above;
+    /// this catches a frame that loses a *limb*.
     @Test(arguments: MenuBarAnimation.allCases)
     func framesKeepTheirInk(_ style: MenuBarAnimation) {
-        let counts = (0..<MenuBarAnimation.frameCount).map { ink(image(style, frame: $0)).pixels }
+        let counts = (0..<style.cycleFrames).map { ink(image(style, frame: $0)).pixels }
         let smallest = counts.min()!, largest = counts.max()!
         let tolerance: Double
         switch style {
-        case .sparkSpin: tolerance = 0.05
-        case .orbitingDot: tolerance = 0.1
-        case .sparkPulse: tolerance = 0.35
-        case .meterBars, .gaugeSweep: tolerance = 0.6
+        case .sparkSpin: tolerance = 0.15
+        case .orbitingDot: tolerance = 0.15
+        // The pulse's area goes with the square of its scale: 0.86² to 1.12² is a third of itself.
+        case .sparkPulse: tolerance = 0.5
+        // These two genuinely draw different amounts per frame — that is the animation.
+        case .meterBars, .gaugeSweep: tolerance = 0.7
         }
         #expect(Double(largest - smallest) / Double(largest) <= tolerance,
                 "\(style) ink varies \(counts)")
@@ -104,20 +107,22 @@ struct MenuBarAnimationTests {
 
     @Test(arguments: MenuBarAnimation.allCases)
     func animatedFramesActuallyDiffer(_ style: MenuBarAnimation) {
+        // A quarter of the way through its own loop — at twelve frames a second, consecutive
+        // frames are *meant* to be nearly identical; that is what smooth looks like.
         let first = image(style, frame: 0).tiffRepresentation
-        let later = image(style, frame: 1).tiffRepresentation
-        #expect(first != later, "\(style) frame 1 is identical to frame 0")
+        let later = image(style, frame: style.cycleFrames / 4).tiffRepresentation
+        #expect(first != later, "\(style) does not move within its cycle")
     }
 
     /// At rest the animation holds still: the resting frame is what a stopped timer leaves on
     /// screen, and every style's frame 0 is its resting shape.
     @Test(arguments: MenuBarAnimation.allCases)
     func reduceMotionAndRestAreStill(_ style: MenuBarAnimation) {
-        let frames = (0..<MenuBarAnimation.frameCount).map {
+        let frames = (0..<style.cycleFrames).map {
             image(style, frame: $0, reduceMotion: true).tiffRepresentation
         }
         #expect(Set(frames).count == 1, "\(style) still animates under Reduce Motion")
-        let resting = (0..<MenuBarAnimation.frameCount).map {
+        let resting = (0..<style.cycleFrames).map {
             image(style, frame: $0, working: false).tiffRepresentation
         }
         #expect(Set(resting).count == 1, "\(style) animates while no session is working")

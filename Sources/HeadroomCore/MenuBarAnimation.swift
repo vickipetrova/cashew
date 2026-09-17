@@ -32,9 +32,30 @@ enum MenuBarAnimation: String, CaseIterable {
     /// Three bars rising and falling, like a level meter.
     case meterBars
 
-    /// Four frames at the 0.25 s tick: one full cycle a second, which reads as motion without
-    /// asking the eye to track anything.
-    static let frameCount = 4
+    /// Frames per second. Twelve, not the four this started at: at four, a turning glyph and a
+    /// breathing one were barely perceptible — the eye reads slow discrete steps as a still image
+    /// that occasionally jumps — while the orbiting dot, whose movement *was* visible, looked like
+    /// it was teleporting between four corners rather than travelling. The tick only runs while a
+    /// session is working, and a frame is one small image redrawn, not a re-layout of the title.
+    static let framesPerSecond = 12
+    static let tickInterval = 1.0 / Double(framesPerSecond)
+
+    /// How many frames one loop of this style takes, which is what sets its speed. Each is tuned
+    /// separately: the spark's eight-fold symmetry means a 45° turn is a whole cycle, while the dot
+    /// has a full circle to cross and needs longer or it reads as frantic.
+    var cycleFrames: Int {
+        switch self {
+        case .sparkSpin: return 18     // 45° in 1.5s
+        case .sparkPulse: return 24    // one breath every 2s
+        case .gaugeSweep: return 24    // one lap every 2s
+        case .orbitingDot: return 30   // one lap every 2.5s — the slowest, it travels furthest
+        case .meterBars: return 18
+        }
+    }
+
+    /// The longest cycle any style uses, so a single timer can drive all of them without the frame
+    /// counter needing to know which style is current.
+    static let maxCycleFrames = allCases.map(\.cycleFrames).max() ?? 1
 
     var label: String {
         switch self {
@@ -53,9 +74,13 @@ enum MenuBarAnimation: String, CaseIterable {
 
     /// The square every style draws into, and the one number that keeps the styles interchangeable:
     /// switching style in Settings must not move the percentages beside the image.
+    ///
+    /// Margin included, because two styles need room the glyph's own box doesn't have: the pulse
+    /// grows to 1.12 of resting size, and the dot orbits outside the spark. Without it they would
+    /// be clipped exactly the way the rotating spark once was.
     private static var side: CGFloat {
         let size = glyph.size(withAttributes: [.font: font])
-        return ceil(max(size.width, size.height))
+        return ceil(max(size.width, size.height) * 1.16)
     }
 
     private static let dotDiameter: CGFloat = 6
@@ -70,7 +95,12 @@ enum MenuBarAnimation: String, CaseIterable {
         // System mode can't use colour, so waiting is drawn as an extra shape and the image widens.
         let needsDot = attention && mode == .system
         let width = side + (needsDot ? Self.dotGap + Self.dotDiameter : 0)
-        let step = working && !reduceMotion ? ((frame % Self.frameCount) + Self.frameCount) % Self.frameCount : 0
+        let moving = working && !reduceMotion
+        // Where this frame sits in the style's own loop, 0..<1. Styles are written against the
+        // phase rather than a frame index so their speeds can differ without their drawing knowing.
+        let phase = moving
+            ? Double(((frame % cycleFrames) + cycleFrames) % cycleFrames) / Double(cycleFrames)
+            : 0
         let ink: NSColor = mode == .system ? .black : (attention ? .systemYellow : Fmt.spark)
 
         // `NSImage(size:flipped:drawingHandler:)` rather than lockFocus: the handler re-runs per
@@ -78,12 +108,18 @@ enum MenuBarAnimation: String, CaseIterable {
         // scale instead of being rasterized once at whatever the main screen happened to be.
         let image = NSImage(size: NSSize(width: width, height: side), flipped: false) { _ in
             switch self {
-            case .sparkSpin: Self.drawSpark(side: side, ink: ink, rotation: CGFloat(step) * 11.25)
+            case .sparkSpin:
+                // 45°, not 360: ✻ has eight spokes, so a 45° turn *is* a full revolution to the eye.
+                Self.drawSpark(side: side, ink: ink, rotation: CGFloat(phase) * 45)
             case .sparkPulse:
-                Self.drawSpark(side: side, ink: ink, scale: [1, 0.92, 0.84, 0.92][step])
-            case .gaugeSweep: Self.drawGauge(side: side, ink: ink, step: step, working: working && !reduceMotion)
-            case .orbitingDot: Self.drawOrbit(side: side, ink: ink, step: step, working: working && !reduceMotion)
-            case .meterBars: Self.drawBars(side: side, ink: ink, step: step, working: working && !reduceMotion)
+                // A cosine, so it eases at both ends instead of stepping, and it grows past resting
+                // size rather than only shrinking — at 4 frames between 1.0 and 0.84 the breath was
+                // invisible.
+                let eased = (1 - cos(phase * 2 * .pi)) / 2
+                Self.drawSpark(side: side, ink: ink, scale: CGFloat(0.86 + 0.26 * eased))
+            case .gaugeSweep: Self.drawGauge(side: side, ink: ink, phase: phase, working: moving)
+            case .orbitingDot: Self.drawOrbit(side: side, ink: ink, phase: phase, working: moving)
+            case .meterBars: Self.drawBars(side: side, ink: ink, phase: phase, working: moving)
             }
             if needsDot {
                 ink.setFill()
@@ -114,7 +150,7 @@ enum MenuBarAnimation: String, CaseIterable {
 
     /// A ring with a brighter arc running around it. At rest the ring is whole, which is what the
     /// gauges in the app icon look like when they aren't moving.
-    private static func drawGauge(side: CGFloat, ink: NSColor, step: Int, working: Bool) {
+    private static func drawGauge(side: CGFloat, ink: NSColor, phase: Double, working: Bool) {
         let lineWidth: CGFloat = 1.8
         // The inset keeps the stroke — which straddles the path — a clear pixel inside the canvas.
         let radius = side / 2 - lineWidth / 2 - 1
@@ -127,10 +163,14 @@ enum MenuBarAnimation: String, CaseIterable {
         ring.stroke()
 
         guard working else { return }
-        let start = 90 - CGFloat(step) * 90
+        // The arc's length breathes as it travels — it stretches as it leaves the top and gathers
+        // back in, the way a real gauge needle's trail would, which is what stops a constant-length
+        // arc going round at constant speed from looking mechanical.
+        let start = 90 - CGFloat(phase) * 360
+        let sweep = CGFloat(70 + 50 * (1 - cos(phase * 4 * .pi)) / 2)
         let arc = NSBezierPath()
         arc.appendArc(withCenter: centre, radius: radius, startAngle: start,
-                      endAngle: start - 100, clockwise: true)
+                      endAngle: start - sweep, clockwise: true)
         arc.lineWidth = lineWidth
         arc.lineCapStyle = .round
         ink.setStroke()
@@ -139,31 +179,35 @@ enum MenuBarAnimation: String, CaseIterable {
 
     /// A smaller spark with a dot going round it. At rest it is just the spark, at full size, so
     /// stopping doesn't leave a stray dot parked somewhere.
-    private static func drawOrbit(side: CGFloat, ink: NSColor, step: Int, working: Bool) {
+    private static func drawOrbit(side: CGFloat, ink: NSColor, phase: Double, working: Bool) {
         guard working else { return drawSpark(side: side, ink: ink) }
         drawSpark(side: side, ink: ink, scale: 0.62)
-        let diameter: CGFloat = 3.4
+        // Smaller and slower than the first version: a big dot jumping a quarter-circle per frame
+        // read as a blinking light in the corner of the eye, which is the one thing a menu bar
+        // animation must not do. It now travels continuously and takes 2.5s to come round.
+        let diameter: CGFloat = 2.8
         let radius = side / 2 - diameter / 2 - 1
-        let angle = CGFloat(90 - step * 90) * .pi / 180
-        let centre = NSPoint(x: side / 2 + cos(angle) * radius, y: side / 2 + sin(angle) * radius)
+        let angle = (90 - phase * 360) * .pi / 180
+        let centre = NSPoint(x: side / 2 + CGFloat(cos(angle)) * radius,
+                             y: side / 2 + CGFloat(sin(angle)) * radius)
         ink.setFill()
         NSBezierPath(ovalIn: NSRect(x: centre.x - diameter / 2, y: centre.y - diameter / 2,
                                     width: diameter, height: diameter)).fill()
     }
 
     /// Three bars. At rest they sit low and level, so the style still says "nothing is happening".
-    private static func drawBars(side: CGFloat, ink: NSColor, step: Int, working: Bool) {
+    private static func drawBars(side: CGFloat, ink: NSColor, phase: Double, working: Bool) {
         let barWidth: CGFloat = 2.4, gap: CGFloat = 1.8
         let total = barWidth * 3 + gap * 2
         let left = (side - total) / 2
         let floorY = (side - (side - 4)) / 2
         let tallest = side - 4
-        // Each column runs through the same heights a step apart, which is what makes the row look
-        // like one moving thing rather than three blinking ones.
-        let heights: [CGFloat] = [0.35, 0.65, 1.0, 0.65]
+        // A sine per column, each a third of a cycle behind the last: the row reads as one wave
+        // passing through three bars rather than three lights blinking in turn.
         ink.setFill()
         for bar in 0..<3 {
-            let fraction = working ? heights[(step + bar) % heights.count] : 0.35
+            let wave = (1 - cos((phase + Double(bar) / 3) * 2 * .pi)) / 2
+            let fraction = CGFloat(working ? 0.3 + 0.7 * wave : 0.3)
             let height = tallest * fraction
             let rect = NSRect(x: left + CGFloat(bar) * (barWidth + gap), y: floorY,
                               width: barWidth, height: height)
