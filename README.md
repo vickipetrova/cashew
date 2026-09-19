@@ -85,26 +85,35 @@ Applications.
 
 ## Settings
 
-Everything lives in the dropdown under **Settings**:
+Everything lives in the dropdown under **Settings**, grouped into three sections:
 
-| Setting | Options | Default |
-|---|---|---|
-| Refresh every | 1 / 5 / 15 minutes | 5 minutes |
-| Notify above | Off / 50% / 80% / 90% | 80% |
-| Show in Menu Bar | any combination of the limits your plan reports | Session + Weekly |
-| Colors | Alerts only / System | Alerts only |
-| Live from Claude Code | on / off status, and setup when it's off — see [below](#live-usage-from-claude-code) | off |
-| Launch at Login | on / off | off |
+| Settings ▸ | Setting | Options | Default |
+|---|---|---|---|
+| **Menu Bar** | Limits shown | any combination of the limits your plan reports, or none | Session + Weekly |
+| | Status words | on / off | on |
+| | Animation | Spark spin / Spark pulse / Gauge sweep / Orbiting dot / Meter bars / Cashew | Spark spin |
+| | Color | Only when usage is high / Never | Only when usage is high |
+| **Alerts & Refresh** | Notify when usage passes | Never / 50% / 80% / 90% | 80% |
+| | Check usage every | 1 / 5 / 15 minutes | 5 minutes |
+| **Claude Code** | Track sessions | on / off, with a status line under it | on |
+| | Live updates | status, and setup when it's off — see [below](#live-usage-from-claude-code) | off |
+| *(top level)* | Open at Login | on / off | off |
+| | Check for Updates | on / off | on |
 
-**Show in Menu Bar** picks which numbers appear in the title. The list is built from whatever the
-API currently reports, so a per-model limit shows up by name once your plan has one. Choices are
-stored against each limit's identifier rather than its name, so a limit that disappears for a while
-comes back selected rather than silently reset — and at least one always stays on.
+On/off settings are switches, and flipping one leaves the menu open — you can change two or three in
+a visit. Picking from a list (an animation, a colour, a threshold) closes the menu, the way choosing
+from any macOS menu does.
 
-**Colors** decides how much the menu bar and the panel use colour. *Alerts only* keeps the spark
-orange and everything else in the ordinary label colour until usage is worth noticing, then turns
-yellow at 50% and red at 80% — so colour means "look at this" rather than being permanently on.
-*System* is fully monochrome: the thresholds stop applying entirely and the spark becomes a template
+**Limits shown** picks which numbers appear in the title. The list is built from whatever the API
+currently reports, so a per-model limit shows up by name once your plan has one. Choices are stored
+against each limit's identifier rather than its name, so a limit that disappears for a while comes
+back selected rather than silently reset. Unticking all of them is allowed: the menu bar then shows
+the cashew on its own, plus whatever the status words are saying.
+
+**Color** decides how much colour the menu bar and the panel use. *Only when usage is high* keeps the
+spark orange and everything else in the ordinary label colour until usage is worth noticing, then
+turns yellow at 50% and red at 80% — so colour means "look at this" rather than being permanently on.
+*Never* is fully monochrome: the thresholds stop applying entirely and the spark becomes a template
 image, so the whole item adapts like a built-in menu bar control.
 
 Alerts fire at most once per window per reset period, so sitting at 85% doesn't produce an alert on
@@ -131,8 +140,8 @@ one of two ways depending on whether you already have a statusline.
 
 ### You already have a statusline script
 
-Add this right after the line that reads stdin (usually `input=$(cat)`). **Settings › Set Up Live
-Updates…** shows the same line with a button to copy it:
+Add this right after the line that reads stdin (usually `input=$(cat)`).
+**Settings › Claude Code › Set Up Live Updates…** shows the same line with a button to copy it:
 
 ```bash
 { mkdir -p "$HOME/Library/Application Support/com.vickipetrova.cashew" \
@@ -174,7 +183,7 @@ The statusline appears the next time Claude Code renders one — send a message 
 
 ### Checking it works
 
-**Settings › Live from Claude Code** shows what Cashew sees:
+**Settings › Claude Code › Live updates** shows what Cashew sees:
 
 | Status | Meaning |
 |---|---|
@@ -271,9 +280,9 @@ Cashew's one distinguishing bet is that you shouldn't have to set anything up.
 
 ## Uninstall
 
-First, if you use session tracking, turn off **Settings › Track Claude Code Sessions** while
+First, if you use session tracking, turn off **Settings › Claude Code › Track sessions** while
 Cashew is still installed — that removes its hooks from `~/.claude/settings.json`. If you turned
-on Launch at Login, switch that off too (or remove Cashew from System Settings › General › Login
+on Open at Login, switch that off too (or remove Cashew from System Settings › General › Login
 Items). Then:
 
 ```bash
@@ -302,7 +311,7 @@ time it runs from `/Applications` (or `~/Applications`): `SessionStart`, `UserPr
 path and tool *name* — never your prompts, tool input or output. Sessions already open when the hooks are added appear
 once they're restarted.
 
-Turn it off under **Settings › Track Claude Code Sessions**, which removes the hooks. **Turn it off
+Turn it off under **Settings › Claude Code › Track sessions**, which removes the hooks. **Turn it off
 before deleting Cashew.** If you forget, each leftover hook checks that Cashew's helper is still
 there and exits quietly when it isn't, so your sessions are unaffected — but the entries stay in
 `settings.json` until you remove them (reinstalling Cashew and turning tracking off does it for

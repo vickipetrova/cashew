@@ -97,7 +97,8 @@ struct StatuslineFeed {
 
     /// Menu and dialog copy, kept here rather than in `MenuController`, which stays free of
     /// Claude-specific strings.
-    static let menuHeading = "LIVE FROM CLAUDE CODE"
+    /// Inside the Claude Code section, which has already said so.
+    static let menuHeading = "LIVE UPDATES"
     static let setupMenuTitle = "Set Up Live Updates…"
     static let setupDialogTitle = "Live updates from Claude Code"
     static let setupDialogMessage = """

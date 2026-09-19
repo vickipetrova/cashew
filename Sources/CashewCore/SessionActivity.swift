@@ -127,10 +127,22 @@ struct SessionActivity {
     // MARK: Copy — here rather than in `MenuController`, which stays free of Claude-specific strings.
 
     static let menuHeading = "CLAUDE CODE"
-    static let settingsHeading = "CLAUDE CODE SESSIONS"
-    static let trackMenuTitle = "Track Claude Code Sessions"
-    static let statusWordsMenuTitle = "Show Status Words"
-    static let animationHeading = "MENU BAR ANIMATION"
+
+    /// The name of the Settings section that opens this group, so it reads as a place rather than a
+    /// heading over a list: "Settings ▸ Claude Code ▸ …".
+    static let settingsHeading = "Claude Code"
+
+    /// Short because the section it sits in already said "Claude Code" — spelling it out again made
+    /// the longest row in the submenu out of a word the user had just hovered over.
+    static let trackMenuTitle = "Track sessions"
+    static let trackMenuSubtitle = "See what each session is doing"
+
+    /// "Status words" is the one setting here nobody can guess from its name, which is what the
+    /// subtitle is for: it names the thing you'd see rather than the feature.
+    static let statusWordsMenuTitle = "Status words"
+    static let statusWordsMenuSubtitle = "Say what Claude Code is doing"
+
+    static let animationHeading = "ANIMATION"
     static let idleLabel = "Idle"
     static let workingLabel = "Working"
     static let endedLabel = "Ended"
