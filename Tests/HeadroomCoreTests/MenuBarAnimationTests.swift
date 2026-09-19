@@ -85,7 +85,10 @@ struct MenuBarAnimationTests {
         let sheet = try #require(NSImage(data: data))
         #expect(abs(image.size.width / image.size.height
                     - sheet.size.width / sheet.size.height) < 0.01)
-        #expect(image.size.height <= NSStatusBar.system.thickness)
+        // Taller than `thickness` on purpose: that value under-reports what the bar draws, and the
+        // art carries its own margin (roughly 4 of its 36 rows), so the ink still lands inside.
+        // Checked by screenshot at this size, with space above the head and below the feet.
+        #expect(image.size.height == NSStatusBar.system.thickness + 4)
         // Ink reaches the edge, which is what "no margin" means.
         #expect(ink(image).touchesEdge)
     }

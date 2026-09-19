@@ -122,7 +122,7 @@ enum MenuBarAnimation: String, CaseIterable {
     /// it. At 26 the character rendered visibly larger with its head and feet cut off by the bar.
     /// The frames put roughly 32 of their 36 rows to use, so 20pt of image is about 18pt of ink,
     /// which is what the button's content actually has room for.
-    private static let spriteHeight: CGFloat = 20
+    private static let spriteHeight: CGFloat = 26
 
     /// The canvas this style draws into.
     ///
