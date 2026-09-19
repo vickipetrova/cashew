@@ -31,10 +31,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)  // Menu bar only, no dock icon, no window.
 
-        // Before anything reads history, settings or the statusline file: the app was called
-        // Headroom until the rename, and macOS keys all three to the bundle identifier.
-        LegacyMigration.run()
-
         menuController.onRefresh = { [weak self] in self?.refresh() }
         menuController.onSettingsChanged = { [weak self] in self?.settingsChanged() }
         menuController.onTrackSessionsChanged = { [weak self] in self?.startSessionTracking() }

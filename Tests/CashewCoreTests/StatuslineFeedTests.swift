@@ -136,7 +136,7 @@ import Testing
 
     @Test func statusOfAFreshReadingIsLive() {
         let feed = StatuslineFeed(directory: scratch(), seed: real, now: now, age: 120)
-        #expect(feed.status(now: now) == .live(since: now.addingTimeInterval(-120), legacy: false))
+        #expect(feed.status(now: now) == .live(since: now.addingTimeInterval(-120)))
         #expect(feed.status(now: now).label(now: now) == "On · updated 2m ago")
     }
 
@@ -179,12 +179,7 @@ import Testing
     @Test func setupIsOfferedOnlyWhenReadingsAreNotArriving() {
         #expect(StatuslineFeed.Status.notSetUp.offersSetup)
         #expect(StatuslineFeed.Status.unreadable.offersSetup)
-        #expect(!StatuslineFeed.Status.live(since: now, legacy: false).offersSetup)
-        // The one working state that still needs the user to do something: the snippet is writing
-        // where the app used to look, because it was pasted before the rename.
-        #expect(StatuslineFeed.Status.live(since: now, legacy: true).offersSetup)
-        #expect(StatuslineFeed.Status.live(since: now, legacy: true).label(now: now)
-                == "On · updated just now · re-copy the snippet")
+        #expect(!StatuslineFeed.Status.live(since: now).offersSetup)
         #expect(!StatuslineFeed.Status.idle(since: now).offersSetup)
         #expect(!StatuslineFeed.Status.noLimits.offersSetup)
     }

@@ -18,13 +18,6 @@ struct HookInstaller {
     /// `my-cashew-hook-script.sh` is never mistaken for one and removed.
     static let marker = "/Contents/Helpers/cashew-hook"
 
-    /// The helper's path before the app was renamed.
-    ///
-    /// Hooks are recognised by this path, so without it every `headroom-hook` entry in the user's
-    /// settings would survive the rename: one dead hook per event, each naming an app that no longer
-    /// exists. They are stripped exactly like ours, because they *are* ours.
-    static let legacyMarker = "/Contents/Helpers/headroom-hook"
-
     let claudeDirectory: URL
     let helperPath: String
     /// `Settings.allowHooksOutsideApplications`: lets a dev build install hooks. See `isRunnableLocation`.
@@ -183,21 +176,16 @@ struct HookInstaller {
         return entry
     }
 
-    /// Ours by the helper it runs — under either name the app has had.
-    static func isOurs(_ command: String) -> Bool {
-        command.contains(marker) || command.contains(legacyMarker)
-    }
-
     private static func ourHookCount(in entry: Any) -> Int {
         guard let hooks = (entry as? [String: Any])?["hooks"] as? [Any] else { return 0 }
-        return hooks.filter { isOurs((($0 as? [String: Any])?["command"] as? String) ?? "") }.count
+        return hooks.filter { (($0 as? [String: Any])?["command"] as? String)?.contains(marker) == true }.count
     }
 
     /// The entry with Cashew's hooks taken out; nil when nothing of it remains.
     private static func stripOurs(_ entry: Any) -> Any? {
         guard var dictionary = entry as? [String: Any], let hooks = dictionary["hooks"] as? [Any]
         else { return entry }
-        let kept = hooks.filter { !isOurs((($0 as? [String: Any])?["command"] as? String) ?? "") }
+        let kept = hooks.filter { (($0 as? [String: Any])?["command"] as? String)?.contains(marker) != true }
         guard kept.count != hooks.count else { return entry }
         guard !kept.isEmpty else { return nil }
         dictionary["hooks"] = kept

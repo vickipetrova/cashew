@@ -24,26 +24,13 @@ struct StatuslineFeed {
 
     private let fileURL: URL
 
-    /// Where the snippet wrote before the app was renamed.
-    ///
-    /// The line lives in the user's own statusline script, which Cashew has never edited and is not
-    /// about to start editing — so after the rename their script keeps writing to the Headroom
-    /// folder. Reading both means live updates survive the rename untouched, and Settings can say,
-    /// once, that the snippet is worth re-copying.
-    private let legacyFileURL: URL?
-
     /// Alongside the history and snapshot, in Cashew's own directory — see `SECURITY.md`.
-    static let `default` = StatuslineFeed(
-        directory: FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(LegacyMigration.bundleID, isDirectory: true),
-        legacyDirectory: FileManager.default
-            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent(LegacyMigration.legacyBundleID, isDirectory: true))
+    static let `default` = StatuslineFeed(directory: FileManager.default
+        .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        .appendingPathComponent("com.vickipetrova.cashew", isDirectory: true))
 
-    init(directory: URL, legacyDirectory: URL? = nil) {
+    init(directory: URL) {
         fileURL = directory.appendingPathComponent("statusline.json")
-        legacyFileURL = legacyDirectory?.appendingPathComponent("statusline.json")
     }
 
     /// The windows Claude Code last reported, or nil if there's nothing recent and readable.
@@ -51,20 +38,8 @@ struct StatuslineFeed {
     /// Nil is not an error. It means "poll instead", which is the normal state for anyone who hasn't
     /// opted in and for anyone whose Claude Code isn't running.
     func read(now: Date = Date()) -> [LimitWindow]? {
-        guard case .live(let windows, _) = best(now: now).loaded else { return nil }
+        guard case .live(let windows, _) = load(now: now) else { return nil }
         return windows
-    }
-
-    /// The better of the two locations: the current one when it is live, the old one when it is the
-    /// only one that is. Anything else reports the current file, so the Settings copy still
-    /// describes the path the snippet is supposed to be writing to.
-    private func best(now: Date) -> (loaded: Loaded, legacy: Bool) {
-        let current = load(fileURL, now: now)
-        if case .live = current { return (current, false) }
-        guard let legacyFileURL else { return (current, false) }
-        let legacy = load(legacyFileURL, now: now)
-        if case .live = legacy { return (legacy, true) }
-        return (current, false)
     }
 
     /// Whether the feed is working, for the Settings submenu.
@@ -73,10 +48,9 @@ struct StatuslineFeed {
     /// pasted the line wrong, or who is missing `jq`, gets polling and no hint that anything failed —
     /// every error in the snippet is swallowed on purpose.
     func status(now: Date = Date()) -> Status {
-        let (loaded, legacy) = best(now: now)
-        switch loaded {
+        switch load(now: now) {
         case .notSetUp: return .notSetUp
-        case .live(_, let written): return .live(since: written, legacy: legacy)
+        case .live(_, let written): return .live(since: written)
         case .idle(let written): return .idle(since: written)
         case .unreadable: return .unreadable
         case .noLimits: return .noLimits
@@ -86,7 +60,7 @@ struct StatuslineFeed {
     enum Status: Equatable {
         /// No file: the line was never added, or Claude Code hasn't rendered a statusline since.
         case notSetUp
-        case live(since: Date, legacy: Bool)
+        case live(since: Date)
         /// Older than `maxAge`, or dated in the future. Normal whenever Claude Code is closed.
         case idle(since: Date)
         /// Fresh but not JSON. What a missing `jq` produces: the shell creates the file for the
@@ -102,11 +76,7 @@ struct StatuslineFeed {
         func label(now: Date = Date()) -> String {
             switch self {
             case .notSetUp: return "Off"
-            case .live(let since, let legacy):
-                let age = "On · updated \(Fmt.age(of: since, from: now))"
-                // Working, but through the path the app used before it was renamed. Saying so is
-                // what stops it quietly breaking the day that folder is cleaned up.
-                return legacy ? "\(age) · re-copy the snippet" : age
+            case .live(let since): return "On · updated \(Fmt.age(of: since, from: now))"
             case .idle(let since) where since > now: return "On · waiting for Claude Code"
             case .idle(let since): return "On · last reading \(Fmt.age(of: since, from: now))"
             case .unreadable: return "Not working — is jq installed?"
@@ -120,9 +90,7 @@ struct StatuslineFeed {
         var offersSetup: Bool {
             switch self {
             case .notSetUp, .unreadable: return true
-            // A legacy reading is the one *working* state that still needs the user to act.
-            case .live(_, let legacy): return legacy
-            case .idle, .noLimits: return false
+            case .live, .idle, .noLimits: return false
             }
         }
     }
@@ -170,7 +138,7 @@ struct StatuslineFeed {
         case noLimits
     }
 
-    private func load(_ fileURL: URL, now: Date) -> Loaded {
+    private func load(now: Date) -> Loaded {
         guard let written = try? FileManager.default
             .attributesOfItem(atPath: fileURL.path)[.modificationDate] as? Date else { return .notSetUp }
         // The payload carries no timestamp of its own, so the file's mtime is the only answer to

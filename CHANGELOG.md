@@ -12,21 +12,12 @@ All notable changes to Cashew are documented here. The format follows
   bundle identifier (`com.vickipetrova.headroom` → `com.vickipetrova.cashew`), the hook helper, the
   Swift modules and the repository all take the new name.
 
-  macOS keys a great deal to the bundle identifier, so the first launch carries an existing install
-  across: the Application Support folder (usage history, the last good reading, live session files,
-  the statusline file) is **copied** — the original is left behind, so an older build still finds
-  its data — preferences are carried over without touching anything already set on the new side, and
-  the alert markers come too, so a threshold you were already told about doesn't fire again. Hooks in
-  `~/.claude/settings.json` are recognised under either name, so the old `headroom-hook` entries are
-  replaced rather than left behind pointing at an app that no longer exists.
-
-  **Two things cannot be carried, and both need one click from you.** *Launch at Login* was
-  registered by macOS against the old identifier, and there is no API to read another bundle's
-  registration — re-tick it in Settings. And the Keychain trusts a *binary*, so Claude Code's token
-  prompts once more; Always Allow makes it stick.
-
-  If you added the statusline snippet, it still writes to the old folder and Cashew still reads it —
-  Settings says `re-copy the snippet` while that is true, and copying the new one moves it over.
+  macOS keys a great deal to the bundle identifier, so anyone carrying an install across from the
+  last pre-release should expect it to look new: the Application Support folder, the preferences and
+  the login item all live under the old identifier. Nothing is lost — copy
+  `~/Library/Application Support/com.vickipetrova.headroom` to `…cashew`, re-tick Launch at Login,
+  and re-copy the statusline snippet from Settings if you use it. Claude Code's hooks fix themselves
+  on the next launch, and the Keychain asks once more for the token, because it trusts a binary.
 
 ### Added
 

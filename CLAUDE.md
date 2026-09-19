@@ -51,7 +51,6 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/GitBranch.swift` | Branch from `.git/HEAD`, following worktree `gitdir:` files |
 | `Sources/CashewCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
 | `Sources/CashewCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
-| `Sources/CashewCore/LegacyMigration.swift` | Carrying a Headroom install across to Cashew: the Application Support folder, the preferences, the alert markers. The hooks are handled by `HookInstaller.legacyMarker`, the statusline by `StatuslineFeed`'s second path |
 | `Sources/CashewCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
 | `assets/Cashew.icon` | Icon Composer document — the icon's source of truth. One layer, `cashew.png`, over a cream gradient, with the shadow and material macOS 26 supplies |
 | `assets/icon-1024.png` | A committed *render* of that document, and the only icon input on the CLT-only path |

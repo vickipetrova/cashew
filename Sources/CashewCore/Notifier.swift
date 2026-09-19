@@ -70,12 +70,8 @@ enum Notifier {
     /// Keyed on `LimitWindow.id`, never on the display label. Keying on display copy meant restyling
     /// a heading silently reset which alerts counted as already-sent.
     private static func markerKey(for window: LimitWindow) -> String {
-        "\(markerPrefix)\(window.id)"
+        "notified.\(window.id)"
     }
-
-    /// Shared with `LegacyMigration`, which carries these markers over from the Headroom domain so
-    /// the rename doesn't re-fire alerts already sent for the current period.
-    static let markerPrefix = "notified."
 
     /// Identifies the reset period currently in effect.
     ///
