@@ -109,17 +109,35 @@ enum MenuBarAnimation: String, CaseIterable {
     private static let dotDiameter: CGFloat = 6
     private static let dotGap: CGFloat = 2
 
+    /// The canvas this style draws into.
+    ///
+    /// Square for everything drawn in code, and wider than it is tall for Cashew, whose frames are
+    /// 37×36 with ink out to every edge — no transparent margin to grow into. Squeezing that into
+    /// the square left the character 18.4pt tall inside a menu bar that is 22pt, which is why it
+    /// looked small. Its canvas is now as tall as the others and wide enough for the character at
+    /// 20pt, keeping a clear point on every edge.
+    private var canvas: NSSize {
+        let side = Self.side
+        guard self == .cashew, let sprite = Self.cashewColourFrames.first,
+              sprite.size.width > 0, sprite.size.height > 0 else {
+            return NSSize(width: side, height: side)
+        }
+        let height = side - 2
+        return NSSize(width: ceil(height * sprite.size.width / sprite.size.height) + 2, height: side)
+    }
+
     /// `working` is what stops the animation when every session is idle; `reduceMotion` freezes it
     /// for someone who asked the system for less movement. Both resolve to the resting frame, which
     /// is frame 0 of each style — the shape the style looks like when nothing is happening.
     func image(mode: Settings.ColorMode, frame: Int, working: Bool, attention: Bool,
                reduceMotion: Bool) -> NSImage {
         let side = Self.side
+        let canvas = self.canvas
         // System mode can't use colour, so waiting is drawn as an extra shape and the image widens.
         // Cashew is drawn art rather than a glyph: its colours are its own and tinting it yellow
         // would just make a yellow blob, so it takes the dot in both modes.
         let needsDot = attention && (mode == .system || self == .cashew)
-        let width = side + (needsDot ? Self.dotGap + Self.dotDiameter : 0)
+        let width = canvas.width + (needsDot ? Self.dotGap + Self.dotDiameter : 0)
         let moving = working && !reduceMotion
         // Where this frame sits in the style's own loop, 0..<1. Styles are written against the
         // phase rather than a frame index so their speeds can differ without their drawing knowing.
@@ -131,7 +149,7 @@ enum MenuBarAnimation: String, CaseIterable {
         // `NSImage(size:flipped:drawingHandler:)` rather than lockFocus: the handler re-runs per
         // destination scale, so the image stays sharp on a second display with a different backing
         // scale instead of being rasterized once at whatever the main screen happened to be.
-        let image = NSImage(size: NSSize(width: width, height: side), flipped: false) { _ in
+        let image = NSImage(size: NSSize(width: width, height: canvas.height), flipped: false) { _ in
             switch self {
             case .sparkSpin:
                 // 45°, not 360: ✻ has eight spokes, so a 45° turn *is* a full revolution to the eye.
@@ -146,12 +164,14 @@ enum MenuBarAnimation: String, CaseIterable {
             case .orbitingDot: Self.drawOrbit(side: side, ink: ink, phase: phase, working: moving)
             case .meterBars: Self.drawBars(side: side, ink: ink, phase: phase, working: moving)
             case .cashew:
-                Self.drawCashew(side: side, frame: moving ? Int(phase * Double(Self.cashewFrameCount)) : 0,
+                Self.drawCashew(canvas: canvas,
+                                frame: moving ? Int(phase * Double(Self.cashewFrameCount)) : 0,
                                 template: mode == .system)
             }
             if needsDot {
                 ink.setFill()
-                NSBezierPath(ovalIn: NSRect(x: side + Self.dotGap, y: (side - Self.dotDiameter) / 2,
+                NSBezierPath(ovalIn: NSRect(x: canvas.width + Self.dotGap,
+                                            y: (canvas.height - Self.dotDiameter) / 2,
                                             width: Self.dotDiameter, height: Self.dotDiameter)).fill()
             }
             return true
@@ -239,18 +259,16 @@ enum MenuBarAnimation: String, CaseIterable {
     /// One sprite frame, scaled to sit inside the shared square with the same margin the drawn
     /// styles keep. The template sheet is purpose-drawn as alpha-only ink, so it is used as-is in
     /// System mode rather than being derived from the colour art.
-    private static func drawCashew(side: CGFloat, frame: Int, template: Bool) {
+    private static func drawCashew(canvas: NSSize, frame: Int, template: Bool) {
         let frames = template ? cashewTemplateFrames : cashewColourFrames
         guard !frames.isEmpty else { return }
         let sprite = frames[((frame % frames.count) + frames.count) % frames.count]
         guard sprite.size.width > 0, sprite.size.height > 0 else { return }
-        // Fitted to the *box*, not to a square: the frames are wider than they are tall (39×36), so
-        // scaling both edges against the same number left the character 17.5pt tall when there was
-        // room for 18.4. The 1pt inset on each edge is what keeps it clear of the canvas border,
-        // which is the margin `everyFrameDrawsSomethingAndStaysInsideItsCanvas` checks.
-        let scale = min((side - 2) / sprite.size.width, (side - 3.6) / sprite.size.height)
+        // A point clear of every edge — the margin `everyFrameDrawsSomethingAndStaysInsideItsCanvas`
+        // checks, and all there is room for in a 22pt menu bar.
+        let scale = min((canvas.width - 2) / sprite.size.width, (canvas.height - 2) / sprite.size.height)
         let size = NSSize(width: sprite.size.width * scale, height: sprite.size.height * scale)
-        sprite.draw(in: NSRect(x: (side - size.width) / 2, y: (side - size.height) / 2,
+        sprite.draw(in: NSRect(x: (canvas.width - size.width) / 2, y: (canvas.height - size.height) / 2,
                                width: size.width, height: size.height))
     }
 

@@ -65,11 +65,16 @@ struct MenuBarAnimationTests {
         #expect(image(style, frame: 0, working: false).size == sizes.first)
     }
 
-    /// Every style is the same width as every other, so switching style in Settings doesn't move
-    /// the numbers beside it.
-    @Test func stylesAgreeOnWidth() {
-        let widths = Set(MenuBarAnimation.allCases.map { image($0, frame: 0).size.width })
-        #expect(widths.count == 1)
+    /// The code-drawn styles share one square canvas, so switching between them doesn't move the
+    /// numbers beside the image. Cashew is drawn art whose frames are wider than they are tall, so
+    /// it gets a canvas to match — the alternative was letterboxing the character into a square and
+    /// shipping it two points smaller than the menu bar allows. Every style is the same *height*.
+    @Test func stylesAgreeOnWidthExceptTheSpriteAndOnHeightAlways() {
+        let drawn = MenuBarAnimation.allCases.filter { $0 != .cashew }
+        #expect(Set(drawn.map { image($0, frame: 0).size.width }).count == 1)
+        #expect(Set(MenuBarAnimation.allCases.map { image($0, frame: 0).size.height }).count == 1)
+        // And it is bigger than the square would have allowed, which is the point of the exception.
+        #expect(image(.cashew, frame: 0).size.width > image(.sparkSpin, frame: 0).size.width)
     }
 
     @Test(arguments: MenuBarAnimation.allCases)
