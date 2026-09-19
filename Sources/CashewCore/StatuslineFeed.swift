@@ -109,12 +109,13 @@ struct StatuslineFeed {
         Add the line below to your statusline script, right after the line that reads its input. It \
         needs jq, which macOS 15 and later include.
 
-        No statusline yet? The Cashew README has a complete starter script.
+        No statusline yet? Cashew's docs have a complete starter script.
         """
     static let setupCopyButton = "Copy Snippet"
 
-    /// The one line a user adds to their statusline script. The README quotes it verbatim, and a
-    /// test holds the two together — a copy that drifted from the docs would be the worse of both.
+    /// The one line a user adds to their statusline script. `docs/LIVE-UPDATES.md` quotes it
+    /// verbatim, and a test holds the two together — a copy that drifted from the docs would be the
+    /// worse of both.
     static let setupCommand = """
         { mkdir -p "$HOME/Library/Application Support/com.vickipetrova.cashew" \\
           && printf '%s' "$input" | jq -c '{rate_limits}' \\
@@ -123,10 +124,16 @@ struct StatuslineFeed {
 
     /// What Copy Snippet puts on the clipboard: the command, with enough comment around it to
     /// still make sense when it is pasted somewhere an hour later.
+    ///
+    /// The URL is pasted into the user's own statusline script and stays there indefinitely, so it
+    /// has to point somewhere that will not move. A README anchor was the wrong choice — README
+    /// sections get reordered and renamed, and this link cannot be corrected once it is on someone
+    /// else's disk. A file path can only break if the file is deleted, and `theSnippetLinksToAPage`
+    /// fails the build if it is.
     static let setupSnippet = """
         # Cashew: live plan usage in the menu bar. Goes in your Claude Code statusline script,
         # right after `input=$(cat)`. No statusline yet? See
-        # https://github.com/vickipetrova/cashew#live-usage-from-claude-code
+        # https://github.com/vickipetrova/cashew/blob/main/docs/LIVE-UPDATES.md
         \(setupCommand)
 
         """

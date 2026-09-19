@@ -135,11 +135,12 @@ As above, a per-model limit's identifier and heading contain the model's display
 reported it, so those names appear in both files.
 
 A third file may appear in the same directory, `statusline.json`, but **Cashew never writes it** —
-it only reads it. It exists if you opted into the Claude Code statusline shortcut described in the
-README, in which case your own statusline script writes it. The snippet in the README filters the
-payload down to `rate_limits` before writing, so the working directory, session id, transcript path
-and cost that Claude Code also passes stay out of it. If you wrote your own variant that stores more
-than that, it stores what you told it to; Cashew reads only `rate_limits` either way.
+it only reads it. It exists if you opted into the Claude Code statusline shortcut described in
+[docs/LIVE-UPDATES.md](docs/LIVE-UPDATES.md), in which case your own statusline script writes it.
+The snippet there filters the payload down to `rate_limits` before writing, so the working
+directory, session id, transcript path and cost that Claude Code also passes stay out of it. If you
+wrote your own variant that stores more than that, it stores what you told it to; Cashew reads only
+`rate_limits` either way.
 
 In `~/Library/Application Support/com.vickipetrova.cashew/sessions/`, one small file per live
 Claude Code session, **named after the session's own id**. Each holds: the session's state and the
