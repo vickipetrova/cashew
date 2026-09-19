@@ -86,6 +86,32 @@ import Testing
         #expect(sessions.allSatisfy { $0.state == .idle })
     }
 
+    /// `Stop` and `StopFailure` are the only events that write `idle`, so a file that says so is a
+    /// turn that ended by itself — and Cashew says so for a minute afterwards.
+    @Test func aTurnThatJustEndedSaysSo() throws {
+        try seed("fresh", .idle, age: 5)
+        try seed("stale", .idle, age: 61)
+        let finished = Dictionary(uniqueKeysWithValues:
+            activity().sessions(now: now).map { ($0.id, $0.justFinished) })
+        #expect(finished["fresh"] == true)
+        #expect(finished["stale"] == false)
+    }
+
+    /// The two other routes to idle. Neither finished anything, and congratulating a turn the user
+    /// cut short with Esc would be the worse of the two lies.
+    @Test func goingQuietAndBeingInterruptedAreNotFinishing() throws {
+        try seed("interrupted", .tool, transcript: "/t/a.jsonl")
+        try seed("quiet", .thinking, pid: nil, age: 2 * 3600 + 1)
+        let sessions = activity(interrupted: { path, _ in path == "/t/a.jsonl" }).sessions(now: now)
+        #expect(sessions.allSatisfy { $0.state == .idle })
+        #expect(sessions.allSatisfy { !$0.justFinished })
+    }
+
+    @Test func aWorkingSessionHasNotFinished() throws {
+        try seed("a", .tool, age: 1)
+        #expect(activity().sessions(now: now).allSatisfy { !$0.justFinished })
+    }
+
     @Test func mostUrgentFirstThenMostRecent() throws {
         try seed("idle", .idle, age: 1)
         try seed("thinking", .thinking, age: 2)

@@ -149,7 +149,21 @@ final class MenuController: NSObject, NSMenuDelegate {
         // otherwise it would wait for the next session event, which in a quiet moment can be a
         // while. Everything else is only the image: at twelve frames a second, re-running the
         // title's forecasts and attributed-string building would be a lot of work for the same text.
-        if titleWord.hasPending { renderTitle() } else { renderStatusImage() }
+        //
+        // `wordWentStale` is the other half, and it is not the same case. `hasPending` means the
+        // hooks announced a change and the hold deferred it. A turn crossing into `.starting` →
+        // `.thinking` → `.lingering` is announced by nothing — it happens on the clock while Claude
+        // Code sits silent, which is precisely when "been here a while" is worth saying — so there
+        // was never anything to defer. Asking costs a hash and an array lookup.
+        if titleWord.hasPending || wordWentStale() { renderTitle() } else { renderStatusImage() }
+    }
+
+    /// Whether the word the sessions would produce right now differs from the one on screen.
+    private func wordWentStale() -> Bool {
+        guard Settings.showStatusWords else { return false }
+        // Read-only: `renderTitle` is what commits the choice to `titleSessionID`.
+        let speaking = TitleSession.chosen(from: sessions, sticky: titleSessionID)
+        return StatusWords.title(for: speaking) != titleWord.current
     }
 
     // MARK: - In-place refresh

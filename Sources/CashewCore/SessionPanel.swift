@@ -22,15 +22,16 @@ struct SessionRow: Equatable {
     init(_ session: Session, now: Date) {
         title = session.branch.map { "\(session.project) · \($0)" } ?? session.project
         needsAttention = session.state == .permission
+        // One phrase book for both surfaces, so the row and the menu bar can't describe the same
+        // session differently. The row gets the pick in full; the menu bar has less room.
+        let phrase = StatusWords.rowStatus(for: session, now: now)
         switch session.state {
-        case .permission:
-            status = session.label.isEmpty ? SessionLabels.permission : session.label
-        case .idle:
-            status = SessionActivity.idleLabel
+        case .permission, .idle:
+            // Nothing is being measured: one turn is waiting on you, the other has ended.
+            status = phrase
         case .thinking, .tool:
-            let label = session.label.isEmpty ? SessionActivity.workingLabel : session.label
             let elapsed = Fmt.elapsed(since: session.turnStartedAt, now: now)
-            status = elapsed.isEmpty ? label : "\(label) · \(elapsed)"
+            status = elapsed.isEmpty ? phrase : "\(phrase) · \(elapsed)"
         }
     }
 

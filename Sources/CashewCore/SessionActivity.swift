@@ -10,6 +10,10 @@ struct Session: Equatable {
     let branch: String?
     let turnStartedAt: Date?
     let updatedAt: Date
+    /// A turn that ended by itself, just now — see `SessionActivity.justFinishedWindow`. Derived
+    /// rather than stored: `SessionState` is written to disk by the helper, and "recently" is a
+    /// display rule that changes on its own as the clock moves.
+    var justFinished: Bool = false
 }
 
 /// Reads the session files `cashew-hook` writes.
@@ -31,6 +35,9 @@ struct SessionActivity {
     /// Without a process to check, a session still "working" this long after its last event is
     /// assumed to have stopped without saying so.
     static let unownedWorkingLimit: TimeInterval = 2 * 3600
+    /// How long after a turn ends Cashew still says so. Long enough to catch on the way past, short
+    /// enough that a row left open overnight isn't still taking a bow.
+    static let justFinishedWindow: TimeInterval = 60
     /// Past this, a file is deleted whatever it says — a session killed without `SessionEnd` would
     /// otherwise leave it forever. Also covers a pid recycled by another process.
     static let ignoredAfter: TimeInterval = 24 * 3600
@@ -58,10 +65,10 @@ struct SessionActivity {
 
         let projects = Self.projectNames(cwds: records.map { $0.record.cwd })
         let sessions = zip(records, projects).map { entry, project -> Session in
-            let (state, label) = effectiveState(entry.record, now: now)
+            let (state, label, finished) = effectiveState(entry.record, now: now)
             return Session(id: entry.id, state: state, label: label, project: project,
                            branch: branch(entry.record.cwd), turnStartedAt: entry.record.turnStartedAt,
-                           updatedAt: entry.record.updatedAt)
+                           updatedAt: entry.record.updatedAt, justFinished: finished)
         }
         return sessions.sorted {
             let (left, right) = (Self.priority($0.state), Self.priority($1.state))
@@ -71,16 +78,22 @@ struct SessionActivity {
         }
     }
 
-    private func effectiveState(_ record: SessionRecord, now: Date) -> (SessionState, String) {
-        guard record.state != .idle else { return (.idle, "") }
+    /// The third value is `Session.justFinished`, and only the first branch can set it. The file
+    /// says `idle` exactly when `Stop` or `StopFailure` wrote it, so a turn that ended by itself is
+    /// the one route here that finished anything; the two below are a session that went quiet and
+    /// one the user interrupted with Esc. Congratulating either would be a lie.
+    private func effectiveState(_ record: SessionRecord, now: Date) -> (SessionState, String, Bool) {
+        guard record.state != .idle else {
+            return (.idle, "", now.timeIntervalSince(record.updatedAt) <= Self.justFinishedWindow)
+        }
         if record.pid == nil, now.timeIntervalSince(record.updatedAt) > Self.unownedWorkingLimit {
-            return (.idle, "")
+            return (.idle, "", false)
         }
         // Esc fires no hook, including at a permission prompt.
         if !record.transcript.isEmpty, interrupted(record.transcript, record.updatedAt) {
-            return (.idle, "")
+            return (.idle, "", false)
         }
-        return (record.state, record.label)
+        return (record.state, record.label, false)
     }
 
     private static func priority(_ state: SessionState) -> Int {
