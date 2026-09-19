@@ -34,6 +34,20 @@ import Testing
         }
     }
 
+    /// One shape for all of it. Everything trails off with an ellipsis; the one moment that is
+    /// waiting on *you* ends flat, because it isn't trailing off — it has stopped and is asking.
+    @Test func everyPhraseEndsTheSameWay() {
+        for pool in StatusWords.allPools where pool != StatusWords.permissionPhrases {
+            for phrase in pool {
+                #expect(phrase.hasSuffix("…"), "should trail off: \(phrase)")
+            }
+        }
+        for phrase in StatusWords.permissionPhrases {
+            let last = phrase.last.map(String.init) ?? ""
+            #expect(!"….!?,;:".contains(last), "should end flat: \(phrase)")
+        }
+    }
+
     @Test func noPhraseIsRepeatedWithinItsPool() {
         for pool in StatusWords.allPools {
             #expect(Set(pool).count == pool.count, "duplicate in \(pool)")

@@ -44,7 +44,7 @@ enum StatusWords {
     }
 
     static let startingPhrases = [
-        SessionLabels.thinking + "…", "On it.", "Oh, a job!", "Right then.", "Here we go.",
+        SessionLabels.thinking + "…", "On it…", "Oh, a job…", "Right then…", "Here we go…",
     ]
 
     static let thinkingPhrases = [
@@ -58,17 +58,19 @@ enum StatusWords {
     /// phrase here but one already fits the menu bar — and having it meant a twelve-minute turn
     /// said "Thinking…" a fifth of the time, which is the one thing this moment exists not to say.
     static let lingeringPhrases = [
-        "Still going.", "Not bored yet.", "Still here. Been a while.", "Long one, this.",
-        "Still at it.",
+        "Still going…", "Not bored yet…", "Still here. Been a while…", "Long one, this…",
+        "Still at it…",
     ]
 
+    /// The one pool that ends flat. These aren't trailing off — the session has stopped and is
+    /// asking you something, so an ellipsis would say the opposite of what is happening.
     static let permissionPhrases = [
-        SessionLabels.permission, "Need a nod from you.", "Tap me — I've got a question.",
-        "Your call, this one.",
+        SessionLabels.permission, "Need a nod from you", "Tap me — I've got a question",
+        "Your call, this one",
     ]
 
     static let finishedPhrases = [
-        "Done.", "Done. That one was tidy.", "Didn't even break a sweat.", "Finished. Next?",
+        "Done…", "Done. That one was tidy…", "Didn't even break a sweat…", "Finished. Next…",
     ]
 
     /// Keyed by the plain label `HookEvent` writes, which is also each pool's first entry.
