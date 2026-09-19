@@ -50,6 +50,11 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Most urgent first (`SessionActivity` sorts them), so the first one decides the title.
     private var sessions: [Session] = []
     private var animationFrame = 0
+    /// Rate-limits the status word so a burst of hook events can't strobe the title. See
+    /// `TitleWordHold` for why this is deliberate rather than a consequence of how often we poll.
+    private var titleWord = TitleWordHold()
+    /// Who the word currently speaks for — see `TitleSession`.
+    private var titleSessionID: String?
     private var availableRelease: Release?
 
     /// Read-only here. `AppDelegate` owns recording, because only it knows a fetch actually
@@ -140,10 +145,11 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// session is active.
     func advanceAnimation() {
         animationFrame = (animationFrame + 1) % MenuBarAnimation.globalCycleFrames
-        // Only the image, not the whole title: at twelve frames a second, re-running the title's
-        // forecasts and attributed-string building for every frame would be a lot of work to
-        // produce the same text.
-        renderStatusImage()
+        // A word held back during a burst is drawn on the first frame after its window passes —
+        // otherwise it would wait for the next session event, which in a quiet moment can be a
+        // while. Everything else is only the image: at twelve frames a second, re-running the
+        // title's forecasts and attributed-string building would be a lot of work for the same text.
+        if titleWord.hasPending { renderTitle() } else { renderStatusImage() }
     }
 
     // MARK: - In-place refresh
@@ -212,7 +218,12 @@ final class MenuController: NSObject, NSMenuDelegate {
         // The word goes first, where the eye already is: the image is to its left, and the numbers
         // it prefixes are the thing it is interrupting. Secondary colour so the percentages, which
         // carry the alert colours, stay the loudest thing in the item.
-        if Settings.showStatusWords, let word = StatusWords.title(for: sessions.first) {
+        let speaking = TitleSession.chosen(from: sessions, sticky: titleSessionID)
+        titleSessionID = speaking?.id
+        let word = Settings.showStatusWords
+            ? titleWord.display(StatusWords.title(for: speaking), now: Date())
+            : nil
+        if let word {
             // Full label colour, and no separator before the numbers. The word is the part you read
             // at a glance while something is running; in secondary grey behind a `·` it read as an
             // aside to the percentages rather than the headline, and the dot made two unrelated
