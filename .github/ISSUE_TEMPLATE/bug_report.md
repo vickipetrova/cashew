@@ -19,7 +19,7 @@ assignees: ''
 
 **Environment**
 
-- Headroom version: <!-- from the DMG filename, or the git commit you built -->
+- Cashew version: <!-- from the DMG filename, or the git commit you built -->
 - macOS version: <!-- Apple menu > About This Mac -->
 - Mac: <!-- Apple Silicon or Intel -->
 - Claude Code version: <!-- claude --version -->
@@ -27,5 +27,5 @@ assignees: ''
 
 **Does `/usage` in Claude Code agree?**
 
-<!-- Run /usage in a Claude Code session and say whether its numbers match what Headroom showed.
+<!-- Run /usage in a Claude Code session and say whether its numbers match what Cashew showed.
      This separates "the app is wrong" from "the endpoint said that". -->

@@ -40,7 +40,7 @@ jobs:
         run: ./build.sh --dmg
 
       - name: Verify the DMG
-        run: test -f build/Headroom.dmg
+        run: test -f build/Cashew.dmg
 
       # The DMG from CI is ad-hoc signed, not notarized — CI never sees a Developer ID. The release
       # is created as a DRAFT so the maintainer can sign, notarize, and staple locally
@@ -53,4 +53,4 @@ jobs:
             --draft \
             --title "${GITHUB_REF_NAME}" \
             --notes "Draft. Replace the attached DMG with a signed + notarized build before publishing — see docs/RELEASING.md. Release notes: see CHANGELOG.md." \
-            build/Headroom.dmg
+            build/Cashew.dmg

@@ -5,7 +5,7 @@
 ## Goal
 
 Bring the useful half of [claude-status-bar](https://github.com/m1ckc3s/claude-status-bar) (MIT,
-© 2026 Mick Cesanek) into Headroom, so one menu bar item shows both plan usage and what Claude Code
+© 2026 Mick Cesanek) into Cashew, so one menu bar item shows both plan usage and what Claude Code
 is doing right now:
 
 1. **Menu bar activity state** — the title shows when any session is working, and when one is
@@ -22,7 +22,7 @@ trademarks and stay out — the MIT license covers code only.
 
 - Clicking a row to focus the session's terminal.
 - Permission-waiting notifications.
-- Launching or quitting Headroom from hooks (Headroom is always running; it has launch-at-login).
+- Launching or quitting Cashew from hooks (Cashew is always running; it has launch-at-login).
 - "Thinking words", animation styles, a timer in the menu bar title.
 - Homebrew update detection (no cask exists yet).
 - Downloading or installing updates (Sparkle-style). The check only links to the release page.
@@ -34,41 +34,41 @@ Two hard rules in `CLAUDE.md` change deliberately, for usability:
 - **Rule 5** becomes: *Two network destinations: `api.anthropic.com` for usage, and
   `api.github.com` for a once-a-day update check the user can turn off. No analytics, no
   identifiers.*
-- **New rule:** *Headroom edits `~/.claude/settings.json` only to add or remove its own hooks —
-  commands that run the bundled `Contents/Helpers/headroom-hook` — and never touches any other key, other hooks, or the
+- **New rule:** *Cashew edits `~/.claude/settings.json` only to add or remove its own hooks —
+  commands that run the bundled `Contents/Helpers/cashew-hook` — and never touches any other key, other hooks, or the
   statusline.*
 
-The `StatuslineFeed` doc comment ("Headroom never edits `~/.claude/settings.json`") is corrected to
+The `StatuslineFeed` doc comment ("Cashew never edits `~/.claude/settings.json`") is corrected to
 match. `README.md` (the "no update checks" line and a new section), `SECURITY.md` (network surface,
 files written) and `CHANGELOG.md` are updated in the same change.
 
 ## Architecture
 
 ```
-Claude Code hook ──stdin JSON──▶ headroom-hook <event> ──atomic write──▶ ~/Library/Application Support/
-                                                                         com.vickipetrova.headroom/sessions/<id>.json
-Headroom: directory watch + fast tick while active ──▶ SessionActivity ──▶ title badge + CLAUDE CODE rows
-Headroom launch ──▶ HookInstaller ──▶ ~/.claude/settings.json (own hooks only)
-Headroom, ≤ once per 24h ──▶ UpdateCheck ──▶ api.github.com/repos/vickipetrova/headroom/releases/latest
+Claude Code hook ──stdin JSON──▶ cashew-hook <event> ──atomic write──▶ ~/Library/Application Support/
+                                                                         com.vickipetrova.cashew/sessions/<id>.json
+Cashew: directory watch + fast tick while active ──▶ SessionActivity ──▶ title badge + CLAUDE CODE rows
+Cashew launch ──▶ HookInstaller ──▶ ~/.claude/settings.json (own hooks only)
+Cashew, ≤ once per 24h ──▶ UpdateCheck ──▶ api.github.com/repos/vickipetrova/cashew/releases/latest
 ```
 
 ### Targets (`Package.swift`)
 
 | Target | Kind | Depends on | Holds |
 |---|---|---|---|
-| `HeadroomShared` | library | Foundation only | Session file schema, hook event → state mapping, tool labels, the sessions directory location |
-| `headroom-hook` | executable | `HeadroomShared` | Top-level code only: read stdin, map, write/delete the session file |
-| `HeadroomCore` | library | `HeadroomShared` | Everything else, as today |
-| `Headroom` | executable | `HeadroomCore` | Unchanged |
+| `CashewShared` | library | Foundation only | Session file schema, hook event → state mapping, tool labels, the sessions directory location |
+| `cashew-hook` | executable | `CashewShared` | Top-level code only: read stdin, map, write/delete the session file |
+| `CashewCore` | library | `CashewShared` | Everything else, as today |
+| `Cashew` | executable | `CashewCore` | Unchanged |
 
-`headroom-hook` must not depend on `HeadroomCore`: it runs on every prompt and tool call and should
+`cashew-hook` must not depend on `CashewCore`: it runs on every prompt and tool call and should
 not load AppKit/SwiftUI. Still zero third-party dependencies; `swiftLanguageModes: [.v5]` and
 `platforms: [.macOS(.v13)]` unchanged. The test target imports both libraries with `@testable`.
 
-## Component 1: `headroom-hook`
+## Component 1: `cashew-hook`
 
 Invoked as `[ -x '<helper>' ] || exit 0; exec '<helper>' <event>`, where `<helper>` is
-`<app>/Contents/Helpers/headroom-hook` and event is one of:
+`<app>/Contents/Helpers/cashew-hook` and event is one of:
 
 | Event arg | Claude Code hook | Resulting state |
 |---|---|---|
@@ -113,14 +113,14 @@ Runs at launch, and when the setting is toggled.
 
 1. If `~/.claude/` does not exist → do nothing (status: Claude Code not found).
 2. When enabling: if the helper is not under `/Applications/` or `~/Applications/` → do nothing
-   (status: *Move Headroom to Applications to turn this on*). A DMG, a translocated copy, Downloads
+   (status: *Move Cashew to Applications to turn this on*). A DMG, a translocated copy, Downloads
    or a build folder would not survive. A translocated path is refused always; any other location is
    allowed only with the developer default `allowHooksOutsideApplications` (off by default).
 3. Read `~/.claude/settings.json` (a missing file is `{}`). If it does not parse as a JSON object →
    **do not touch it** (status: *Couldn't read Claude Code's settings.json*).
 4. Pure merge, `HookInstaller.merged(settings:helperPath:enabled:) -> [String: Any]`:
    - In each hook event array, remove every hook whose `command` contains
-     `/Contents/Helpers/headroom-hook` (not the bare name, so a user's `my-headroom-hook-script.sh`
+     `/Contents/Helpers/cashew-hook` (not the bare name, so a user's `my-cashew-hook-script.sh`
      survives); drop
      entries left with no hooks; drop event keys left empty **only if we emptied them**.
    - If enabled, append our entry for each of the ten events.
@@ -130,7 +130,7 @@ Runs at launch, and when the setting is toggled.
 6. Otherwise: re-read the file and abort if its modification date changed since step 3 (Claude Code
    wrote it meanwhile; retry next launch). If the file exists but is not writable → do not write or
    back up (status: *Couldn't update Claude Code's settings.json*). On the first write ever, copy it to
-   `settings.json.bak-headroom` (never overwritten). Write pretty-printed, sorted keys, without
+   `settings.json.bak-cashew` (never overwritten). Write pretty-printed, sorted keys, without
    escaping slashes, to a temp file and rename over the original, preserving its permissions.
 
 Known cost: `JSONSerialization` does not preserve key order, so the first write reorders the user's
@@ -144,7 +144,7 @@ installed do not appear until restarted; the status says so after a first instal
 
 A missing or non-executable hook command is **not** skipped by Claude Code: the shell exits 127 and
 the session shows a hook error notice (hooks reference). The `[ -x … ] || exit 0` guard is what
-makes the leftovers of a Headroom deleted without turning the setting off exit 0 with no output. The
+makes the leftovers of a Cashew deleted without turning the setting off exit 0 with no output. The
 README's uninstall section still says to turn it off first, so the entries are removed.
 
 ### Setting
@@ -161,8 +161,8 @@ README's uninstall section still says to turn it off first, so the entries are r
 | off, removal failed | `Off · couldn't remove hooks from settings.json` |
 | unparseable settings | `Couldn't read Claude Code's settings.json` |
 | changed meanwhile / not writable / write error | `Couldn't update Claude Code's settings.json` |
-| not in an Applications folder | `Move Headroom to Applications to turn this on` |
-| helper missing from the bundle | `Headroom is incomplete — reinstall it` |
+| not in an Applications folder | `Move Cashew to Applications to turn this on` |
+| helper missing from the bundle | `Cashew is incomplete — reinstall it` |
 | no `~/.claude` | `Claude Code not found` |
 
 ## Component 3: `SessionActivity`
@@ -179,7 +179,7 @@ Pipeline:
    file. JSON booleans are rejected where numbers are expected (`isJSONBoolean`).
 2. **Hide unstarted** sessions (`started: false`).
 3. **Liveness:** if `pid` is present, `kill(pid, 0)` failing with `ESRCH` → the session is gone;
-   the file is deleted (it is Headroom's own directory). The check is injected for tests. Without a
+   the file is deleted (it is Cashew's own directory). The check is injected for tests. Without a
    `pid`: a non-idle state older than 2 hours is treated as `idle`. Any file untouched for 24 hours
    is deleted, with or without a `pid`.
 4. **Interrupt detection** for `thinking`/`tool` sessions — `Stop` does not fire on Esc (docs):
@@ -215,7 +215,7 @@ Pipeline:
 
 **Title.** Usage numbers are untouched; only the spark changes.
 
-- Working: the spark image rotates through frames (Headroom's own glyph). With
+- Working: the spark image rotates through frames (Cashew's own glyph). With
   `accessibilityDisplayShouldReduceMotion`, a static alternate image instead.
 - Awaiting permission: a dot drawn after the spark — yellow in Alerts-only mode, a monochrome
   template shape in System mode. Takes precedence over working.
@@ -235,9 +235,9 @@ are no visible sessions.
 
 ## Component 5: `UpdateCheck`
 
-- `GET https://api.github.com/repos/vickipetrova/headroom/releases/latest` — returns the newest
+- `GET https://api.github.com/repos/vickipetrova/cashew/releases/latest` — returns the newest
   non-draft, non-prerelease release, or 404 when none exists (GitHub docs).
-- Headers: `Accept: application/vnd.github+json`, `User-Agent: Headroom/<version>` (GitHub rejects
+- Headers: `Accept: application/vnd.github+json`, `User-Agent: Cashew/<version>` (GitHub rejects
   requests without one). Ephemeral `URLSession`: no cookies, no cache, no identifiers.
 - Cadence: first check ~60 s after launch; then at most once per 24 h since the last **attempt**
   (stored in `UserDefaults`); also on wake when due.
@@ -251,14 +251,14 @@ are no visible sessions.
 
 ## Build, CI, release
 
-- `build.sh`: build the `headroom-hook` product universal alongside the app, copy it to
-  `Contents/Helpers/headroom-hook`, ad-hoc sign it **before** the app (inside-out, no `--deep`),
-  honouring `$HEADROOM_SIGN_ID` the same way.
+- `build.sh`: build the `cashew-hook` product universal alongside the app, copy it to
+  `Contents/Helpers/cashew-hook`, ad-hoc sign it **before** the app (inside-out, no `--deep`),
+  honouring `$CASHEW_SIGN_ID` the same way.
 - CI (`build.yml`): run the existing `lipo` (arm64 + x86_64), `minos 13.0` and no-`OSO` checks on
   the helper too; assert it exists and is executable. Extend the "tests touch nothing they
   shouldn't" grep with `HookInstaller.default`, `SessionActivity.default`, and the `UpdateCheck`
   network call.
-- `docs/RELEASING.md`: sign `Contents/Helpers/headroom-hook` with
+- `docs/RELEASING.md`: sign `Contents/Helpers/cashew-hook` with
   `--options runtime --timestamp` before the app — the notary service requires the hardened runtime
   on every executable, helpers included.
 
@@ -266,7 +266,7 @@ are no visible sessions.
 
 All `swift test --disable-xctest`; fixtures as JSON **text** through `JSONSerialization`.
 
-- **Hook mapping** (`HeadroomShared`): each event → state/label; `notify` ignores non-permission
+- **Hook mapping** (`CashewShared`): each event → state/label; `notify` ignores non-permission
   notifications; carry-over of `cwd`/`transcript`; id sanitization.
 - **HookInstaller merge:** install into empty/missing settings; preserve unrelated keys and other
   tools' hooks in the same event; replace a stale helper path; removal leaves others intact;
@@ -288,7 +288,7 @@ terminal, toggle the setting off and confirm the hooks are gone.
 
 ## Documentation
 
-`CLAUDE.md`: rule changes above, architecture table rows for `HeadroomShared`, `headroom-hook`,
+`CLAUDE.md`: rule changes above, architecture table rows for `CashewShared`, `cashew-hook`,
 `HookInstaller.swift`, `SessionActivity.swift`, `UpdateCheck.swift`, and the measured traps (guarded
 `exec` hook command / parent process; missing command shows a hook error; compaction; interrupt marker not on the last line; hooks load at session start).
 `README.md`: session tracking section, update check, uninstall note, acknowledgement of

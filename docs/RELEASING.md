@@ -1,6 +1,6 @@
 # Releasing
 
-Headroom's `build.sh` deliberately knows nothing about signing identities or Apple credentials — it
+Cashew's `build.sh` deliberately knows nothing about signing identities or Apple credentials — it
 only ad-hoc signs. Producing a release that opens without a Gatekeeper warning is a manual step on
 the maintainer's Mac, documented here.
 
@@ -18,7 +18,7 @@ git push origin main --tags
 ## 2. CI builds a draft
 
 `.github/workflows/release.yml` runs on any `v*` tag: it builds the app and DMG on a
-`macos-latest` runner and opens a **draft** GitHub Release with `Headroom.dmg` attached.
+`macos-latest` runner and opens a **draft** GitHub Release with `Cashew.dmg` attached.
 
 That asset is ad-hoc signed — CI never sees a Developer ID, by design. It is fine for testing and
 wrong to publish. Replace it with a properly signed one below.
@@ -39,7 +39,7 @@ One-time setup on your Mac:
    time.
 
 ```bash
-xcrun notarytool store-credentials "headroom" \
+xcrun notarytool store-credentials "cashew" \
   --apple-id you@example.com \
   --team-id YOURTEAMID
 ```
@@ -56,36 +56,36 @@ SIGN_ID="Developer ID Application: Your Name (YOURTEAMID)"
 # Sign and notarize the .app first, so a copy dragged out of the DMG carries its own ticket.
 # Inside-out: the Claude Code hook helper before the app. The notary service requires the hardened
 # runtime on every executable in the bundle, helpers included, and rejects the app otherwise.
-xattr -cr build/Headroom.app
-codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Headroom.app/Contents/Helpers/headroom-hook
-codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Headroom.app
-ditto -c -k --keepParent build/Headroom.app build/app-notarize.zip
-xcrun notarytool submit build/app-notarize.zip --keychain-profile "headroom" --wait
-xcrun stapler staple build/Headroom.app
+xattr -cr build/Cashew.app
+codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Cashew.app/Contents/Helpers/cashew-hook
+codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Cashew.app
+ditto -c -k --keepParent build/Cashew.app build/app-notarize.zip
+xcrun notarytool submit build/app-notarize.zip --keychain-profile "cashew" --wait
+xcrun stapler staple build/Cashew.app
 rm build/app-notarize.zip
 
 # Package the DMG around the now-signed app, then sign and notarize the image itself — that's the
 # check a downloader actually hits. --dmg-only, NOT --dmg: rebuilding here would recompile the app
 # and re-sign it ad-hoc, throwing away the Developer ID signature and the ticket just stapled to it.
 ./build.sh --dmg-only
-codesign --force --timestamp --sign "$SIGN_ID" build/Headroom.dmg
-xcrun notarytool submit build/Headroom.dmg --keychain-profile "headroom" --wait
-xcrun stapler staple build/Headroom.dmg
+codesign --force --timestamp --sign "$SIGN_ID" build/Cashew.dmg
+xcrun notarytool submit build/Cashew.dmg --keychain-profile "cashew" --wait
+xcrun stapler staple build/Cashew.dmg
 ```
 
-(Equivalent: `HEADROOM_SIGN_ID="$SIGN_ID" ./build.sh --dmg` now signs both correctly; the manual lines
+(Equivalent: `CASHEW_SIGN_ID="$SIGN_ID" ./build.sh --dmg` now signs both correctly; the manual lines
 stay for the existing procedure.)
 
 Verify before publishing:
 
 ```bash
-spctl -a -t open --context context:primary-signature -v build/Headroom.dmg   # expect: accepted
-xcrun stapler validate build/Headroom.dmg                                     # expect: validated
+spctl -a -t open --context context:primary-signature -v build/Cashew.dmg   # expect: accepted
+xcrun stapler validate build/Cashew.dmg                                     # expect: validated
 ```
 
 ## 4. Publish
 
-Replace the draft release's asset with the notarized `build/Headroom.dmg`, paste the CHANGELOG
+Replace the draft release's asset with the notarized `build/Cashew.dmg`, paste the CHANGELOG
 section as the release notes, and publish.
 
 ## Why notarization matters here

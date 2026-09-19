@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds build/Headroom.app. Optionally packages a DMG too:
+# Builds build/Cashew.app. Optionally packages a DMG too:
 #
 #   ./build.sh              app only
 #   ./build.sh --dmg        app, then DMG
@@ -14,16 +14,16 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 
-APP_NAME="Headroom"
+APP_NAME="Cashew"
 VERSION="0.1.0"
-BUNDLE_ID="com.vickipetrova.headroom"
+BUNDLE_ID="com.vickipetrova.cashew"
 MIN_MACOS="13.0"
 
 MODE="${1:-}"
 APP="build/$APP_NAME.app"
 BIN="$APP/Contents/MacOS/$APP_NAME"
 # The Claude Code hook helper. Contents/Helpers is Apple's documented home for helper tools.
-HOOK_NAME="headroom-hook"
+HOOK_NAME="cashew-hook"
 HOOK="$APP/Contents/Helpers/$HOOK_NAME"
 
 if [[ "$MODE" == "--dmg-only" ]]; then
@@ -65,7 +65,7 @@ lipo -create "${HOOK_SLICES[@]}" -output "$HOOK"
 
 # --- App icon ---------------------------------------------------------------------------------
 #
-# Headroom is LSUIElement, so it has no Dock tile and no window: the icon is seen in Finder, in the
+# Cashew is LSUIElement, so it has no Dock tile and no window: the icon is seen in Finder, in the
 # DMG, on notification banners, in Login Items, and on the Keychain permission prompt. Those are the
 # whole surface area, which is why this is worth a build step rather than nothing.
 #
@@ -74,7 +74,7 @@ lipo -create "${HOOK_SLICES[@]}" -output "$HOOK"
 # ever adds the layered icon on top. A contributor with the Command Line Tools alone and CI therefore
 # ship the same icon, so "it looks different on my machine" cannot happen.
 ICON_PNG="assets/icon-1024.png"
-ICON_DOC="assets/Headroom.icon"
+ICON_DOC="assets/Cashew.icon"
 ICONSET="build/$APP_NAME.iconset"
 # Empty on the CLT-only path. Interpolated into the plist below, so the layered icon is only claimed
 # when it is actually in the bundle — a CFBundleIconName pointing at an absent Assets.car makes
@@ -131,7 +131,7 @@ iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/$APP_NAME.icns"
 # non-zero under a CLT-only DEVELOPER_DIR.
 #
 # It compiles into a staging directory and only Assets.car is taken. actool also writes its own
-# Headroom.icns, and compiling straight into Contents/Resources would overwrite the complete one built
+# Cashew.icns, and compiling straight into Contents/Resources would overwrite the complete one built
 # above with a four-size subset: --standalone-icon-behavior does not turn that output off, only
 # resizes it. Taking actool's instead would also make the bundle differ by build machine, which is the
 # one thing this tier boundary exists to prevent — its Assets.car is not even reproducible between two
@@ -153,7 +153,7 @@ if ACTOOL="$(xcrun --find actool 2>/dev/null)"; then
     --errors --warnings --notices > "$ICON_STAGE/actool.log" 2>&1 || true
   # The partial plist, not the presence of Assets.car, is the signal that an app icon was actually
   # selected and compiled. actool writes an Assets.car regardless — if --app-icon names an asset the
-  # document does not contain (rename Headroom.icon, or change APP_NAME, and it will), it exits 0 with
+  # document does not contain (rename Cashew.icon, or change APP_NAME, and it will), it exits 0 with
   # a car full of layers, no icon in it, and an empty partial plist. Guarding on the file would pass
   # there and set CFBundleIconName pointing at nothing.
   if ICON_NAME="$(plutil -extract CFBundleIconName raw "$ICON_STAGE/partial.plist" 2>/dev/null)"; then
@@ -188,30 +188,30 @@ $ICON_NAME_KEY
 </plist>
 PLIST
 
-# Ad-hoc by default. Set HEADROOM_SIGN_ID to a signing identity in your Keychain to use that
+# Ad-hoc by default. Set CASHEW_SIGN_ID to a signing identity in your Keychain to use that
 # instead — no secret ever lives in this repo, and this script still knows nothing about
 # notarization, which stays a manual maintainer step (docs/RELEASING.md).
 #
 # Worth doing while developing: an ad-hoc signature's designated requirement is the binary's own
-# hash, so every code change makes Headroom a different app to macOS and the Keychain re-asks for
+# hash, so every code change makes Cashew a different app to macOS and the Keychain re-asks for
 # permission to read your Claude Code login. A real identity gives a stable, identity-based
 # requirement, so "Always Allow" sticks across rebuilds:
 #
-#   HEADROOM_SIGN_ID="Apple Development: Your Name (TEAMID)" ./build.sh
+#   CASHEW_SIGN_ID="Apple Development: Your Name (TEAMID)" ./build.sh
 #
 # xattr first: extended attributes (quarantine, Finder info) make codesign refuse the bundle, and
 # that is the one benign failure this step used to swallow.
 #
 # Nothing else may be swallowed. Apple Silicon refuses to launch a binary carrying no signature at
 # all, so hiding a codesign failure here does not produce an unsigned-but-working app — it produces
-# a build that dies at launch as "Headroom is damaged", with the actual error discarded.
+# a build that dies at launch as "Cashew is damaged", with the actual error discarded.
 # Inside-out: the helper is signed before the app that contains it, because signing the app seals
 # its contents. Never --deep, which Apple names as the most common cause of notarization failures.
 xattr -cr "$APP"
-if [[ -n "${HEADROOM_SIGN_ID:-}" ]]; then
-  echo "Signing with: $HEADROOM_SIGN_ID"
-  codesign --force --options runtime --timestamp --sign "$HEADROOM_SIGN_ID" "$HOOK"
-  codesign --force --options runtime --timestamp --sign "$HEADROOM_SIGN_ID" "$APP"
+if [[ -n "${CASHEW_SIGN_ID:-}" ]]; then
+  echo "Signing with: $CASHEW_SIGN_ID"
+  codesign --force --options runtime --timestamp --sign "$CASHEW_SIGN_ID" "$HOOK"
+  codesign --force --options runtime --timestamp --sign "$CASHEW_SIGN_ID" "$APP"
 else
   codesign --force --sign - "$HOOK"
   codesign --force --sign - "$APP"
@@ -230,7 +230,7 @@ if [[ "$MODE" == "--dmg" || "$MODE" == "--dmg-only" ]]; then
   cp -R "$APP" "$STAGE/"
   ln -s /Applications "$STAGE/Applications"
 
-  # Volume icon, so the window the user drags from shows Headroom rather than a generic white disk.
+  # Volume icon, so the window the user drags from shows Cashew rather than a generic white disk.
   # Two things are required and neither works alone: a file named `.VolumeIcon.icns` at the volume
   # root, *and* Finder's custom-icon flag on the root itself.
   #

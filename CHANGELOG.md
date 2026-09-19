@@ -1,33 +1,55 @@
 # Changelog
 
-All notable changes to Headroom are documented here. The format follows
+All notable changes to Cashew are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+
+- **Headroom is now Cashew**, after the character in the menu bar and on the icon. The app, the
+  bundle identifier (`com.vickipetrova.headroom` → `com.vickipetrova.cashew`), the hook helper, the
+  Swift modules and the repository all take the new name.
+
+  macOS keys a great deal to the bundle identifier, so the first launch carries an existing install
+  across: the Application Support folder (usage history, the last good reading, live session files,
+  the statusline file) is **copied** — the original is left behind, so an older build still finds
+  its data — preferences are carried over without touching anything already set on the new side, and
+  the alert markers come too, so a threshold you were already told about doesn't fire again. Hooks in
+  `~/.claude/settings.json` are recognised under either name, so the old `headroom-hook` entries are
+  replaced rather than left behind pointing at an app that no longer exists.
+
+  **Two things cannot be carried, and both need one click from you.** *Launch at Login* was
+  registered by macOS against the old identifier, and there is no API to read another bundle's
+  registration — re-tick it in Settings. And the Keychain trusts a *binary*, so Claude Code's token
+  prompts once more; Always Allow makes it stick.
+
+  If you added the statusline snippet, it still writes to the old folder and Cashew still reads it —
+  Settings says `re-copy the snippet` while that is true, and copying the new one moves it over.
+
 ### Added
 
 - **Claude Code session activity.** The menu bar spark spins while a session is working and shows a
   dot when one is waiting for permission; the dropdown lists live sessions with project, branch,
-  current step and elapsed time. Headroom installs its own hooks for ten Claude Code events
+  current step and elapsed time. Cashew installs its own hooks for ten Claude Code events
   (including `StopFailure` and `PostToolUseFailure`, so an errored turn or a failed tool doesn't
   stay "working") into `~/.claude/settings.json` — only when running from `/Applications` or
   `~/Applications`, never over a read-only file, nothing else in the file touched, the original
   backed up once — and removes them when the setting is turned off. Each hook command checks the
-  helper exists before running it, so a deleted Headroom's leftover hooks exit quietly instead of
+  helper exists before running it, so a deleted Cashew's leftover hooks exit quietly instead of
   showing hook errors. Compaction mid-turn keeps the session's state. An Esc-interrupted turn is detected from the transcript, since Claude Code
   fires no hook for it. Inspired by claude-status-bar.
-- **Update checks.** Once a day Headroom asks GitHub for the latest release and offers a menu item
+- **Update checks.** Once a day Cashew asks GitHub for the latest release and offers a menu item
   when a newer one exists. No identifiers are sent and nothing is downloaded; it can be turned off.
 - **Optional: live numbers from Claude Code's statusline.** Claude Code hands
   `rate_limits.five_hour` and `rate_limits.seven_day` to whatever statusline command you have
-  configured, every time it renders — far more often than Headroom polls. One line added to your own
-  script drops those in a file, and Headroom overlays them on the polled reading, so session and
+  configured, every time it renders — far more often than Cashew polls. One line added to your own
+  script drops those in a file, and Cashew overlays them on the polled reading, so session and
   weekly update as you work instead of on a timer. It **supplements** polling rather than replacing
   it: the payload has no per-model breakdown, and an earlier version that used it *instead of*
   polling made the `WEEKLY · OPUS` row blink in and out depending on whether a session was open.
-  Headroom never edits the statusline itself — the hooks above are a separate mechanism and never
+  Cashew never edits the statusline itself — the hooks above are a separate mechanism and never
   touch the `statusLine` key; opting in and out of this is a line you control, and the snippet writes
   only `rate_limits` rather than the cwd, session id, transcript path and cost the rest of the payload
   carries.
@@ -35,7 +57,7 @@ All notable changes to Headroom are documented here. The format follows
   missing, and when it isn't working offers **Set Up Live Updates…**, a dialog that explains the
   feature and copies the line. The README now has a complete starter script for anyone without a statusline yet.
 - **Burn-rate forecasting.** A percentage can't tell you whether you'll make it to the reset — 40% an
-  hour into a five-hour window and 40% four hours in read identically. Headroom now keeps a rolling
+  hour into a five-hour window and 40% four hours in read identically. Cashew now keeps a rolling
   history of utilization samples and projects the rate forward. When a limit is on pace to hit 100%
   before it resets, one line appears under it — *"On pace to hit the limit ~Thu 14:00"* — and a
   weekly limit in that state also turns its menu bar percentage yellow, even below the usual 50%
@@ -46,8 +68,8 @@ All notable changes to Headroom are documented here. The format follows
   they don't span at least a quarter of the trailing window, or when the whole movement is within the
   endpoint's own rounding — `percent` arrives as an integer, and a single one-point tick over twenty
   minutes is noise, not a rate.
-- Samples are stored in `~/Library/Application Support/com.vickipetrova.headroom/history.json` and
-  pruned after seven days — the first thing Headroom has ever written to disk. `SECURITY.md`
+- Samples are stored in `~/Library/Application Support/com.vickipetrova.cashew/history.json` and
+  pruned after seven days — the first thing Cashew has ever written to disk. `SECURITY.md`
   documents exactly what is in it, and Uninstall in the README removes it.
 - **The last good reading survives a restart.** A launch whose first poll fails — an expired token, no
   network, or the API rate-limiting the request — used to show an error over an empty panel, even
@@ -58,12 +80,12 @@ All notable changes to Headroom are documented here. The format follows
 
 ### Fixed
 
-- **Headroom now backs off when the API says to.** A rate-limited app kept asking every five minutes
+- **Cashew now backs off when the API says to.** A rate-limited app kept asking every five minutes
   regardless, discarding the `Retry-After` header along with the rest of the response, and had no way
   back except being noticed and restarted — one instance sat refused for fifteen days. It now honours
   `Retry-After` when the server sends one (in either the seconds or HTTP-date form), doubles the
   interval when it doesn't, caps the wait at an hour, and returns to the normal cadence on the first
-  success. The message is no longer *"Usage API returned HTTP 429"* but *"Too many requests — Headroom
+  success. The message is no longer *"Usage API returned HTTP 429"* but *"Too many requests — Cashew
   is asking less often until this clears"*, since this is the one error whose fix is to wait.
 - **Stale readings are no longer presented as data.** Keeping the last good numbers when a poll fails
   is right for a short outage and wrong for a long one: a reading over a day old, or one for a window
@@ -120,12 +142,12 @@ First release.
 - `./build.sh` produces a universal (arm64 + x86_64) ad-hoc signed bundle with no Xcode project and
   no third-party dependencies; `--dmg` packages an installer image.
 - **An app icon** — two gauge tracks with Anthropic-orange fills, echoing the dropdown's progress
-  bars. Headroom has no Dock tile and no window, so this is what Finder, notification banners, Login
+  bars. Cashew has no Dock tile and no window, so this is what Finder, notification banners, Login
   Items and the Keychain prompt show. Built from `assets/icon-1024.png` with `sips` and `iconutil`,
-  so the Command Line Tools remain enough to build; when Xcode is present, `assets/Headroom.icon` is
+  so the Command Line Tools remain enough to build; when Xcode is present, `assets/Cashew.icon` is
   also compiled with `actool` so macOS 26 and later render the layered icon, including the dark and
   tinted appearances it derives. The `.icns` is identical either way.
-- The DMG carries a **volume icon**, so the window you drag from shows Headroom rather than a generic
+- The DMG carries a **volume icon**, so the window you drag from shows Cashew rather than a generic
   white disk.
 
 - **The dropdown is a panel, not a greyed-out menu.** Each limit gets a small-caps heading with its
@@ -148,13 +170,13 @@ Found in a pre-release code review, before first release:
   with fractional seconds `.516073`, `.880178`, `.202674`. Because the alert marker was keyed on that
   exact timestamp, every poll looked like a fresh period, so anyone over their threshold would have
   been notified twelve times an hour, forever. The period is now quantized to the minute.
-- **A leftover credentials file could permanently shadow your live login.** Headroom picked the first
+- **A leftover credentials file could permanently shadow your live login.** Cashew picked the first
   store that had *anything* in it, so a stale `~/.claude/.credentials.json` — from an older Claude
   Code, a restored backup, or synced dotfiles — hid the Keychain token Claude Code was actively
   refreshing. Every poll failed and the menu advised opening a Claude Code session, which could never
-  fix it. Headroom now compares expiry timestamps and uses whichever credential lives longest.
+  fix it. Cashew now compares expiry timestamps and uses whichever credential lives longest.
 - **"Access denied" was reported as "you've never signed in."** Claude Code's Keychain item only
-  trusts the app that created it, so Headroom is prompted for access; declining produced advice that
+  trusts the app that created it, so Cashew is prompted for access; declining produced advice that
   couldn't help. It now says what actually happened, and asks once rather than on every poll.
 - **The Keychain read could freeze the menu bar.** It ran on the main thread, and it can put a modal
   permission dialog on screen.
@@ -199,7 +221,7 @@ Found while building the test suite:
 
 ### Known limitations
 
-- Pro and Max plans only. Metered API-key accounts have no session or weekly quota, and Headroom
+- Pro and Max plans only. Metered API-key accounts have no session or weekly quota, and Cashew
   says so instead of showing zeroes.
 
-[0.1.0]: https://github.com/vickipetrova/headroom/releases/tag/v0.1.0
+[0.1.0]: https://github.com/vickipetrova/cashew/releases/tag/v0.1.0

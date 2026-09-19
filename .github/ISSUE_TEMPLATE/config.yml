@@ -5,8 +5,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Report a security vulnerability
-    url: https://github.com/vickipetrova/headroom/security/advisories/new
+    url: https://github.com/vickipetrova/cashew/security/advisories/new
     about: Privately, through GitHub — never as a public issue, and never with your token in it.
   - name: Read the security model first
-    url: https://github.com/vickipetrova/headroom/blob/main/SECURITY.md
-    about: What Headroom reads, where it sends it, and what it stores. Often answers the question.
+    url: https://github.com/vickipetrova/cashew/blob/main/SECURITY.md
+    about: What Cashew reads, where it sends it, and what it stores. Often answers the question.

@@ -6,19 +6,19 @@ import PackageDescription
 // load-bearing: the Command Line Tools include Testing.framework but *not* XCTest.framework, and this
 // project's contract is that CLT alone is enough to build and test.
 let package = Package(
-    name: "Headroom",
+    name: "Cashew",
     // Required, not decorative. SwiftPM rebuilds the target triple's version component from this on
     // Darwin, so the build machine's OS can never leak into the binary. Omit it and the default is
     // macOS 10.13, which would contradict LSMinimumSystemVersion in build.sh's Info.plist.
     platforms: [.macOS(.v13)],
     targets: [
-        // Foundation only. Shared by the app and by `headroom-hook`, which Claude Code runs on every
+        // Foundation only. Shared by the app and by `cashew-hook`, which Claude Code runs on every
         // prompt and tool call — so it must never pull in AppKit or SwiftUI, and neither may this.
-        .target(name: "HeadroomShared"),
-        .target(name: "HeadroomCore", dependencies: ["HeadroomShared"]),
-        .executableTarget(name: "Headroom", dependencies: ["HeadroomCore"]),
-        .executableTarget(name: "headroom-hook", dependencies: ["HeadroomShared"]),
-        .testTarget(name: "HeadroomCoreTests", dependencies: ["HeadroomCore", "HeadroomShared"]),
+        .target(name: "CashewShared"),
+        .target(name: "CashewCore", dependencies: ["CashewShared"]),
+        .executableTarget(name: "Cashew", dependencies: ["CashewCore"]),
+        .executableTarget(name: "cashew-hook", dependencies: ["CashewShared"]),
+        .testTarget(name: "CashewCoreTests", dependencies: ["CashewCore", "CashewShared"]),
     ],
     // Matches what `swiftc` does by default, which is what this project compiled with before SPM.
     // Swift 6 mode rejects the static mutable state in Notifier and the cached formatters; moving to
