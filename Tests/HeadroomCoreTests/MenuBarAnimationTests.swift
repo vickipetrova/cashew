@@ -66,15 +66,28 @@ struct MenuBarAnimationTests {
     }
 
     /// The code-drawn styles share one square canvas, so switching between them doesn't move the
-    /// numbers beside the image. Cashew is drawn art whose frames are wider than they are tall, so
-    /// it gets a canvas to match — the alternative was letterboxing the character into a square and
-    /// shipping it two points smaller than the menu bar allows. Every style is the same *height*.
-    @Test func stylesAgreeOnWidthExceptTheSpriteAndOnHeightAlways() {
+    /// numbers beside the image.
+    @Test func theDrawnStylesShareOneCanvas() {
         let drawn = MenuBarAnimation.allCases.filter { $0 != .cashew }
         #expect(Set(drawn.map { image($0, frame: 0).size.width }).count == 1)
-        #expect(Set(MenuBarAnimation.allCases.map { image($0, frame: 0).size.height }).count == 1)
-        // And it is bigger than the square would have allowed, which is the point of the exception.
-        #expect(image(.cashew, frame: 0).size.width > image(.sparkSpin, frame: 0).size.width)
+        #expect(Set(drawn.map { image($0, frame: 0).size.height }).count == 1)
+    }
+
+    /// Cashew's image is its art and nothing else — the proportions of the sheet, no padding. A
+    /// status item scales an image to fit and pads it, so every point spent on margin is a point the
+    /// character loses: inset inside a 22pt canvas it rendered *smaller* than it does at 20pt of
+    /// pure art.
+    @Test func theSpriteImageIsAllArt() throws {
+        let image = image(.cashew, frame: 0)
+        // Two statements, not one nested `#require`: nesting them is a recursive macro expansion
+        // the compiler rejects.
+        let data = try #require(Data(base64Encoded: cashewFramePNGs[0]))
+        let sheet = try #require(NSImage(data: data))
+        #expect(abs(image.size.width / image.size.height
+                    - sheet.size.width / sheet.size.height) < 0.01)
+        #expect(image.size.height <= NSStatusBar.system.thickness)
+        // Ink reaches the edge, which is what "no margin" means.
+        #expect(ink(image).touchesEdge)
     }
 
     @Test(arguments: MenuBarAnimation.allCases)
@@ -82,8 +95,32 @@ struct MenuBarAnimationTests {
         for frame in 0..<style.cycleFrames {
             let measured = ink(image(style, frame: frame))
             #expect(measured.pixels > 0, "\(style) frame \(frame) drew nothing")
-            #expect(!measured.touchesEdge, "\(style) frame \(frame) is clipped at the canvas edge")
+            // The drawn styles live inside a canvas bigger than they are, so ink at its edge means
+            // something was cut off. Cashew's image *is* its art, drawn to the edge on purpose —
+            // insetting it only made the character smaller on screen.
+            if style != .cashew {
+                #expect(!measured.touchesEdge, "\(style) frame \(frame) is clipped at the canvas edge")
+            }
         }
+    }
+
+    /// The character pauses on its resting pose between flips. Held in code rather than by repeating
+    /// frame 0 in the sheet, so the sheets stay a description of the art and the pause stays one
+    /// number.
+    @Test func theRestingPoseIsHeldBetweenFlips() {
+        let rest = MenuBarAnimation.cashewRestFrames
+        let sheet = MenuBarAnimation.cashewFrameCount
+        #expect(MenuBarAnimation.cashew.cycleFrames == sheet + rest)
+        for tick in 0..<rest {
+            #expect(MenuBarAnimation.cashewFrame(atTick: tick) == 0, "tick \(tick) left the rest")
+        }
+        #expect(MenuBarAnimation.cashewFrame(atTick: rest) == 1 - 1)          // first flip frame
+        #expect(MenuBarAnimation.cashewFrame(atTick: rest + 5) == 5)
+        // The last tick of the loop is the last frame of the flip, so the next tick rests again.
+        #expect(MenuBarAnimation.cashewFrame(atTick: rest + sheet - 1) == sheet - 1)
+        #expect(MenuBarAnimation.cashewFrame(atTick: rest + sheet) == 0)
+        // Negative ticks can't happen from the counter, but the arithmetic must not trap if they do.
+        #expect(MenuBarAnimation.cashewFrame(atTick: -1) == sheet - 1)
     }
 
     /// Turning a glyph preserves its area, so a spinning frame that loses ink is a frame being cut
@@ -118,7 +155,11 @@ struct MenuBarAnimationTests {
         // A quarter of the way through its own loop — at twelve frames a second, consecutive
         // frames are *meant* to be nearly identical; that is what smooth looks like.
         let first = image(style, frame: 0).tiffRepresentation
-        let later = image(style, frame: style.cycleFrames / 4).tiffRepresentation
+        // Past the resting hold for the sprite, whose loop opens with a deliberate pause.
+        let moving = style == .cashew
+            ? MenuBarAnimation.cashewRestFrames + style.cycleFrames / 4
+            : style.cycleFrames / 4
+        let later = image(style, frame: moving).tiffRepresentation
         #expect(first != later, "\(style) does not move within its cycle")
     }
 
