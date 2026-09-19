@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Show live Claude Code session activity in Headroom's menu bar and dropdown, fed by hooks Headroom installs itself, and add a daily GitHub Releases update check.
+**Goal:** Show live Claude Code session activity in Cashew's menu bar and dropdown, fed by hooks Cashew installs itself, and add a daily GitHub Releases update check.
 
-**Architecture:** A Foundation-only helper executable (`headroom-hook`), bundled at `Contents/Helpers/`, is registered as a Claude Code hook and writes one small JSON file per session into Headroom's Application Support folder. `HookInstaller` keeps those hooks in `~/.claude/settings.json`. `SessionActivity` reads the files (liveness, interrupt detection, git branch) and `MenuController` renders an animated/dotted spark plus a `CLAUDE CODE` section. `UpdateCheck` asks GitHub once a day.
+**Architecture:** A Foundation-only helper executable (`cashew-hook`), bundled at `Contents/Helpers/`, is registered as a Claude Code hook and writes one small JSON file per session into Cashew's Application Support folder. `HookInstaller` keeps those hooks in `~/.claude/settings.json`. `SessionActivity` reads the files (liveness, interrupt detection, git branch) and `MenuController` renders an animated/dotted spark plus a `CLAUDE CODE` section. `UpdateCheck` asks GitHub once a day.
 
 **Tech Stack:** Swift 6 toolchain in Swift 5 language mode, SwiftPM, AppKit + SwiftUI, swift-testing. No third-party dependencies.
 
@@ -22,7 +22,7 @@
 - `MenuController` holds no Claude-specific strings; copy lives in `SessionActivity`, `HookInstaller`, `UpdateCheck`.
 - The helper never records prompt text, tool input, or tool output — only the tool *name*.
 - Network destinations: `api.anthropic.com` (existing) and `api.github.com` (update check only).
-- Headroom edits `~/.claude/settings.json` only to add/remove hooks whose command contains `headroom-hook`.
+- Cashew edits `~/.claude/settings.json` only to add/remove hooks whose command contains `cashew-hook`.
 - `main` is protected: all work lands on `feat/session-activity`; commit after each task. End every commit message with `Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>`.
 - Match the surrounding code's comment density: doc comments explain *why*, citing the measured trap.
 
@@ -30,27 +30,27 @@
 
 | File | Status | Responsibility |
 |---|---|---|
-| `Package.swift` | modify | Add `HeadroomShared` library and `headroom-hook` executable |
-| `Sources/HeadroomShared/JSON.swift` | create | `isJSONBoolean`, moved from `UsageAPI.swift` |
-| `Sources/HeadroomShared/SessionRecord.swift` | create | `SessionState`, `SessionRecord` (JSON in/out), `SessionFiles` (location, id sanitizing, read/write) |
-| `Sources/HeadroomShared/HookEvent.swift` | create | Hook event → record transition, tool labels |
-| `Sources/HeadroomShared/SessionOwner.swift` | create | Find the Claude Code process above the helper (skip shells) |
-| `Sources/headroom-hook/main.swift` | create | The helper: read stdin with cap/timeout, apply event, write/delete |
-| `Sources/HeadroomCore/UsageAPI.swift` | modify | Remove `isJSONBoolean`, `import HeadroomShared` |
-| `Sources/HeadroomCore/Credentials.swift` | modify | `import HeadroomShared` |
-| `Sources/HeadroomCore/HookInstaller.swift` | create | Merge/remove hooks in `~/.claude/settings.json`, status copy |
-| `Sources/HeadroomCore/SessionActivity.swift` | create | `Session`, reading/filtering/ordering session files, menu copy |
-| `Sources/HeadroomCore/TranscriptTail.swift` | create | Esc-interrupt detection from the transcript's tail |
-| `Sources/HeadroomCore/GitBranch.swift` | create | Branch from `.git/HEAD` without running git |
-| `Sources/HeadroomCore/UpdateCheck.swift` | create | `Release`, version compare, release parsing, due rule, fetch |
-| `Sources/HeadroomCore/SessionPanel.swift` | create | `SessionRow` view model, `SessionRowView`, `PanelHeadingView`, row cap |
-| `Sources/HeadroomCore/DirectoryWatcher.swift` | create | Debounced `DispatchSource` on the sessions folder |
-| `Sources/HeadroomCore/Format.swift` | modify | `Fmt.elapsed`, `Fmt.statusImage` (rotation + permission dot) |
-| `Sources/HeadroomCore/Settings.swift` | modify | `trackSessions`, `checkForUpdates`, `lastUpdateCheck`, `knownRelease` |
-| `Sources/HeadroomCore/MenuController.swift` | modify | Title image, `CLAUDE CODE` rows, update item, settings toggles |
-| `Sources/HeadroomCore/AppDelegate.swift` | modify | Installer, watcher, animation timer, update scheduling |
-| `Sources/HeadroomCore/StatuslineFeed.swift` | modify | Correct the "never edits settings.json" comment |
-| `Tests/HeadroomCoreTests/*` | create/modify | One test file per new unit (named in each task) |
+| `Package.swift` | modify | Add `CashewShared` library and `cashew-hook` executable |
+| `Sources/CashewShared/JSON.swift` | create | `isJSONBoolean`, moved from `UsageAPI.swift` |
+| `Sources/CashewShared/SessionRecord.swift` | create | `SessionState`, `SessionRecord` (JSON in/out), `SessionFiles` (location, id sanitizing, read/write) |
+| `Sources/CashewShared/HookEvent.swift` | create | Hook event → record transition, tool labels |
+| `Sources/CashewShared/SessionOwner.swift` | create | Find the Claude Code process above the helper (skip shells) |
+| `Sources/cashew-hook/main.swift` | create | The helper: read stdin with cap/timeout, apply event, write/delete |
+| `Sources/CashewCore/UsageAPI.swift` | modify | Remove `isJSONBoolean`, `import CashewShared` |
+| `Sources/CashewCore/Credentials.swift` | modify | `import CashewShared` |
+| `Sources/CashewCore/HookInstaller.swift` | create | Merge/remove hooks in `~/.claude/settings.json`, status copy |
+| `Sources/CashewCore/SessionActivity.swift` | create | `Session`, reading/filtering/ordering session files, menu copy |
+| `Sources/CashewCore/TranscriptTail.swift` | create | Esc-interrupt detection from the transcript's tail |
+| `Sources/CashewCore/GitBranch.swift` | create | Branch from `.git/HEAD` without running git |
+| `Sources/CashewCore/UpdateCheck.swift` | create | `Release`, version compare, release parsing, due rule, fetch |
+| `Sources/CashewCore/SessionPanel.swift` | create | `SessionRow` view model, `SessionRowView`, `PanelHeadingView`, row cap |
+| `Sources/CashewCore/DirectoryWatcher.swift` | create | Debounced `DispatchSource` on the sessions folder |
+| `Sources/CashewCore/Format.swift` | modify | `Fmt.elapsed`, `Fmt.statusImage` (rotation + permission dot) |
+| `Sources/CashewCore/Settings.swift` | modify | `trackSessions`, `checkForUpdates`, `lastUpdateCheck`, `knownRelease` |
+| `Sources/CashewCore/MenuController.swift` | modify | Title image, `CLAUDE CODE` rows, update item, settings toggles |
+| `Sources/CashewCore/AppDelegate.swift` | modify | Installer, watcher, animation timer, update scheduling |
+| `Sources/CashewCore/StatuslineFeed.swift` | modify | Correct the "never edits settings.json" comment |
+| `Tests/CashewCoreTests/*` | create/modify | One test file per new unit (named in each task) |
 | `build.sh` | modify | Build, place and sign the helper |
 | `.github/workflows/build.yml` | modify | Verify the helper; extend the test-bounds grep |
 | `docs/RELEASING.md` | modify | Sign the helper before the app |
@@ -58,13 +58,13 @@
 
 ---
 
-### Task 1: `HeadroomShared` — package targets, JSON guard, session record, hook events
+### Task 1: `CashewShared` — package targets, JSON guard, session record, hook events
 
 **Files:**
 - Modify: `Package.swift`
-- Create: `Sources/HeadroomShared/JSON.swift`, `Sources/HeadroomShared/SessionRecord.swift`, `Sources/HeadroomShared/HookEvent.swift`
-- Modify: `Sources/HeadroomCore/UsageAPI.swift:59-68` (remove `isJSONBoolean`, add import), `Sources/HeadroomCore/Credentials.swift` (add import)
-- Test: `Tests/HeadroomCoreTests/SessionRecordTests.swift`, `Tests/HeadroomCoreTests/HookEventTests.swift`
+- Create: `Sources/CashewShared/JSON.swift`, `Sources/CashewShared/SessionRecord.swift`, `Sources/CashewShared/HookEvent.swift`
+- Modify: `Sources/CashewCore/UsageAPI.swift:59-68` (remove `isJSONBoolean`, add import), `Sources/CashewCore/Credentials.swift` (add import)
+- Test: `Tests/CashewCoreTests/SessionRecordTests.swift`, `Tests/CashewCoreTests/HookEventTests.swift`
 
 **Interfaces:**
 - Produces:
@@ -81,19 +81,19 @@ Replace the `targets:` array with:
 
 ```swift
     targets: [
-        // Foundation only. Shared by the app and by `headroom-hook`, which Claude Code runs on every
+        // Foundation only. Shared by the app and by `cashew-hook`, which Claude Code runs on every
         // prompt and tool call — so it must never pull in AppKit or SwiftUI, and neither may this.
-        .target(name: "HeadroomShared"),
-        .target(name: "HeadroomCore", dependencies: ["HeadroomShared"]),
-        .executableTarget(name: "Headroom", dependencies: ["HeadroomCore"]),
-        .executableTarget(name: "headroom-hook", dependencies: ["HeadroomShared"]),
-        .testTarget(name: "HeadroomCoreTests", dependencies: ["HeadroomCore", "HeadroomShared"]),
+        .target(name: "CashewShared"),
+        .target(name: "CashewCore", dependencies: ["CashewShared"]),
+        .executableTarget(name: "Cashew", dependencies: ["CashewCore"]),
+        .executableTarget(name: "cashew-hook", dependencies: ["CashewShared"]),
+        .testTarget(name: "CashewCoreTests", dependencies: ["CashewCore", "CashewShared"]),
     ],
 ```
 
-- [ ] **Step 2: Move `isJSONBoolean` into `Sources/HeadroomShared/JSON.swift`**
+- [ ] **Step 2: Move `isJSONBoolean` into `Sources/CashewShared/JSON.swift`**
 
-Cut the function *and its doc comment* from `Sources/HeadroomCore/UsageAPI.swift` (the block directly above `/// Which of the numbers still on screen are worth showing.`) and paste into the new file, made `public`:
+Cut the function *and its doc comment* from `Sources/CashewCore/UsageAPI.swift` (the block directly above `/// Which of the numbers still on screen are worth showing.`) and paste into the new file, made `public`:
 
 ```swift
 import CoreFoundation
@@ -103,7 +103,7 @@ import CoreFoundation
 /// Comparing the CoreFoundation type id is the only reliable discriminator: `as? Bool` is no good,
 /// because `NSNumber(42) as? Bool` succeeds too.
 ///
-/// Lives in `HeadroomShared` because the session files are parsed by both the app and the hook
+/// Lives in `CashewShared` because the session files are parsed by both the app and the hook
 /// helper, and a second copy of this is exactly the kind of guard that drifts.
 public func isJSONBoolean(_ any: Any) -> Bool {
     CFGetTypeID(any as CFTypeRef) == CFBooleanGetTypeID()
@@ -112,24 +112,24 @@ public func isJSONBoolean(_ any: Any) -> Bool {
 
 (Keep the original doc comment text verbatim if it differs from the above; only add the last paragraph.)
 
-Add `import HeadroomShared` below `import Foundation` in `Sources/HeadroomCore/UsageAPI.swift` and in `Sources/HeadroomCore/Credentials.swift`.
+Add `import CashewShared` below `import Foundation` in `Sources/CashewCore/UsageAPI.swift` and in `Sources/CashewCore/Credentials.swift`.
 
 - [ ] **Step 3: Confirm nothing regressed**
 
 Run: `swift test --disable-xctest 2>&1 | tail -3`
-Expected: `Test run with 220 tests in 16 suites passed`. (An empty `headroom-hook` target will fail to build — create `Sources/headroom-hook/main.swift` containing just `import HeadroomShared` for now so the package resolves.)
+Expected: `Test run with 220 tests in 16 suites passed`. (An empty `cashew-hook` target will fail to build — create `Sources/cashew-hook/main.swift` containing just `import CashewShared` for now so the package resolves.)
 
 - [ ] **Step 4: Write the failing tests for `SessionRecord` / `SessionFiles`**
 
-Create `Tests/HeadroomCoreTests/SessionRecordTests.swift`:
+Create `Tests/CashewCoreTests/SessionRecordTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomShared
+@testable import CashewShared
 
-/// The session file is the contract between `headroom-hook` and the app. The helper writes it and
+/// The session file is the contract between `cashew-hook` and the app. The helper writes it and
 /// the app parses it — defensively, because an old helper, a hand edit or a half-written file must
 /// cost that one session and nothing else.
 @Suite struct SessionRecordTests {
@@ -141,7 +141,7 @@ import Testing
 
     @Test func roundTripsThroughJSON() throws {
         let record = SessionRecord(state: .tool, label: "Editing", tool: "Edit",
-                                   cwd: "/Users/v/dev/headroom", transcript: "/t/a.jsonl",
+                                   cwd: "/Users/v/dev/cashew", transcript: "/t/a.jsonl",
                                    pid: 4242, started: true,
                                    turnStartedAt: now.addingTimeInterval(-65), updatedAt: now)
         let data = try JSONSerialization.data(withJSONObject: record.jsonObject)
@@ -194,7 +194,7 @@ import Testing
 
     @Test func writeThenReadFromDisk() throws {
         let directory = FileManager.default.temporaryDirectory
-            .appendingPathComponent("headroom-sessions-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cashew-sessions-\(UUID().uuidString)", isDirectory: true)
         let url = try #require(SessionFiles.url(for: "abc", in: directory))
         let record = SessionRecord(state: .idle, updatedAt: now)
         try SessionFiles.write(record, to: url)
@@ -205,13 +205,13 @@ import Testing
 
 - [ ] **Step 5: Write the failing tests for `HookEvent`**
 
-Create `Tests/HeadroomCoreTests/HookEventTests.swift`:
+Create `Tests/CashewCoreTests/HookEventTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomShared
+@testable import CashewShared
 
 /// Claude Code hook payloads → the session file. Payload shapes follow the hooks docs and what the
 /// probe in the design session observed; everything is optional, because the payload is not ours.
@@ -222,7 +222,7 @@ import Testing
         try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
     }
 
-    private let base = #"{"session_id": "s1", "cwd": "/Users/v/dev/headroom", "transcript_path": "/t/s1.jsonl"}"#
+    private let base = #"{"session_id": "s1", "cwd": "/Users/v/dev/cashew", "transcript_path": "/t/s1.jsonl"}"#
 
     @Test func promptStartsATurn() throws {
         let record = try #require(HookEvent.prompt
@@ -231,7 +231,7 @@ import Testing
         #expect(record.label == SessionLabels.thinking)
         #expect(record.turnStartedAt == now)
         #expect(record.started)
-        #expect(record.cwd == "/Users/v/dev/headroom")
+        #expect(record.cwd == "/Users/v/dev/cashew")
         #expect(record.transcript == "/t/s1.jsonl")
         #expect(record.pid == 42)
     }
@@ -341,7 +341,7 @@ import Testing
 Run: `swift test --disable-xctest 2>&1 | grep -E "error:|failed" | head`
 Expected: compile errors — `cannot find 'SessionRecord' in scope`, `cannot find 'HookEvent' in scope`.
 
-- [ ] **Step 7: Implement `Sources/HeadroomShared/SessionRecord.swift`**
+- [ ] **Step 7: Implement `Sources/CashewShared/SessionRecord.swift`**
 
 ```swift
 import Foundation
@@ -361,7 +361,7 @@ public enum SessionLabels {
     public static let permission = "Awaiting permission"
 }
 
-/// One session's file: written by `headroom-hook`, read by `SessionActivity`.
+/// One session's file: written by `cashew-hook`, read by `SessionActivity`.
 public struct SessionRecord: Equatable {
     public var state: SessionState
     public var label: String
@@ -448,10 +448,10 @@ public struct SessionRecord: Equatable {
 
 /// Where session files live, and how they are named, read and written.
 public enum SessionFiles {
-    /// Alongside Headroom's other state. Never call from a test — tests pass a temp directory.
+    /// Alongside Cashew's other state. Never call from a test — tests pass a temp directory.
     public static var defaultDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("com.vickipetrova.headroom", isDirectory: true)
+            .appendingPathComponent("com.vickipetrova.cashew", isDirectory: true)
             .appendingPathComponent("sessions", isDirectory: true)
     }
 
@@ -489,12 +489,12 @@ public enum SessionFiles {
 }
 ```
 
-- [ ] **Step 8: Implement `Sources/HeadroomShared/HookEvent.swift`**
+- [ ] **Step 8: Implement `Sources/CashewShared/HookEvent.swift`**
 
 ```swift
 import Foundation
 
-/// A Claude Code hook, as `headroom-hook` receives it: the first command-line argument.
+/// A Claude Code hook, as `cashew-hook` receives it: the first command-line argument.
 public enum HookEvent: String, CaseIterable {
     case start
     case prompt
@@ -622,7 +622,7 @@ Expected: all pass (220 + the new ones).
 - [ ] **Step 10: Commit**
 
 ```bash
-git add Package.swift Sources/HeadroomShared Sources/headroom-hook Sources/HeadroomCore/UsageAPI.swift Sources/HeadroomCore/Credentials.swift Tests/HeadroomCoreTests/SessionRecordTests.swift Tests/HeadroomCoreTests/HookEventTests.swift
+git add Package.swift Sources/CashewShared Sources/cashew-hook Sources/CashewCore/UsageAPI.swift Sources/CashewCore/Credentials.swift Tests/CashewCoreTests/SessionRecordTests.swift Tests/CashewCoreTests/HookEventTests.swift
 git commit -m "feat: shared session record and hook event state machine
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -630,29 +630,29 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 ---
 
-### Task 2: `headroom-hook` executable and `SessionOwner`
+### Task 2: `cashew-hook` executable and `SessionOwner`
 
 **Files:**
-- Create: `Sources/HeadroomShared/SessionOwner.swift`
-- Modify: `Sources/headroom-hook/main.swift` (replace the placeholder)
+- Create: `Sources/CashewShared/SessionOwner.swift`
+- Modify: `Sources/cashew-hook/main.swift` (replace the placeholder)
 - Modify: `docs/superpowers/specs/2026-09-16-session-activity-design.md` (the "Parent process" paragraph)
-- Test: `Tests/HeadroomCoreTests/SessionOwnerTests.swift`
+- Test: `Tests/CashewCoreTests/SessionOwnerTests.swift`
 
 **Interfaces:**
 - Consumes: `HookEvent`, `SessionFiles`, `SessionRecord` (Task 1)
-- Produces: `public enum SessionOwner` with `static let shells: Set<String>`, `static func find(start: Int32, parent: (Int32) -> Int32?, name: (Int32) -> String?, maxDepth: Int = 5) -> Int32?`, `static func parentPID(of: Int32) -> Int32?`, `static func executableName(of: Int32) -> String?`; `public enum HookInput` with `static let maxBytes`, `static func payload(from: Data) -> [String: Any]`. The built binary `headroom-hook <event>`.
+- Produces: `public enum SessionOwner` with `static let shells: Set<String>`, `static func find(start: Int32, parent: (Int32) -> Int32?, name: (Int32) -> String?, maxDepth: Int = 5) -> Int32?`, `static func parentPID(of: Int32) -> Int32?`, `static func executableName(of: Int32) -> String?`; `public enum HookInput` with `static let maxBytes`, `static func payload(from: Data) -> [String: Any]`. The built binary `cashew-hook <event>`.
 
 **Why shells, not "claude":** measured in the design session — a native Claude Code install's executable path ends in its *version* (`~/.local/share/claude/versions/2.1.273`), so matching on the name `claude` never matches. With a bare hook command the helper's parent *is* Claude Code; a shell only appears if something wraps the command. So the rule is "skip shells".
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `Tests/HeadroomCoreTests/SessionOwnerTests.swift`:
+Create `Tests/CashewCoreTests/SessionOwnerTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomShared
+@testable import CashewShared
 
 @Suite struct SessionOwnerTests {
     private func find(_ start: Int32, names: [Int32: String], parents: [Int32: Int32]) -> Int32? {
@@ -711,7 +711,7 @@ import Testing
 Run: `swift test --disable-xctest 2>&1 | grep -E "error:" | head -3`
 Expected: `cannot find 'SessionOwner' in scope`.
 
-- [ ] **Step 3: Implement `Sources/HeadroomShared/SessionOwner.swift`**
+- [ ] **Step 3: Implement `Sources/CashewShared/SessionOwner.swift`**
 
 ```swift
 import Foundation
@@ -769,11 +769,11 @@ public enum HookInput {
 }
 ```
 
-- [ ] **Step 4: Implement `Sources/headroom-hook/main.swift`**
+- [ ] **Step 4: Implement `Sources/cashew-hook/main.swift`**
 
 ```swift
 import Foundation
-import HeadroomShared
+import CashewShared
 
 // Claude Code runs this on every prompt and every tool call, so three rules hold everywhere below:
 // it is fast, it prints nothing, and it exits 0 whatever happens — a hook that fails or talks can
@@ -825,15 +825,15 @@ Expected: all pass.
 - [ ] **Step 6: Exercise the real binary**
 
 ```bash
-swift build --product headroom-hook
-DIR="$HOME/Library/Application Support/com.vickipetrova.headroom/sessions"
-echo '{"session_id":"plan-check","cwd":"/tmp"}' | .build/debug/headroom-hook start
+swift build --product cashew-hook
+DIR="$HOME/Library/Application Support/com.vickipetrova.cashew/sessions"
+echo '{"session_id":"plan-check","cwd":"/tmp"}' | .build/debug/cashew-hook start
 cat "$DIR/plan-check.json"; echo
-echo '{"session_id":"plan-check"}' | .build/debug/headroom-hook end
+echo '{"session_id":"plan-check"}' | .build/debug/cashew-hook end
 ls "$DIR/plan-check.json" 2>&1
-time (echo '{"session_id":"plan-check"}' | .build/debug/headroom-hook bogus)
+time (echo '{"session_id":"plan-check"}' | .build/debug/cashew-hook bogus)
 ```
-Expected: the `start` file shows `"state":"idle"`, `"started":false`, `"cwd":"/tmp"` and a `pid`; after `end`, `No such file or directory`; the bogus event exits immediately (well under 0.1s). Uses `start` so the file is never shown as a session even if a new Headroom is running.
+Expected: the `start` file shows `"state":"idle"`, `"started":false`, `"cwd":"/tmp"` and a `pid`; after `end`, `No such file or directory`; the bogus event exits immediately (well under 0.1s). Uses `start` so the file is never shown as a session even if a new Cashew is running.
 
 - [ ] **Step 7: Update the spec's parent-process paragraph**
 
@@ -850,8 +850,8 @@ In `docs/superpowers/specs/2026-09-16-session-activity-design.md`, replace the b
 - [ ] **Step 8: Commit**
 
 ```bash
-git add Sources/HeadroomShared/SessionOwner.swift Sources/headroom-hook/main.swift Tests/HeadroomCoreTests/SessionOwnerTests.swift docs/superpowers/specs/2026-09-16-session-activity-design.md
-git commit -m "feat: headroom-hook helper that records session state from Claude Code hooks
+git add Sources/CashewShared/SessionOwner.swift Sources/cashew-hook/main.swift Tests/CashewCoreTests/SessionOwnerTests.swift docs/superpowers/specs/2026-09-16-session-activity-design.md
+git commit -m "feat: cashew-hook helper that records session state from Claude Code hooks
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -861,8 +861,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 3: `HookInstaller`
 
 **Files:**
-- Create: `Sources/HeadroomCore/HookInstaller.swift`
-- Test: `Tests/HeadroomCoreTests/HookInstallerTests.swift`
+- Create: `Sources/CashewCore/HookInstaller.swift`
+- Test: `Tests/CashewCoreTests/HookInstallerTests.swift`
 
 **Interfaces:**
 - Consumes: `HookEvent.allCases`, `.hookName`, `.needsMatcher`, `.rawValue` (Task 1)
@@ -876,20 +876,20 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `Tests/HeadroomCoreTests/HookInstallerTests.swift`:
+Create `Tests/CashewCoreTests/HookInstallerTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomCore
-@testable import HeadroomShared
+@testable import CashewCore
+@testable import CashewShared
 
-/// Headroom edits the user's own Claude Code settings. Every test here guards a way that goes wrong
+/// Cashew edits the user's own Claude Code settings. Every test here guards a way that goes wrong
 /// for someone who didn't ask for it: losing another tool's hook, rewriting the file on every launch,
 /// replacing a dotfiles symlink, or touching a file it couldn't parse.
 @Suite struct HookInstallerTests {
-    private let helper = "/Applications/Headroom.app/Contents/Helpers/headroom-hook"
+    private let helper = "/Applications/Cashew.app/Contents/Helpers/cashew-hook"
 
     private func object(_ text: String) throws -> [String: Any] {
         try #require(try JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any])
@@ -936,12 +936,12 @@ import Testing
     @Test func replacesAStalePath() throws {
         let settings = try object("""
             {"hooks": {"Stop": [{"hooks": [{"type": "command",
-              "command": "'/Volumes/Headroom/Headroom.app/Contents/Helpers/headroom-hook' stop"}]}]}}
+              "command": "'/Volumes/Cashew/Cashew.app/Contents/Helpers/cashew-hook' stop"}]}]}}
             """)
         #expect(commands(HookInstaller.merged(settings, helperPath: helper), "Stop") == ["'\(helper)' stop"])
     }
 
-    /// A later tool appending its own hook after ours must not make Headroom move itself to the end
+    /// A later tool appending its own hook after ours must not make Cashew move itself to the end
     /// on every launch — two tools doing that to each other rewrite the file forever.
     @Test func leavesItsHookInPlaceWhenOthersFollowIt() {
         var settings = HookInstaller.merged([:], helperPath: helper)
@@ -972,7 +972,7 @@ import Testing
         let settings = try object("""
             {"hooks": {"PreToolUse": [{"matcher": "*", "hooks": [
               {"type": "command", "command": "other-tool pre"},
-              {"type": "command", "command": "'/old/headroom-hook' pre"}]}]}}
+              {"type": "command", "command": "'/old/cashew-hook' pre"}]}]}}
             """)
         #expect(commands(HookInstaller.merged(settings, helperPath: nil), "PreToolUse") == ["other-tool pre"])
     }
@@ -990,15 +990,15 @@ import Testing
     }
 
     @Test func pathsAreShellQuoted() {
-        #expect(HookInstaller.command(helperPath: "/Users/o'neil/Headroom.app/Contents/Helpers/headroom-hook",
+        #expect(HookInstaller.command(helperPath: "/Users/o'neil/Cashew.app/Contents/Helpers/cashew-hook",
                                       event: .stop)
-                == #"'/Users/o'\''neil/Headroom.app/Contents/Helpers/headroom-hook' stop"#)
+                == #"'/Users/o'\''neil/Cashew.app/Contents/Helpers/cashew-hook' stop"#)
     }
 
     @Test func translocatedAndMountedLocationsAreRefused() {
         #expect(!HookInstaller.isRunnableLocation(
-            "/private/var/folders/x/T/AppTranslocation/ABC/d/Headroom.app/Contents/Helpers/headroom-hook"))
-        #expect(!HookInstaller.isRunnableLocation("/Volumes/Headroom/Headroom.app/Contents/Helpers/headroom-hook"))
+            "/private/var/folders/x/T/AppTranslocation/ABC/d/Cashew.app/Contents/Helpers/cashew-hook"))
+        #expect(!HookInstaller.isRunnableLocation("/Volumes/Cashew/Cashew.app/Contents/Helpers/cashew-hook"))
         #expect(HookInstaller.isRunnableLocation(helper))
     }
 
@@ -1006,11 +1006,11 @@ import Testing
 
     private struct Sandbox {
         let root = FileManager.default.temporaryDirectory
-            .appendingPathComponent("headroom-installer-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cashew-installer-\(UUID().uuidString)", isDirectory: true)
         var claude: URL { root.appendingPathComponent(".claude", isDirectory: true) }
         var settings: URL { claude.appendingPathComponent("settings.json") }
-        var backup: URL { claude.appendingPathComponent("settings.json.bak-headroom") }
-        var helper: URL { root.appendingPathComponent("headroom-hook") }
+        var backup: URL { claude.appendingPathComponent("settings.json.bak-cashew") }
+        var helper: URL { root.appendingPathComponent("cashew-hook") }
 
         func make(claudeDirectory: Bool = true, helper makeHelper: Bool = true) throws -> HookInstaller {
             if claudeDirectory {
@@ -1095,7 +1095,7 @@ import Testing
         #expect(HookInstaller.statusLabel(.upToDate, enabled: true, sessionCount: 1) == "On · 1 session")
         #expect(HookInstaller.statusLabel(.wrote, enabled: true, sessionCount: 2) == "On · 2 sessions")
         #expect(HookInstaller.statusLabel(.notInApplications, enabled: true, sessionCount: 0)
-                == "Move Headroom to Applications to turn this on")
+                == "Move Cashew to Applications to turn this on")
         #expect(HookInstaller.statusLabel(.unreadableSettings, enabled: false, sessionCount: 0)
                 == "Off · couldn't remove hooks from settings.json")
     }
@@ -1107,24 +1107,24 @@ import Testing
 Run: `swift test --disable-xctest 2>&1 | grep -E "error:" | head -3`
 Expected: `cannot find 'HookInstaller' in scope`.
 
-- [ ] **Step 3: Implement `Sources/HeadroomCore/HookInstaller.swift`**
+- [ ] **Step 3: Implement `Sources/CashewCore/HookInstaller.swift`**
 
 ```swift
 import Foundation
-import HeadroomShared
+import CashewShared
 
-/// Keeps Headroom's hooks in `~/.claude/settings.json`.
+/// Keeps Cashew's hooks in `~/.claude/settings.json`.
 ///
-/// **The only thing Headroom ever changes in that file is its own hooks** — entries whose command
-/// contains `headroom-hook`. Every other key, and every other tool's hook, is carried through.
+/// **The only thing Cashew ever changes in that file is its own hooks** — entries whose command
+/// contains `cashew-hook`. Every other key, and every other tool's hook, is carried through.
 ///
 /// Claude Code has no drop-in directory for another app's hooks (a plugin would need the user to run
 /// `/plugin install`), so editing the user's settings is the only automatic route. Three things
 /// about it were checked against the docs: hooks added this way are not flagged or refused; they are
 /// read when a session *starts*, so already-open sessions don't see them; and a hook whose command no
-/// longer exists is skipped silently, so a deleted Headroom leaves harmless leftovers.
+/// longer exists is skipped silently, so a deleted Cashew leaves harmless leftovers.
 struct HookInstaller {
-    static let marker = "headroom-hook"
+    static let marker = "cashew-hook"
 
     let claudeDirectory: URL
     let helperPath: String
@@ -1134,10 +1134,10 @@ struct HookInstaller {
         claudeDirectory: FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent(".claude", isDirectory: true),
         helperPath: Bundle.main.bundleURL
-            .appendingPathComponent("Contents/Helpers/headroom-hook").path)
+            .appendingPathComponent("Contents/Helpers/cashew-hook").path)
 
     var settingsURL: URL { claudeDirectory.appendingPathComponent("settings.json") }
-    var backupURL: URL { claudeDirectory.appendingPathComponent("settings.json.bak-headroom") }
+    var backupURL: URL { claudeDirectory.appendingPathComponent("settings.json.bak-cashew") }
 
     enum Outcome: Equatable {
         case claudeNotFound
@@ -1194,7 +1194,7 @@ struct HookInstaller {
 
     // MARK: Pure
 
-    /// The settings with Headroom's hooks installed (a path) or removed (nil).
+    /// The settings with Cashew's hooks installed (a path) or removed (nil).
     static func merged(_ settings: [String: Any], helperPath: String?) -> [String: Any] {
         let originalHooks = settings["hooks"] as? [String: Any]
         var hooks = originalHooks ?? [:]
@@ -1263,7 +1263,7 @@ struct HookInstaller {
         return hooks.filter { (($0 as? [String: Any])?["command"] as? String)?.contains(marker) == true }.count
     }
 
-    /// The entry with Headroom's hooks taken out; nil when nothing of it remains.
+    /// The entry with Cashew's hooks taken out; nil when nothing of it remains.
     private static func stripOurs(_ entry: Any) -> Any? {
         guard var dictionary = entry as? [String: Any], let hooks = dictionary["hooks"] as? [Any]
         else { return entry }
@@ -1304,8 +1304,8 @@ struct HookInstaller {
         switch outcome {
         case nil: return "Starting…"
         case .claudeNotFound: return "Claude Code not found"
-        case .notInApplications: return "Move Headroom to Applications to turn this on"
-        case .helperMissing: return "Headroom is incomplete — reinstall it"
+        case .notInApplications: return "Move Cashew to Applications to turn this on"
+        case .helperMissing: return "Cashew is incomplete — reinstall it"
         case .unreadableSettings: return "Couldn't read Claude Code's settings.json"
         case .changedMeanwhile, .writeFailed: return "Couldn't update Claude Code's settings.json"
         case .wrote where sessionCount == 0: return "On · new Claude Code sessions will appear"
@@ -1328,8 +1328,8 @@ Expected: all pass. If `symlinkedSettingsStayASymlink` fails, check `apply` writ
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/HeadroomCore/HookInstaller.swift Tests/HeadroomCoreTests/HookInstallerTests.swift
-git commit -m "feat: install Headroom's hooks into Claude Code settings, touching nothing else
+git add Sources/CashewCore/HookInstaller.swift Tests/CashewCoreTests/HookInstallerTests.swift
+git commit -m "feat: install Cashew's hooks into Claude Code settings, touching nothing else
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -1339,8 +1339,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 4: `TranscriptTail` and `GitBranch`
 
 **Files:**
-- Create: `Sources/HeadroomCore/TranscriptTail.swift`, `Sources/HeadroomCore/GitBranch.swift`
-- Test: `Tests/HeadroomCoreTests/TranscriptTailTests.swift`, `Tests/HeadroomCoreTests/GitBranchTests.swift`
+- Create: `Sources/CashewCore/TranscriptTail.swift`, `Sources/CashewCore/GitBranch.swift`
+- Test: `Tests/CashewCoreTests/TranscriptTailTests.swift`, `Tests/CashewCoreTests/GitBranchTests.swift`
 
 **Interfaces:**
 - Produces:
@@ -1349,13 +1349,13 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `Tests/HeadroomCoreTests/TranscriptTailTests.swift`:
+Create `Tests/CashewCoreTests/TranscriptTailTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomCore
+@testable import CashewCore
 
 /// `Stop` does not fire when a turn is interrupted with Esc (Claude Code docs), so without this an
 /// interrupted session shows "working" forever. The fixtures are shaped on real transcripts: the
@@ -1414,18 +1414,18 @@ import Testing
 }
 ```
 
-Create `Tests/HeadroomCoreTests/GitBranchTests.swift`:
+Create `Tests/CashewCoreTests/GitBranchTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomCore
+@testable import CashewCore
 
 @Suite struct GitBranchTests {
     private func scratch() throws -> String {
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("headroom-git-\(UUID().uuidString)", isDirectory: true)
+            .appendingPathComponent("cashew-git-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
         return url.path
     }
@@ -1490,7 +1490,7 @@ import Testing
 Run: `swift test --disable-xctest 2>&1 | grep -E "error:" | head -3`
 Expected: `cannot find 'TranscriptTail' in scope`.
 
-- [ ] **Step 3: Implement `Sources/HeadroomCore/TranscriptTail.swift`**
+- [ ] **Step 3: Implement `Sources/CashewCore/TranscriptTail.swift`**
 
 ```swift
 import Foundation
@@ -1555,7 +1555,7 @@ final class TranscriptTail {
 }
 ```
 
-- [ ] **Step 4: Implement `Sources/HeadroomCore/GitBranch.swift`**
+- [ ] **Step 4: Implement `Sources/CashewCore/GitBranch.swift`**
 
 ```swift
 import Foundation
@@ -1623,7 +1623,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/HeadroomCore/TranscriptTail.swift Sources/HeadroomCore/GitBranch.swift Tests/HeadroomCoreTests/TranscriptTailTests.swift Tests/HeadroomCoreTests/GitBranchTests.swift
+git add Sources/CashewCore/TranscriptTail.swift Sources/CashewCore/GitBranch.swift Tests/CashewCoreTests/TranscriptTailTests.swift Tests/CashewCoreTests/GitBranchTests.swift
 git commit -m "feat: detect Esc interrupts from transcripts and read git branches without git
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -1634,8 +1634,8 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 5: `SessionActivity`
 
 **Files:**
-- Create: `Sources/HeadroomCore/SessionActivity.swift`
-- Test: `Tests/HeadroomCoreTests/SessionActivityTests.swift`
+- Create: `Sources/CashewCore/SessionActivity.swift`
+- Test: `Tests/CashewCoreTests/SessionActivityTests.swift`
 
 **Interfaces:**
 - Consumes: `SessionFiles`, `SessionRecord`, `SessionState`, `SessionLabels` (Task 1); `TranscriptTail.shared.wasInterrupted(transcript:after:)`, `GitBranch.shared.branch(cwd:)` (Task 4)
@@ -1646,19 +1646,19 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `Tests/HeadroomCoreTests/SessionActivityTests.swift`:
+Create `Tests/CashewCoreTests/SessionActivityTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomCore
-@testable import HeadroomShared
+@testable import CashewCore
+@testable import CashewShared
 
 @Suite struct SessionActivityTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
     private let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("headroom-activity-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("cashew-activity-\(UUID().uuidString)", isDirectory: true)
 
     private func activity(alive: @escaping (Int32) -> Bool = { _ in true },
                           interrupted: @escaping (String, Date) -> Bool = { _, _ in false },
@@ -1666,7 +1666,7 @@ import Testing
         SessionActivity(directory: directory, isAlive: alive, interrupted: interrupted, branch: branch)
     }
 
-    private func seed(_ id: String, _ state: SessionState = .thinking, cwd: String = "/dev/headroom",
+    private func seed(_ id: String, _ state: SessionState = .thinking, cwd: String = "/dev/cashew",
                       pid: Int32? = 4242, started: Bool = true, age: TimeInterval = 5,
                       transcript: String = "/t.jsonl") throws {
         let record = SessionRecord(state: state, label: state == .tool ? "Editing" : "", cwd: cwd,
@@ -1687,7 +1687,7 @@ import Testing
         #expect(sessions.first?.id == "a")
         #expect(sessions.first?.state == .tool)
         #expect(sessions.first?.label == "Editing")
-        #expect(sessions.first?.project == "headroom")
+        #expect(sessions.first?.project == "cashew")
         #expect(sessions.first?.branch == "main")
     }
 
@@ -1742,8 +1742,8 @@ import Testing
     }
 
     @Test func sameNamedProjectsShowTheirParent() {
-        #expect(SessionActivity.projectNames(cwds: ["/a/work/api", "/b/personal/api", "/c/headroom"])
-                == ["work/api", "personal/api", "headroom"])
+        #expect(SessionActivity.projectNames(cwds: ["/a/work/api", "/b/personal/api", "/c/cashew"])
+                == ["work/api", "personal/api", "cashew"])
         // Two sessions in the same folder: a parent wouldn't tell them apart, so don't add one.
         #expect(SessionActivity.projectNames(cwds: ["/a/api", "/a/api"]) == ["api", "api"])
         #expect(SessionActivity.projectNames(cwds: [""]) == ["Claude Code"])
@@ -1761,11 +1761,11 @@ import Testing
 Run: `swift test --disable-xctest 2>&1 | grep -E "error:" | head -3`
 Expected: `cannot find 'SessionActivity' in scope`.
 
-- [ ] **Step 3: Implement `Sources/HeadroomCore/SessionActivity.swift`**
+- [ ] **Step 3: Implement `Sources/CashewCore/SessionActivity.swift`**
 
 ```swift
 import Foundation
-import HeadroomShared
+import CashewShared
 
 /// One live Claude Code session, ready to display.
 struct Session: Equatable {
@@ -1778,7 +1778,7 @@ struct Session: Equatable {
     let updatedAt: Date
 }
 
-/// Reads the session files `headroom-hook` writes.
+/// Reads the session files `cashew-hook` writes.
 ///
 /// Shaped like `StatuslineFeed`: the directory is injected so tests never reach the real one, and
 /// every file is parsed defensively (hard rule 3). The three checks that don't come from the file —
@@ -1809,7 +1809,7 @@ struct SessionActivity {
             let url = directory.appendingPathComponent(name)
             guard let record = SessionFiles.read(url) else { continue }
             if let pid = record.pid, !isAlive(pid) {
-                // Headroom's own directory, so it cleans up after a session that was killed.
+                // Cashew's own directory, so it cleans up after a session that was killed.
                 try? fileManager.removeItem(at: url)
                 continue
             }
@@ -1893,7 +1893,7 @@ Expected: all pass.
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/HeadroomCore/SessionActivity.swift Tests/HeadroomCoreTests/SessionActivityTests.swift
+git add Sources/CashewCore/SessionActivity.swift Tests/CashewCoreTests/SessionActivityTests.swift
 git commit -m "feat: read live Claude Code sessions with liveness, interrupt and age rules
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -1904,9 +1904,9 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 6: `UpdateCheck` and the new settings
 
 **Files:**
-- Create: `Sources/HeadroomCore/UpdateCheck.swift`
-- Modify: `Sources/HeadroomCore/Settings.swift` (keys + four properties)
-- Test: `Tests/HeadroomCoreTests/UpdateCheckTests.swift`; modify `Tests/HeadroomCoreTests/DefaultsBackedTests.swift` (inside `SettingsTests`)
+- Create: `Sources/CashewCore/UpdateCheck.swift`
+- Modify: `Sources/CashewCore/Settings.swift` (keys + four properties)
+- Test: `Tests/CashewCoreTests/UpdateCheckTests.swift`; modify `Tests/CashewCoreTests/DefaultsBackedTests.swift` (inside `SettingsTests`)
 
 **Interfaces:**
 - Consumes: `isJSONBoolean` (Task 1)
@@ -1917,13 +1917,13 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Create `Tests/HeadroomCoreTests/UpdateCheckTests.swift`:
+Create `Tests/CashewCoreTests/UpdateCheckTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomCore
+@testable import CashewCore
 
 @Suite struct UpdateCheckTests {
     private func object(_ text: String) throws -> [String: Any] {
@@ -1935,7 +1935,7 @@ import Testing
     }
 
     private let release = """
-        {"tag_name": "v0.2.0", "html_url": "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0",
+        {"tag_name": "v0.2.0", "html_url": "https://github.com/vickipetrova/cashew/releases/tag/v0.2.0",
          "draft": false, "prerelease": false}
         """
 
@@ -1962,17 +1962,17 @@ import Testing
         let parsed = try #require(UpdateCheck.release(in: try object(release)))
         #expect(parsed.tag == "v0.2.0")
         #expect(parsed.version == [0, 2, 0])
-        #expect(parsed.url.absoluteString == "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0")
+        #expect(parsed.url.absoluteString == "https://github.com/vickipetrova/cashew/releases/tag/v0.2.0")
     }
 
     @Test(arguments: [
-        #"{"tag_name": "v0.2.0", "html_url": "https://evil.example/headroom"}"#,
-        #"{"tag_name": "v0.2.0", "html_url": "http://github.com/vickipetrova/headroom/releases/tag/v0.2.0"}"#,
-        #"{"tag_name": "v0.2.0", "html_url": "https://github.com/someone-else/headroom/releases/tag/v0.2.0"}"#,
-        #"{"tag_name": 2, "html_url": "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0"}"#,
-        #"{"html_url": "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0"}"#,
-        #"{"tag_name": "v0.2.0", "html_url": "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0", "draft": true}"#,
-        #"{"tag_name": "v0.2.0", "html_url": "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0", "prerelease": true}"#,
+        #"{"tag_name": "v0.2.0", "html_url": "https://evil.example/cashew"}"#,
+        #"{"tag_name": "v0.2.0", "html_url": "http://github.com/vickipetrova/cashew/releases/tag/v0.2.0"}"#,
+        #"{"tag_name": "v0.2.0", "html_url": "https://github.com/someone-else/cashew/releases/tag/v0.2.0"}"#,
+        #"{"tag_name": 2, "html_url": "https://github.com/vickipetrova/cashew/releases/tag/v0.2.0"}"#,
+        #"{"html_url": "https://github.com/vickipetrova/cashew/releases/tag/v0.2.0"}"#,
+        #"{"tag_name": "v0.2.0", "html_url": "https://github.com/vickipetrova/cashew/releases/tag/v0.2.0", "draft": true}"#,
+        #"{"tag_name": "v0.2.0", "html_url": "https://github.com/vickipetrova/cashew/releases/tag/v0.2.0", "prerelease": true}"#,
     ])
     func untrustworthyReleasesAreIgnored(_ text: String) throws {
         #expect(UpdateCheck.release(in: try object(text)) == nil)
@@ -2018,7 +2018,7 @@ import Testing
 }
 ```
 
-In `Tests/HeadroomCoreTests/DefaultsBackedTests.swift`, inside `@Suite struct SettingsTests { … }`, add:
+In `Tests/CashewCoreTests/DefaultsBackedTests.swift`, inside `@Suite struct SettingsTests { … }`, add:
 
 ```swift
         @Test func sessionTrackingAndUpdateChecksDefaultOn() {
@@ -2040,7 +2040,7 @@ In `Tests/HeadroomCoreTests/DefaultsBackedTests.swift`, inside `@Suite struct Se
         @Test func knownReleaseRoundTripsAndIsRevalidated() throws {
             let release = try #require(UpdateCheck.release(in: [
                 "tag_name": "v0.2.0",
-                "html_url": "https://github.com/vickipetrova/headroom/releases/tag/v0.2.0",
+                "html_url": "https://github.com/vickipetrova/cashew/releases/tag/v0.2.0",
             ]))
             Settings.knownRelease = release
             #expect(Settings.knownRelease == release)
@@ -2057,11 +2057,11 @@ In `Tests/HeadroomCoreTests/DefaultsBackedTests.swift`, inside `@Suite struct Se
 Run: `swift test --disable-xctest 2>&1 | grep -E "error:" | head -3`
 Expected: `cannot find 'UpdateCheck' in scope`.
 
-- [ ] **Step 3: Implement `Sources/HeadroomCore/UpdateCheck.swift`**
+- [ ] **Step 3: Implement `Sources/CashewCore/UpdateCheck.swift`**
 
 ```swift
 import Foundation
-import HeadroomShared
+import CashewShared
 
 struct Release: Equatable {
     let version: [Int]
@@ -2069,9 +2069,9 @@ struct Release: Equatable {
     let url: URL
 }
 
-/// Once a day, asks GitHub whether a newer Headroom has been published.
+/// Once a day, asks GitHub whether a newer Cashew has been published.
 ///
-/// Headroom's second network destination, and the only one besides the usage endpoint (hard rule 5).
+/// Cashew's second network destination, and the only one besides the usage endpoint (hard rule 5).
 /// It sends no identifiers, can be turned off, and never downloads anything: it only puts a menu item
 /// up that opens the release page.
 ///
@@ -2079,8 +2079,8 @@ struct Release: Equatable {
 /// when there is none (GitHub REST docs) — which is the normal answer until the first release, and is
 /// treated as "no update", silently.
 enum UpdateCheck {
-    static let endpoint = URL(string: "https://api.github.com/repos/vickipetrova/headroom/releases/latest")!
-    static let releasePathPrefix = "/vickipetrova/headroom/"
+    static let endpoint = URL(string: "https://api.github.com/repos/vickipetrova/cashew/releases/latest")!
+    static let releasePathPrefix = "/vickipetrova/cashew/"
     /// Not at launch: the first seconds belong to the usage poll and the menu bar appearing.
     static let launchDelay: TimeInterval = 60
     static let interval: TimeInterval = 24 * 3600
@@ -2161,7 +2161,7 @@ enum UpdateCheck {
         var request = URLRequest(url: endpoint)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         // Required: GitHub rejects API requests without a User-Agent.
-        request.setValue("Headroom/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+        request.setValue("Cashew/\(currentVersion)", forHTTPHeaderField: "User-Agent")
         session.dataTask(with: request) { data, response, error in
             completion(available(data: data, response: response, error: error, currentVersion: currentVersion))
         }.resume()
@@ -2169,7 +2169,7 @@ enum UpdateCheck {
 }
 ```
 
-- [ ] **Step 4: Add the settings to `Sources/HeadroomCore/Settings.swift`**
+- [ ] **Step 4: Add the settings to `Sources/CashewCore/Settings.swift`**
 
 Add to `private enum Key`:
 
@@ -2223,7 +2223,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/HeadroomCore/UpdateCheck.swift Sources/HeadroomCore/Settings.swift Tests/HeadroomCoreTests/UpdateCheckTests.swift Tests/HeadroomCoreTests/DefaultsBackedTests.swift
+git add Sources/CashewCore/UpdateCheck.swift Sources/CashewCore/Settings.swift Tests/CashewCoreTests/UpdateCheckTests.swift Tests/CashewCoreTests/DefaultsBackedTests.swift
 git commit -m "feat: daily GitHub Releases update check and settings for the new features
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -2234,10 +2234,10 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 7: Formatting, title image, and session rows
 
 **Files:**
-- Modify: `Sources/HeadroomCore/Format.swift` (add `elapsed`; replace `sparkImage(mode:)` with `statusImage(mode:rotation:permissionDot:)`)
-- Modify: `Sources/HeadroomCore/MenuController.swift:142` (the one `Fmt.sparkImage` call, temporarily → `Fmt.statusImage(mode: Settings.colorMode)`)
-- Create: `Sources/HeadroomCore/SessionPanel.swift`
-- Test: `Tests/HeadroomCoreTests/FormatTests.swift` (append), `Tests/HeadroomCoreTests/SessionPanelTests.swift`
+- Modify: `Sources/CashewCore/Format.swift` (add `elapsed`; replace `sparkImage(mode:)` with `statusImage(mode:rotation:permissionDot:)`)
+- Modify: `Sources/CashewCore/MenuController.swift:142` (the one `Fmt.sparkImage` call, temporarily → `Fmt.statusImage(mode: Settings.colorMode)`)
+- Create: `Sources/CashewCore/SessionPanel.swift`
+- Test: `Tests/CashewCoreTests/FormatTests.swift` (append), `Tests/CashewCoreTests/SessionPanelTests.swift`
 
 **Interfaces:**
 - Consumes: `Session`, `SessionActivity` copy (Task 5); `SessionState` (Task 1); `PanelMetrics` (existing)
@@ -2250,7 +2250,7 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `Tests/HeadroomCoreTests/FormatTests.swift` a new suite at file end (add `import AppKit` at the top of the file if it isn't there — the suite reads `NSImage` members):
+Append to `Tests/CashewCoreTests/FormatTests.swift` a new suite at file end (add `import AppKit` at the top of the file if it isn't there — the suite reads `NSImage` members):
 
 ```swift
 @Suite struct ElapsedAndImageTests {
@@ -2280,30 +2280,30 @@ Append to `Tests/HeadroomCoreTests/FormatTests.swift` a new suite at file end (a
 }
 ```
 
-Create `Tests/HeadroomCoreTests/SessionPanelTests.swift`:
+Create `Tests/CashewCoreTests/SessionPanelTests.swift`:
 
 ```swift
 import Foundation
 import Testing
 
-@testable import HeadroomCore
-@testable import HeadroomShared
+@testable import CashewCore
+@testable import CashewShared
 
 @Suite struct SessionPanelTests {
     private let now = Date(timeIntervalSince1970: 1_790_000_000)
 
     private func session(_ state: SessionState, label: String = "", branch: String? = "main",
                          id: String = "a", started: TimeInterval? = 65) -> Session {
-        Session(id: id, state: state, label: label, project: "headroom", branch: branch,
+        Session(id: id, state: state, label: label, project: "cashew", branch: branch,
                 turnStartedAt: started.map { now.addingTimeInterval(-$0) }, updatedAt: now)
     }
 
     @Test func toolRowShowsLabelAndElapsed() {
         let row = SessionRow(session(.tool, label: "Editing"), now: now)
-        #expect(row.title == "headroom · main")
+        #expect(row.title == "cashew · main")
         #expect(row.status == "Editing · 1m 05s")
         #expect(!row.needsAttention)
-        #expect(row.spoken == "headroom · main, Editing · 1m 05s")
+        #expect(row.spoken == "cashew · main, Editing · 1m 05s")
     }
 
     @Test func thinkingWithoutALabelOrStart() {
@@ -2318,13 +2318,13 @@ import Testing
 
     @Test func idleAndNoBranch() {
         let row = SessionRow(session(.idle, branch: nil), now: now)
-        #expect(row.title == "headroom")
+        #expect(row.title == "cashew")
         #expect(row.status == "Idle")
     }
 
     @Test func endedKeepsTheTitle() {
         let ended = SessionRow(session(.permission, label: "Awaiting permission"), now: now).ended
-        #expect(ended.title == "headroom · main")
+        #expect(ended.title == "cashew · main")
         #expect(ended.status == "Ended")
         #expect(!ended.needsAttention)
     }
@@ -2344,7 +2344,7 @@ import Testing
 Run: `swift test --disable-xctest 2>&1 | grep -E "error:" | head -3`
 Expected: `type 'Fmt' has no member 'elapsed'`.
 
-- [ ] **Step 3: Add `Fmt.elapsed` and `Fmt.statusImage` in `Sources/HeadroomCore/Format.swift`**
+- [ ] **Step 3: Add `Fmt.elapsed` and `Fmt.statusImage` in `Sources/CashewCore/Format.swift`**
 
 Add after `age(of:from:)`:
 
@@ -2412,19 +2412,19 @@ Replace the whole `sparkImage(mode:)` function (keep its doc comment, extended) 
     }
 ```
 
-In `Sources/HeadroomCore/MenuController.swift`, change `button.image = Fmt.sparkImage(mode: Settings.colorMode)` to `button.image = Fmt.statusImage(mode: Settings.colorMode)` (Task 8 replaces it properly). Run `grep -rn sparkImage Sources Tests` and update any remaining call the same way.
+In `Sources/CashewCore/MenuController.swift`, change `button.image = Fmt.sparkImage(mode: Settings.colorMode)` to `button.image = Fmt.statusImage(mode: Settings.colorMode)` (Task 8 replaces it properly). Run `grep -rn sparkImage Sources Tests` and update any remaining call the same way.
 
-- [ ] **Step 4: Create `Sources/HeadroomCore/SessionPanel.swift`**
+- [ ] **Step 4: Create `Sources/CashewCore/SessionPanel.swift`**
 
 ```swift
 import AppKit
-import HeadroomShared
+import CashewShared
 import SwiftUI
 
 /// One row of the dropdown's `CLAUDE CODE` section. Pure, for the same reason as `UsageRow`:
 /// `MenuController` can't be constructed in a test.
 struct SessionRow: Equatable {
-    /// "headroom · feat/session-activity"
+    /// "cashew · feat/session-activity"
     let title: String
     /// "Editing · 1m 05s", "Awaiting permission", "Idle"
     let status: String
@@ -2521,7 +2521,7 @@ Expected: all pass.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/HeadroomCore/Format.swift Sources/HeadroomCore/MenuController.swift Sources/HeadroomCore/SessionPanel.swift Tests/HeadroomCoreTests/FormatTests.swift Tests/HeadroomCoreTests/SessionPanelTests.swift
+git add Sources/CashewCore/Format.swift Sources/CashewCore/MenuController.swift Sources/CashewCore/SessionPanel.swift Tests/CashewCoreTests/FormatTests.swift Tests/CashewCoreTests/SessionPanelTests.swift
 git commit -m "feat: elapsed-time formatting, animated status image, and session row views
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -2534,14 +2534,14 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 Not unit-testable (`MenuController` and `AppDelegate` must never be constructed in a test); verified by building and running the app.
 
 **Files:**
-- Create: `Sources/HeadroomCore/DirectoryWatcher.swift`
-- Modify: `Sources/HeadroomCore/MenuController.swift`, `Sources/HeadroomCore/AppDelegate.swift`
+- Create: `Sources/CashewCore/DirectoryWatcher.swift`
+- Modify: `Sources/CashewCore/MenuController.swift`, `Sources/CashewCore/AppDelegate.swift`
 
 **Interfaces:**
 - Consumes: everything from Tasks 3–7.
 - Produces on `MenuController`: `var onTrackSessionsChanged: (() -> Void)?`, `var onCheckForUpdatesChanged: (() -> Void)?`, `var hookOutcome: HookInstaller.Outcome?`, `func update(sessions: [Session])`, `func update(release: Release?)`, `func advanceAnimation()`.
 
-- [ ] **Step 1: Create `Sources/HeadroomCore/DirectoryWatcher.swift`**
+- [ ] **Step 1: Create `Sources/CashewCore/DirectoryWatcher.swift`**
 
 ```swift
 import Foundation
@@ -2581,7 +2581,7 @@ final class DirectoryWatcher {
 
 - [ ] **Step 2: Add state and inputs to `MenuController`**
 
-Add `import HeadroomShared` at the top. Below `var onSettingsChanged`, add:
+Add `import CashewShared` at the top. Below `var onSettingsChanged`, add:
 
 ```swift
     /// Called when Track Claude Code Sessions is toggled, so hooks are installed or removed.
@@ -2755,7 +2755,7 @@ In `// MARK: - Live rows`, after `textRow`, add:
 
 - [ ] **Step 7: Wire `AppDelegate`**
 
-Add `import HeadroomShared` at the top. Add properties below `private lazy var menuController`:
+Add `import CashewShared` at the top. Add properties below `private lazy var menuController`:
 
 ```swift
     private let sessionActivity = SessionActivity.default
@@ -2884,7 +2884,7 @@ Expected: no errors; all tests pass.
 - [ ] **Step 9: Commit**
 
 ```bash
-git add Sources/HeadroomCore/DirectoryWatcher.swift Sources/HeadroomCore/MenuController.swift Sources/HeadroomCore/AppDelegate.swift
+git add Sources/CashewCore/DirectoryWatcher.swift Sources/CashewCore/MenuController.swift Sources/CashewCore/AppDelegate.swift
 git commit -m "feat: show Claude Code sessions in the menu bar and dropdown, and offer updates
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -2909,7 +2909,7 @@ Below `BIN="$APP/Contents/MacOS/$APP_NAME"`, add:
 
 ```bash
 # The Claude Code hook helper. Contents/Helpers is Apple's documented home for helper tools.
-HOOK_NAME="headroom-hook"
+HOOK_NAME="cashew-hook"
 HOOK="$APP/Contents/Helpers/$HOOK_NAME"
 ```
 
@@ -2939,10 +2939,10 @@ Replace the signing `if` block with:
 # Inside-out: the helper is signed before the app that contains it, because signing the app seals
 # its contents. Never --deep, which Apple names as the most common cause of notarization failures.
 xattr -cr "$APP"
-if [[ -n "${HEADROOM_SIGN_ID:-}" ]]; then
-  echo "Signing with: $HEADROOM_SIGN_ID"
-  codesign --force --options runtime --timestamp --sign "$HEADROOM_SIGN_ID" "$HOOK"
-  codesign --force --options runtime --timestamp --sign "$HEADROOM_SIGN_ID" "$APP"
+if [[ -n "${CASHEW_SIGN_ID:-}" ]]; then
+  echo "Signing with: $CASHEW_SIGN_ID"
+  codesign --force --options runtime --timestamp --sign "$CASHEW_SIGN_ID" "$HOOK"
+  codesign --force --options runtime --timestamp --sign "$CASHEW_SIGN_ID" "$APP"
 else
   codesign --force --sign - "$HOOK"
   codesign --force --sign - "$APP"
@@ -2953,24 +2953,24 @@ fi
 
 ```bash
 ./build.sh
-codesign --verify --strict --verbose build/Headroom.app
-lipo -info build/Headroom.app/Contents/Helpers/headroom-hook
-otool -l build/Headroom.app/Contents/Helpers/headroom-hook | grep -c 'minos 13.0'
-nm -a build/Headroom.app/Contents/Helpers/headroom-hook | grep -c OSO
-time (echo '{}' | build/Headroom.app/Contents/Helpers/headroom-hook stop)
+codesign --verify --strict --verbose build/Cashew.app
+lipo -info build/Cashew.app/Contents/Helpers/cashew-hook
+otool -l build/Cashew.app/Contents/Helpers/cashew-hook | grep -c 'minos 13.0'
+nm -a build/Cashew.app/Contents/Helpers/cashew-hook | grep -c OSO
+time (echo '{}' | build/Cashew.app/Contents/Helpers/cashew-hook stop)
 ```
 Expected: `valid on disk` and `satisfies its Designated Requirement`; `Architectures in the fat file: … x86_64 arm64`; `2`; `0`; well under 0.1s.
 
 - [ ] **Step 4: Verify the helper in CI**
 
-In `.github/workflows/build.yml`, step "Verify the app bundle", replace the lines from `BIN="build/Headroom.app/Contents/MacOS/Headroom"` through `test "$(nm -a "$BIN" | grep -c OSO)" -eq 0` with:
+In `.github/workflows/build.yml`, step "Verify the app bundle", replace the lines from `BIN="build/Cashew.app/Contents/MacOS/Cashew"` through `test "$(nm -a "$BIN" | grep -c OSO)" -eq 0` with:
 
 ```yaml
-          test -f "build/Headroom.app/Contents/Info.plist"
+          test -f "build/Cashew.app/Contents/Info.plist"
           # The app and the Claude Code hook helper get the same checks: the helper is run by Claude
-          # Code on every tool call, so a single-arch or 10.13 helper breaks sessions, not just Headroom.
-          for BIN in build/Headroom.app/Contents/MacOS/Headroom \
-                     build/Headroom.app/Contents/Helpers/headroom-hook; do
+          # Code on every tool call, so a single-arch or 10.13 helper breaks sessions, not just Cashew.
+          for BIN in build/Cashew.app/Contents/MacOS/Cashew \
+                     build/Cashew.app/Contents/Helpers/cashew-hook; do
             test -x "$BIN"
             # Must be a universal binary — a single-arch slice means the lipo step silently regressed.
             lipo -info "$BIN" | tee /dev/stderr | grep -q "arm64"
@@ -3007,8 +3007,8 @@ Replace:
 
 ```bash
 # Sign and notarize the .app first, so a copy dragged out of the DMG carries its own ticket.
-xattr -cr build/Headroom.app
-codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Headroom.app
+xattr -cr build/Cashew.app
+codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Cashew.app
 ```
 
 with:
@@ -3017,18 +3017,18 @@ with:
 # Sign and notarize the .app first, so a copy dragged out of the DMG carries its own ticket.
 # Inside-out: the Claude Code hook helper before the app. The notary service requires the hardened
 # runtime on every executable in the bundle, helpers included, and rejects the app otherwise.
-xattr -cr build/Headroom.app
-codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Headroom.app/Contents/Helpers/headroom-hook
-codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Headroom.app
+xattr -cr build/Cashew.app
+codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Cashew.app/Contents/Helpers/cashew-hook
+codesign --force --options runtime --timestamp --sign "$SIGN_ID" build/Cashew.app
 ```
 
-(Equivalent: `HEADROOM_SIGN_ID="$SIGN_ID" ./build.sh --dmg` now signs both correctly; the manual lines stay for the existing procedure.)
+(Equivalent: `CASHEW_SIGN_ID="$SIGN_ID" ./build.sh --dmg` now signs both correctly; the manual lines stay for the existing procedure.)
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add build.sh .github/workflows/build.yml docs/RELEASING.md
-git commit -m "build: bundle, sign and verify the headroom-hook helper
+git commit -m "build: bundle, sign and verify the cashew-hook helper
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ```
@@ -3038,35 +3038,35 @@ Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
 ### Task 10: Documentation and rule changes
 
 **Files:**
-- Modify: `CLAUDE.md`, `README.md`, `SECURITY.md`, `CHANGELOG.md`, `Sources/HeadroomCore/StatuslineFeed.swift:11-13`
+- Modify: `CLAUDE.md`, `README.md`, `SECURITY.md`, `CHANGELOG.md`, `Sources/CashewCore/StatuslineFeed.swift:11-13`
 
 - [ ] **Step 1: Correct the `StatuslineFeed` comment**
 
-Replace the paragraph starting `/// **Headroom never edits `~/.claude/settings.json`.**` with:
+Replace the paragraph starting `/// **Cashew never edits `~/.claude/settings.json`.**` with:
 
 ```swift
-/// **Headroom never edits the user's statusline.** It is theirs — this one already renders their
+/// **Cashew never edits the user's statusline.** It is theirs — this one already renders their
 /// directory, branch, model and context — and silently replacing it to install a helper would be a
-/// poor trade for a menu bar app. Opting in is a line they paste and can delete. (Headroom does add
+/// poor trade for a menu bar app. Opting in is a line they paste and can delete. (Cashew does add
 /// its own *hooks* to `~/.claude/settings.json` for session tracking — see `HookInstaller` — and
 /// never touches the `statusLine` key.)
 ```
 
 - [ ] **Step 2: `CLAUDE.md`**
 
-1. Build section: add `ls build/Headroom.app/Contents/Helpers/   # headroom-hook, the Claude Code hook helper` below `open build/Headroom.app`.
+1. Build section: add `ls build/Cashew.app/Contents/Helpers/   # cashew-hook, the Claude Code hook helper` below `open build/Cashew.app`.
 2. Architecture table: change the `main.swift` row to mention both executables, and add rows:
 
 ```markdown
-| `Sources/headroom-hook/main.swift` | The Claude Code hook helper. Top-level code only; reads the hook payload, writes one session file, exits 0. Bundled at `Contents/Helpers/` |
-| `Sources/HeadroomShared/` | Foundation-only code shared by the app and the helper: `SessionRecord` and its files, `HookEvent` (the hook → state machine), `SessionOwner`, `isJSONBoolean`. Must never import AppKit — the helper runs on every tool call |
-| `Sources/HeadroomCore/HookInstaller.swift` | Adds/removes Headroom's hooks in `~/.claude/settings.json` and nothing else |
-| `Sources/HeadroomCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |
-| `Sources/HeadroomCore/TranscriptTail.swift` | Esc-interrupt detection from the end of a transcript |
-| `Sources/HeadroomCore/GitBranch.swift` | Branch from `.git/HEAD`, following worktree `gitdir:` files |
-| `Sources/HeadroomCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
-| `Sources/HeadroomCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
-| `Sources/HeadroomCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
+| `Sources/cashew-hook/main.swift` | The Claude Code hook helper. Top-level code only; reads the hook payload, writes one session file, exits 0. Bundled at `Contents/Helpers/` |
+| `Sources/CashewShared/` | Foundation-only code shared by the app and the helper: `SessionRecord` and its files, `HookEvent` (the hook → state machine), `SessionOwner`, `isJSONBoolean`. Must never import AppKit — the helper runs on every tool call |
+| `Sources/CashewCore/HookInstaller.swift` | Adds/removes Cashew's hooks in `~/.claude/settings.json` and nothing else |
+| `Sources/CashewCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |
+| `Sources/CashewCore/TranscriptTail.swift` | Esc-interrupt detection from the end of a transcript |
+| `Sources/CashewCore/GitBranch.swift` | Branch from `.git/HEAD`, following worktree `gitdir:` files |
+| `Sources/CashewCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
+| `Sources/CashewCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
+| `Sources/CashewCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
 ```
 
 3. Hard rules: replace rule 5 with:
@@ -3074,10 +3074,10 @@ Replace the paragraph starting `/// **Headroom never edits `~/.claude/settings.j
 ```markdown
 5. **Two network destinations:** `api.anthropic.com` for usage, and `api.github.com` for a
    once-a-day update check the user can turn off. No analytics, no identifiers, no downloads.
-6. **Headroom edits `~/.claude/settings.json` only to add or remove its own hooks** — entries whose
-   command contains `headroom-hook`. Never another key, never another tool's hook, never
+6. **Cashew edits `~/.claude/settings.json` only to add or remove its own hooks** — entries whose
+   command contains `cashew-hook`. Never another key, never another tool's hook, never
    `statusLine`. It never writes a file it could not parse, never replaces a symlink, writes only
-   when something changed, and backs the original up once to `settings.json.bak-headroom`.
+   when something changed, and backs the original up once to `settings.json.bak-cashew`.
 ```
 
 4. Add a section after "## Credentials":
@@ -3085,8 +3085,8 @@ Replace the paragraph starting `/// **Headroom never edits `~/.claude/settings.j
 ```markdown
 ## Claude Code sessions
 
-`HookInstaller` registers `headroom-hook` for eight events; the helper writes
-`~/Library/Application Support/com.vickipetrova.headroom/sessions/<id>.json`; `SessionActivity`
+`HookInstaller` registers `cashew-hook` for eight events; the helper writes
+`~/Library/Application Support/com.vickipetrova.cashew/sessions/<id>.json`; `SessionActivity`
 reads the folder. Traps, each measured and each with a test:
 
 - **The hook command must be one bare command.** With `'<path>' <event>`, the helper's parent process
@@ -3103,7 +3103,7 @@ reads the folder. Traps, each measured and each with a test:
   fires before the prompt reaches the transcript.
 - **Hooks load when a session starts.** Sessions open at first install don't appear until
   restarted; the Settings status says so.
-- **A missing hook command is skipped silently by Claude Code**, so a deleted Headroom leaves
+- **A missing hook command is skipped silently by Claude Code**, so a deleted Cashew leaves
   harmless dead hooks rather than broken sessions.
 - **Moving an existing hook to the end would fight other tools.** `HookInstaller.merged` leaves a
   current hook where it is; re-appending it made two tools that both append rewrite the file forever.
@@ -3120,24 +3120,24 @@ reads the folder. Traps, each measured and each with a test:
 
 - [ ] **Step 3: `README.md`**
 
-1. Replace the Security paragraph's `No telemetry, no analytics, no update checks.` sentence with: `It also asks GitHub once a day whether a newer Headroom exists (turn it off under Settings). No telemetry, no analytics, no identifiers.`
+1. Replace the Security paragraph's `No telemetry, no analytics, no update checks.` sentence with: `It also asks GitHub once a day whether a newer Cashew exists (turn it off under Settings). No telemetry, no analytics, no identifiers.`
 2. Add a section before "## Security":
 
 ```markdown
 ## Claude Code sessions
 
-Headroom also shows what Claude Code is doing. The spark in the menu bar spins while a session is
+Cashew also shows what Claude Code is doing. The spark in the menu bar spins while a session is
 working and gains a dot when one is waiting for your permission, and the dropdown lists each live
 session with its project, branch, current step and how long the turn has run.
 
-To do that, Headroom adds a small set of hooks to `~/.claude/settings.json` the first time it runs.
+To do that, Cashew adds a small set of hooks to `~/.claude/settings.json` the first time it runs.
 It changes nothing else in that file, keeps a one-time backup at
-`~/.claude/settings.json.bak-headroom`, and records only each session's state, folder and tool
+`~/.claude/settings.json.bak-cashew`, and records only each session's state, folder and tool
 *names* — never your prompts or tool input. Sessions already open when the hooks are added appear
 once they're restarted.
 
 Turn it off under **Settings › Track Claude Code Sessions**, which removes the hooks. **Turn it off
-before deleting Headroom**; if you forget, the leftover hooks do nothing and Claude Code ignores them.
+before deleting Cashew**; if you forget, the leftover hooks do nothing and Claude Code ignores them.
 
 Session tracking was inspired by [claude-status-bar](https://github.com/m1ckc3s/claude-status-bar)
 by Mick Cesanek.
@@ -3152,23 +3152,23 @@ Two destinations:
 
 ```
 GET https://api.anthropic.com/api/oauth/usage                          (with your token)
-GET https://api.github.com/repos/vickipetrova/headroom/releases/latest   (no token, at most once a day)
+GET https://api.github.com/repos/vickipetrova/cashew/releases/latest   (no token, at most once a day)
 ```
 
 The second is the update check. It carries no token, cookie or identifier beyond a
-`User-Agent: Headroom/<version>` header, never downloads anything, and can be turned off under
+`User-Agent: Cashew/<version>` header, never downloads anything, and can be turned off under
 Settings. No telemetry, no analytics, no crash reporting, no third-party services.
 ```
 
 Under "## What it stores", add:
 
 ```markdown
-In `~/Library/Application Support/com.vickipetrova.headroom/sessions/`, one small file per live
+In `~/Library/Application Support/com.vickipetrova.cashew/sessions/`, one small file per live
 Claude Code session: its state, folder, transcript path, the tool *name* in use and the Claude Code
 process id. Never prompt text, tool input or output. Deleted when the session ends.
 
-In `~/.claude/settings.json`, Headroom's own hook entries (commands ending in `headroom-hook`), with a
-one-time backup of the original at `~/.claude/settings.json.bak-headroom`.
+In `~/.claude/settings.json`, Cashew's own hook entries (commands ending in `cashew-hook`), with a
+one-time backup of the original at `~/.claude/settings.json.bak-cashew`.
 ```
 
 - [ ] **Step 5: `CHANGELOG.md`**
@@ -3178,11 +3178,11 @@ Under `## [Unreleased]` → `### Added`, add at the top:
 ```markdown
 - **Claude Code session activity.** The menu bar spark spins while a session is working and shows a
   dot when one is waiting for permission; the dropdown lists live sessions with project, branch,
-  current step and elapsed time. Headroom installs its own hooks into `~/.claude/settings.json`
+  current step and elapsed time. Cashew installs its own hooks into `~/.claude/settings.json`
   (nothing else in the file is touched, the original is backed up once) and removes them when the
   setting is turned off. An Esc-interrupted turn is detected from the transcript, since Claude Code
   fires no hook for it. Inspired by claude-status-bar.
-- **Update checks.** Once a day Headroom asks GitHub for the latest release and offers a menu item
+- **Update checks.** Once a day Cashew asks GitHub for the latest release and offers a menu item
   when a newer one exists. No identifiers are sent and nothing is downloaded; it can be turned off.
 ```
 
@@ -3194,7 +3194,7 @@ Expected: all pass.
 - [ ] **Step 7: Commit**
 
 ```bash
-git add CLAUDE.md README.md SECURITY.md CHANGELOG.md Sources/HeadroomCore/StatuslineFeed.swift
+git add CLAUDE.md README.md SECURITY.md CHANGELOG.md Sources/CashewCore/StatuslineFeed.swift
 git commit -m "docs: session tracking, update checks, and the two rule changes behind them
 
 Co-Authored-By: Claude Opus 5 (1M context) <noreply@anthropic.com>"
@@ -3211,14 +3211,14 @@ This step edits the developer's real `~/.claude/settings.json` through the app. 
 ```bash
 SCRATCH="$(mktemp -d)"
 cp -p ~/.claude/settings.json "$SCRATCH/settings.before.json" 2>/dev/null || echo "no settings.json yet"
-pgrep -fl "MacOS/Headroom" || echo "Headroom not running"
+pgrep -fl "MacOS/Cashew" || echo "Cashew not running"
 echo "$SCRATCH"
 ```
 
 - [ ] **Step 2: Build and launch** *(after the user confirms)*
 
 ```bash
-pkill -f "MacOS/Headroom"; ./build.sh && open build/Headroom.app && sleep 3
+pkill -f "MacOS/Cashew"; ./build.sh && open build/Cashew.app && sleep 3
 ```
 
 - [ ] **Step 3: Confirm the install touched only hooks**
@@ -3232,19 +3232,19 @@ after = json.load(open(sys.argv[2]))
 strip = lambda s: {k: v for k, v in s.items() if k != "hooks"}
 assert strip(before) == strip(after), "non-hook keys changed"
 ours = [h["command"] for es in after.get("hooks", {}).values() for e in es if isinstance(e, dict)
-        for h in e.get("hooks", []) if "headroom-hook" in h.get("command", "")]
-print(len(ours), "headroom hooks"); print("\n".join(ours))
+        for h in e.get("hooks", []) if "cashew-hook" in h.get("command", "")]
+print(len(ours), "cashew hooks"); print("\n".join(ours))
 EOF
-ls -l ~/.claude/settings.json.bak-headroom
+ls -l ~/.claude/settings.json.bak-cashew
 ```
-Expected: `8 headroom hooks`, each `'<repo>/build/Headroom.app/Contents/Helpers/headroom-hook' <event>`; the backup exists.
+Expected: `8 cashew hooks`, each `'<repo>/build/Cashew.app/Contents/Helpers/cashew-hook' <event>`; the backup exists.
 
 - [ ] **Step 4: Drive a real session and watch the files**
 
 ```bash
 cd "$SCRATCH" && claude -p "Run the shell command: sleep 8. Then reply done." "--allowedTools=Bash(sleep:*)" < /dev/null &
-sleep 3; cat ~/Library/Application\ Support/com.vickipetrova.headroom/sessions/*.json; echo
-osascript -e 'tell application "System Events" to tell process "Headroom" to get name of every menu item of menu 1 of menu bar item 1 of menu bar 1'
+sleep 3; cat ~/Library/Application\ Support/com.vickipetrova.cashew/sessions/*.json; echo
+osascript -e 'tell application "System Events" to tell process "Cashew" to get name of every menu item of menu 1 of menu bar item 1 of menu bar 1'
 wait
 ```
 Expected: a session file with `"state":"tool"` and `"label":"Running command"` while `sleep` runs; the menu item list includes `CLAUDE CODE` and a row like `…, Running command · 3s`. After `claude -p` exits, the file is gone (SessionEnd) and the section disappears on the next open. Check the spark visibly spins during the run (screenshot or eyes).
@@ -3252,8 +3252,8 @@ Expected: a session file with `"state":"tool"` and `"label":"Running command"` w
 - [ ] **Step 5: Toggle off and confirm the hooks are removed**
 
 ```bash
-osascript -e 'tell application "System Events" to tell process "Headroom" to click menu item "Track Claude Code Sessions" of menu 1 of menu item "Settings" of menu 1 of menu bar item 1 of menu bar 1'
-sleep 1; grep -c headroom-hook ~/.claude/settings.json
+osascript -e 'tell application "System Events" to tell process "Cashew" to click menu item "Track Claude Code Sessions" of menu 1 of menu item "Settings" of menu 1 of menu bar item 1 of menu bar 1'
+sleep 1; grep -c cashew-hook ~/.claude/settings.json
 ```
 Expected: `0`. (If System Events can't click into the closed status menu, toggle it by hand and re-run the `grep`.) Then toggle it back on the same way (or leave it off, per the user), and `diff <(python3 -m json.tool --sort-keys "$SCRATCH/settings.before.json") <(python3 -m json.tool --sort-keys ~/.claude/settings.json)` shows no differences when off.
 
@@ -3268,13 +3268,13 @@ gh pr create --base main --head feat/session-activity \
 ## What
 
 - The menu bar spark spins while a Claude Code session works and shows a dot when one needs permission; the dropdown lists live sessions (project, branch, step, elapsed).
-- Headroom installs its own hooks into `~/.claude/settings.json` (only its own entries; one-time backup; removed when the setting is off). A bundled Foundation-only helper, `Contents/Helpers/headroom-hook`, writes one file per session.
+- Cashew installs its own hooks into `~/.claude/settings.json` (only its own entries; one-time backup; removed when the setting is off). A bundled Foundation-only helper, `Contents/Helpers/cashew-hook`, writes one file per session.
 - A once-a-day GitHub Releases update check, with a menu item linking to the release.
 
 ## Rule changes (deliberate)
 
 - Hard rule 5 now allows `api.github.com` for the update check.
-- New hard rule 6: Headroom edits `~/.claude/settings.json` only to add/remove its own hooks.
+- New hard rule 6: Cashew edits `~/.claude/settings.json` only to add/remove its own hooks.
 
 ## Measured, not assumed
 

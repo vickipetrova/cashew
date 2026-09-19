@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for looking. Headroom does one thing — show Claude Code plan usage in the menu bar — and
+Thanks for looking. Cashew does one thing — show Claude Code plan usage in the menu bar — and
 the goal is to keep it small enough that one person can read the whole thing in an afternoon.
 
 ## Building
@@ -9,13 +9,13 @@ macOS 13+ and the Xcode Command Line Tools (`xcode-select --install`). Nothing e
 
 ```bash
 swift test --disable-xctest   # run the suite first, it takes ~0.05s
-./build.sh                    # -> build/Headroom.app
-./build.sh --dmg              # also -> build/Headroom.dmg
-open build/Headroom.app
+./build.sh                    # -> build/Cashew.app
+./build.sh --dmg              # also -> build/Cashew.dmg
+open build/Cashew.app
 ```
 
 `swift run` won't work — it makes a bare binary with no `Info.plist`, so there's no menu-bar-only
-mode, no login-item identity, and no notifications. Use `./build.sh && open build/Headroom.app`.
+mode, no login-item identity, and no notifications. Use `./build.sh && open build/Cashew.app`.
 
 Build from the latest `main` so you're not fixing something that already changed.
 
@@ -28,9 +28,9 @@ issue and genuinely up for grabs.
 Two labels, and the difference is real rather than decorative. **`good first issue`** means the shape
 is settled and it's a matter of writing the code. **`help wanted`** means there's a design decision to
 agree in the issue first — a second provider needs somewhere for two accounts' numbers to go in one
-menu bar title, and reading Claude Code's statusline needs a helper process and a write to the user's
-`~/.claude/settings.json`. Both are welcome; just don't spend a weekend on either before we've talked
-about the shape.
+menu bar title, and tracking a second tool's sessions needs its own helper process and its own
+entries in that tool's configuration, the way `cashew-hook` does for Claude Code. Both are welcome;
+just don't spend a weekend on either before we've talked about the shape.
 
 ## What won't be merged
 
@@ -42,7 +42,7 @@ about the shape.
   `api.anthropic.com`; the only other request is the once-a-day, user-disableable update check to
   `api.github.com`.
 - **Cost dashboards, spend estimation, billing history.** Other projects do this well and the README
-  links them. Headroom keeps a small rolling history of utilization samples for the burn-rate
+  links them. Cashew keeps a small rolling history of utilization samples for the burn-rate
   forecast — seven days, deleted on uninstall, documented in `SECURITY.md` — and that is as far as
   stored history goes. It exists to answer "will I make it to the reset", not "what have I spent".
 - **Anything requiring an API key or costing money to run.**

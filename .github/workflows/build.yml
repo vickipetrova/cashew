@@ -32,11 +32,11 @@ jobs:
       - name: Verify the app bundle
         run: |
           set -euo pipefail
-          test -f "build/Headroom.app/Contents/Info.plist"
+          test -f "build/Cashew.app/Contents/Info.plist"
           # The app and the Claude Code hook helper get the same checks: the helper is run by Claude
-          # Code on every tool call, so a single-arch or 10.13 helper breaks sessions, not just Headroom.
-          for BIN in build/Headroom.app/Contents/MacOS/Headroom \
-                     build/Headroom.app/Contents/Helpers/headroom-hook; do
+          # Code on every tool call, so a single-arch or 10.13 helper breaks sessions, not just Cashew.
+          for BIN in build/Cashew.app/Contents/MacOS/Cashew \
+                     build/Cashew.app/Contents/Helpers/cashew-hook; do
             test -x "$BIN"
             # Must be a universal binary — a single-arch slice means the lipo step silently regressed.
             lipo -info "$BIN" | tee /dev/stderr | grep -q "arm64"
@@ -50,21 +50,21 @@ jobs:
           done
           # Everything above passes just as well on a bundle macOS won't start. The signature is the
           # property that actually gates launch on Apple Silicon, and nothing else here looks at it.
-          codesign --verify --strict --verbose build/Headroom.app
+          codesign --verify --strict --verbose build/Cashew.app
 
       - name: Verify the app icon
         run: |
           set -euo pipefail
-          RES="build/Headroom.app/Contents/Resources"
-          PLIST="build/Headroom.app/Contents/Info.plist"
+          RES="build/Cashew.app/Contents/Resources"
+          PLIST="build/Cashew.app/Contents/Info.plist"
 
           # Tier 1 is unconditional: it uses only sips and iconutil, both of which are in /usr/bin,
           # so a missing .icns here means the icon step broke rather than that a toolchain was absent.
-          test -f "$RES/Headroom.icns"
-          test "$(plutil -extract CFBundleIconFile raw "$PLIST")" = "Headroom"
+          test -f "$RES/Cashew.icns"
+          test "$(plutil -extract CFBundleIconFile raw "$PLIST")" = "Cashew"
           # Existing is not the same as usable — iconutil round-tripping it is what proves the file is
           # a real icon family and not, say, a copied PNG.
-          iconutil -c iconset "$RES/Headroom.icns" -o /tmp/icon-check.iconset
+          iconutil -c iconset "$RES/Cashew.icns" -o /tmp/icon-check.iconset
           test "$(ls /tmp/icon-check.iconset | wc -l | tr -d ' ')" -eq 10
           # The trap this whole step exists for: `assets/icon-1024.png` must be a render that already
           # sits on Apple's grid (assets/render-icon.sh produces one, ~83% of the tile). Replacing it
@@ -110,7 +110,7 @@ jobs:
           # icon real regression coverage.
           if xcrun --find actool >/dev/null 2>&1; then
             test -f "$RES/Assets.car"
-            test "$(plutil -extract CFBundleIconName raw "$PLIST")" = "Headroom"
+            test "$(plutil -extract CFBundleIconName raw "$PLIST")" = "Cashew"
             echo "OK — .icns and the layered Assets.car are both present."
           else
             # Claiming a layered icon that isn't in the bundle is the failure this catches. Written as

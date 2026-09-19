@@ -6,12 +6,12 @@ Notes for Claude Code sessions working in this repo.
 
 ```bash
 swift test --disable-xctest       # the whole suite, ~0.05s
-./build.sh                        # -> build/Headroom.app (universal, ad-hoc signed)
-./build.sh --dmg                  # also -> build/Headroom.dmg
+./build.sh                        # -> build/Cashew.app (universal, ad-hoc signed)
+./build.sh --dmg                  # also -> build/Cashew.dmg
 ./build.sh --dmg-only             # DMG around the existing app, without rebuilding it
-open build/Headroom.app
-ls build/Headroom.app/Contents/Helpers/   # headroom-hook, the Claude Code hook helper
-pkill -f "MacOS/Headroom"         # stop it (menu bar app; there's no window to close)
+open build/Cashew.app
+ls build/Cashew.app/Contents/Helpers/   # cashew-hook, the Claude Code hook helper
+pkill -f "MacOS/Cashew"         # stop it (menu bar app; there's no window to close)
 ```
 
 `--dmg-only` is what the release procedure uses: the app is signed with a Developer ID, notarized and
@@ -31,28 +31,28 @@ is no override to reach for. The `build` check has to be green before the PR can
 
 | File | Responsibility |
 |---|---|
-| `Sources/Headroom/main.swift` | Six lines of top-level code for the menu bar app. Top-level code can't live in a library target, so this and `headroom-hook`'s `main.swift` are the only two files outside a library |
-| `Sources/headroom-hook/main.swift` | The Claude Code hook helper. Top-level code only; reads the hook payload, writes one session file, exits 0. Bundled at `Contents/Helpers/` |
-| `Sources/HeadroomShared/` | Foundation-only code shared by the app and the helper: `SessionRecord` and its files, `HookEvent` (the hook → state machine), `SessionOwner`, `isJSONBoolean`. Must never import AppKit — the helper runs on every tool call |
-| `Sources/HeadroomCore/AppDelegate.swift` | Wires provider → menu, owns the poll timer and the 60s countdown tick, refreshes on wake. The **only** public symbol in the module |
-| `Sources/HeadroomCore/MenuController.swift` | The status item: menu bar title, dropdown, Settings submenu. Knows nothing about where usage comes from |
-| `Sources/HeadroomCore/UsagePanel.swift` | The dropdown's SwiftUI rows, and the pure `UsageRow` view model behind them. Which limits reach the *menu bar title* is `TitleSelection`, in MenuController.swift |
-| `Sources/HeadroomCore/UsageAPI.swift` | `LimitWindow` model, `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
-| `Sources/HeadroomCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
-| `Sources/HeadroomCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
-| `Sources/HeadroomCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
-| `Sources/HeadroomCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
-| `Sources/HeadroomCore/UsageHistory.swift` | Everything Headroom writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
-| `Sources/HeadroomCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — the feed never writes the file or touches `~/.claude/`; hook installation is `HookInstaller`'s, and only for its own hooks. Also owns the setup snippet and the status shown in Settings; the README quotes the snippet and a test holds the two together |
-| `Sources/HeadroomCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
-| `Sources/HeadroomCore/HookInstaller.swift` | Adds/removes Headroom's hooks in `~/.claude/settings.json` and nothing else |
-| `Sources/HeadroomCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |
-| `Sources/HeadroomCore/TranscriptTail.swift` | Esc-interrupt detection from the end of a transcript |
-| `Sources/HeadroomCore/GitBranch.swift` | Branch from `.git/HEAD`, following worktree `gitdir:` files |
-| `Sources/HeadroomCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
-| `Sources/HeadroomCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
-| `Sources/HeadroomCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
-| `assets/Headroom.icon` | Icon Composer document — the icon's source of truth. One layer, `cashew.png`, over a cream gradient, with the shadow and material macOS 26 supplies |
+| `Sources/Cashew/main.swift` | Six lines of top-level code for the menu bar app. Top-level code can't live in a library target, so this and `cashew-hook`'s `main.swift` are the only two files outside a library |
+| `Sources/cashew-hook/main.swift` | The Claude Code hook helper. Top-level code only; reads the hook payload, writes one session file, exits 0. Bundled at `Contents/Helpers/` |
+| `Sources/CashewShared/` | Foundation-only code shared by the app and the helper: `SessionRecord` and its files, `HookEvent` (the hook → state machine), `SessionOwner`, `isJSONBoolean`. Must never import AppKit — the helper runs on every tool call |
+| `Sources/CashewCore/AppDelegate.swift` | Wires provider → menu, owns the poll timer and the 60s countdown tick, refreshes on wake. The **only** public symbol in the module |
+| `Sources/CashewCore/MenuController.swift` | The status item: menu bar title, dropdown, Settings submenu. Knows nothing about where usage comes from |
+| `Sources/CashewCore/UsagePanel.swift` | The dropdown's SwiftUI rows, and the pure `UsageRow` view model behind them. Which limits reach the *menu bar title* is `TitleSelection`, in MenuController.swift |
+| `Sources/CashewCore/UsageAPI.swift` | `LimitWindow` model, `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
+| `Sources/CashewCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
+| `Sources/CashewCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
+| `Sources/CashewCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
+| `Sources/CashewCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
+| `Sources/CashewCore/UsageHistory.swift` | Everything Cashew writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
+| `Sources/CashewCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — the feed never writes the file or touches `~/.claude/`; hook installation is `HookInstaller`'s, and only for its own hooks. Also owns the setup snippet and the status shown in Settings; the README quotes the snippet and a test holds the two together |
+| `Sources/CashewCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
+| `Sources/CashewCore/HookInstaller.swift` | Adds/removes Cashew's hooks in `~/.claude/settings.json` and nothing else |
+| `Sources/CashewCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |
+| `Sources/CashewCore/TranscriptTail.swift` | Esc-interrupt detection from the end of a transcript |
+| `Sources/CashewCore/GitBranch.swift` | Branch from `.git/HEAD`, following worktree `gitdir:` files |
+| `Sources/CashewCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
+| `Sources/CashewCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
+| `Sources/CashewCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
+| `assets/Cashew.icon` | Icon Composer document — the icon's source of truth. One layer, `cashew.png`, over a cream gradient, with the shadow and material macOS 26 supplies |
 | `assets/icon-1024.png` | A committed *render* of that document, and the only icon input on the CLT-only path |
 | `assets/render-icon.sh` | Regenerates the PNG from the document. Run it after editing the icon, commit both |
 | `assets/README.md` | What belongs in `assets/` — screenshots, the hero GIF, and the icon sources |
@@ -63,7 +63,7 @@ looking forward, so a past date always came out as a bare time. "Showing data fr
 "Refresh Now (15d ago)" for two weeks, describing the same instant and disagreeing. Reset times are
 future and use `clock`; anything describing when data was fetched is past and uses `stamp`.
 
-Everything lives in `HeadroomCore` so the test target can reach it with `@testable`, keeping the
+Everything lives in `CashewCore` so the test target can reach it with `@testable`, keeping the
 public API to `AppDelegate` alone. `MenuController` renders `[LimitWindow]` and nothing else — that's
 what makes adding a second provider one new file, so don't put Claude-specific strings in it.
 
@@ -83,16 +83,16 @@ what makes adding a second provider one new file, so don't put Claude-specific s
    Missing, null, or wrong-typed fields drop that *one* row and render `–`. Never force-unwrap a
    field from the response; never throw on a shape you didn't expect.
 4. **No secrets in the repo, and no notarization machinery in `build.sh`.** It signs ad-hoc by
-   default and may use `$HEADROOM_SIGN_ID` — an identity name, resolved from the developer's own
+   default and may use `$CASHEW_SIGN_ID` — an identity name, resolved from the developer's own
    Keychain — but it must never contain or handle a certificate, an app-specific password, or
    anything notarization needs. Releasing stays a manual maintainer step (`docs/RELEASING.md`), and
    CI signs ad-hoc and drafts the release for a signed build to replace.
 5. **Two network destinations:** `api.anthropic.com` for usage, and `api.github.com` for a
    once-a-day update check the user can turn off. No analytics, no identifiers, no downloads.
-6. **Headroom edits `~/.claude/settings.json` only to add or remove its own hooks** — entries whose
-   command runs the bundled `Contents/Helpers/headroom-hook`. Never another key, never another tool's hook, never
+6. **Cashew edits `~/.claude/settings.json` only to add or remove its own hooks** — entries whose
+   command runs the bundled `Contents/Helpers/cashew-hook`. Never another key, never another tool's hook, never
    `statusLine`. It never writes a file it could not parse, never replaces a symlink, writes only
-   when something changed, and backs the original up once to `settings.json.bak-headroom`.
+   when something changed, and backs the original up once to `settings.json.bak-cashew`.
 
 ## The response shape
 
@@ -195,7 +195,7 @@ than as a badge.
 `rebuild()` refuses to run while the menu is open, and rows are updated in place instead through
 `liveRows`. Three reasons rebuilding mid-tracking is wrong: it can delete the parent of an open
 Settings submenu, it re-targets a click already in flight (aim at "Refresh Now", hit "Quit
-Headroom"), and it destroys highlight and keyboard state. `menuNeedsUpdate` also fires during ⌘R/⌘Q
+Cashew"), and it destroys highlight and keyboard state. `menuNeedsUpdate` also fires during ⌘R/⌘Q
 key-equivalent matching, so this is reachable without the menu ever being clicked.
 
 Live rows close over the window's **`id`** and look it up in current state, never over a
@@ -246,7 +246,7 @@ value has 13 digits. It is kept as a raw `Double` and never converted to a `Date
 lands in the year 58,000.
 
 `.absent` and `.accessDenied` are distinct on purpose. Claude Code creates its Keychain item without
-`-A`/`-T`, so its ACL trusts only the creating binary and Headroom gets a permission prompt; reporting
+`-A`/`-T`, so its ACL trusts only the creating binary and Cashew gets a permission prompt; reporting
 a denial as "you've never signed in" is wrong advice on the one path every Keychain-only user takes.
 A denial also latches, or a user who clicks Deny would be re-prompted on every poll. The lookup runs
 on a serial background queue because that prompt is modal and every `refresh()` caller is the main
@@ -254,10 +254,10 @@ thread.
 
 ## Claude Code sessions
 
-`HookInstaller` registers `headroom-hook` for ten events — `SessionStart`, `UserPromptSubmit`,
+`HookInstaller` registers `cashew-hook` for ten events — `SessionStart`, `UserPromptSubmit`,
 `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `Stop`,
 `StopFailure`, `SessionEnd`; the helper writes
-`~/Library/Application Support/com.vickipetrova.headroom/sessions/<id>.json`; `SessionActivity`
+`~/Library/Application Support/com.vickipetrova.cashew/sessions/<id>.json`; `SessionActivity`
 reads the folder. Traps, each measured and each with a test:
 
 - **The hook command must be one command that `exec`s the helper:**
@@ -279,7 +279,7 @@ reads the folder. Traps, each measured and each with a test:
   restarted; the Settings status says so.
 - **A missing hook command is not skipped.** Claude Code runs it anyway, the shell exits 127, and
   the session shows a hook error notice (Claude Code hooks reference) — on every event, for anyone
-  who deleted or moved Headroom without turning tracking off. Hence the `[ -x … ] || exit 0` guard:
+  who deleted or moved Cashew without turning tracking off. Hence the `[ -x … ] || exit 0` guard:
   leftover hooks exit 0 and print nothing. A test runs the command through `/bin/sh -c` with a
   nonexistent path. Existing installs pick the guarded command up on the next launch, because the
   old entry is stripped by its marker and the new one appended.
@@ -290,8 +290,8 @@ reads the folder. Traps, each measured and each with a test:
 - **`SessionStart` also fires on compaction, mid-turn,** with `source: "compact"`. Resetting the
   session there hid one that was still working, so a compact carries the previous state, label,
   tool and turn start; `startup`, `resume` and `clear` still reset.
-- **Only a command containing `/Contents/Helpers/headroom-hook` is Headroom's.** Matching the bare
-  name would remove a user's own `my-headroom-hook-script.sh` along with ours.
+- **Only a command containing `/Contents/Helpers/cashew-hook` is Cashew's.** Matching the bare
+  name would remove a user's own `my-cashew-hook-script.sh` along with ours.
 - **Hooks install only from `/Applications` or `~/Applications`.** Anywhere else — a DMG, a
   translocated copy, Downloads, `build/` — the path goes away and the hooks would point at nothing.
 - **A read-only `settings.json` is reported, not overwritten.** The write is atomic, which replaces
@@ -312,10 +312,10 @@ reads the folder. Traps, each measured and each with a test:
 
 ## The app icon
 
-Headroom is `LSUIElement`: no Dock tile, no window. The bundle icon is what Finder, the DMG, the
+Cashew is `LSUIElement`: no Dock tile, no window. The bundle icon is what Finder, the DMG, the
 notification banner, Login Items and the Keychain permission prompt show, so `build.sh` renders one
 in two additive tiers: `sips`/`iconutil` turn `assets/icon-1024.png` into an `.icns` always, and
-`actool` compiles `assets/Headroom.icon` into `Assets.car` when Xcode is present so macOS 26+ gets
+`actool` compiles `assets/Cashew.icon` into `Assets.car` when Xcode is present so macOS 26+ gets
 the layered icon. Tier 2 is skipped silently and is never fatal. The `.icns` is byte-identical either
 way, so a CLT-only contributor and CI ship the same icon.
 
@@ -328,7 +328,7 @@ Editing the icon, and the measured traps in `sips`, `actool` and the DMG volume 
 
 ## Testing
 
-`swift test --disable-xctest`. Suites live in `Tests/HeadroomCoreTests/`.
+`swift test --disable-xctest`. Suites live in `Tests/CashewCoreTests/`.
 
 Parsing tests feed **JSON text** through `JSONSerialization`, not Swift dictionary literals — values
 have to arrive as the `NSNumber`s the real response produces, or the boolean and integer bridging
@@ -372,7 +372,7 @@ Enforced by a CI grep, and worth understanding rather than working around:
 Reading the menu without screenshots:
 
 ```bash
-osascript -e 'tell application "System Events" to tell process "Headroom" \
+osascript -e 'tell application "System Events" to tell process "Cashew" \
   to get name of every menu item of menu 1 of menu bar item 1 of menu bar 1'
 ```
 
@@ -380,9 +380,9 @@ For error states that the unit tests can't reach (the real 401 path, a dead netw
 on screen), copy `Sources/` to a scratch directory, patch the copy, and build a throwaway bundle from
 it.
 
-**A dev bundle doesn't install hooks** — `build/Headroom.app` isn't in an Applications folder, so
-session tracking reports "Move Headroom to Applications" — unless you opt in with
-`defaults write com.vickipetrova.headroom allowHooksOutsideApplications -bool true`. Doing so
+**A dev bundle doesn't install hooks** — `build/Cashew.app` isn't in an Applications folder, so
+session tracking reports "Move Cashew to Applications" — unless you opt in with
+`defaults write com.vickipetrova.cashew allowHooksOutsideApplications -bool true`. Doing so
 rewrites the real `~/.claude/settings.json` to point at the dev bundle. Before deleting that build,
 turn Track Claude Code Sessions off, or unset the default and relaunch the `/Applications` copy so
 it points the hooks back at itself. **Never delete or rename the `Claude Code-credentials` Keychain item** — that is Claude Code's

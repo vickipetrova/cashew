@@ -1,6 +1,6 @@
 # Security
 
-Headroom handles one sensitive thing: your Claude Code OAuth token. Here is exactly what happens
+Cashew handles one sensitive thing: your Claude Code OAuth token. Here is exactly what happens
 to it.
 
 ## What it reads
@@ -10,14 +10,14 @@ The access token Claude Code already stores, from either of:
 - The macOS login Keychain, generic password, service `Claude Code-credentials`
 - `~/.claude/.credentials.json` → `claudeAiOauth.accessToken`
 
-When both exist Headroom compares their expiry timestamps and uses whichever lives longest, so a
+When both exist Cashew compares their expiry timestamps and uses whichever lives longest, so a
 stale leftover file can't shadow the login Claude Code is actively refreshing.
 
 The Keychain read goes through `Security.framework` in-process (`SecItemCopyMatching`), not by
 shelling out to `/usr/bin/security` — so the token never crosses a pipe or appears in any
 subprocess's output.
 
-Headroom reads the token fresh for each request and drops it. It never caches it, writes it to
+Cashew reads the token fresh for each request and drops it. It never caches it, writes it to
 disk, or copies it anywhere. Nothing in the source prints or logs it, and CI fails the build if a
 `print`/`NSLog` mentioning a token appears in `Sources/`.
 
@@ -27,11 +27,11 @@ Two destinations:
 
 ```
 GET https://api.anthropic.com/api/oauth/usage                          (with your token)
-GET https://api.github.com/repos/vickipetrova/headroom/releases/latest   (no token, at most once a day)
+GET https://api.github.com/repos/vickipetrova/cashew/releases/latest   (no token, at most once a day)
 ```
 
 The second is the update check. It carries no token, cookie or identifier beyond a
-`User-Agent: Headroom/<version>` header, never downloads anything, and can be turned off under
+`User-Agent: Cashew/<version>` header, never downloads anything, and can be turned off under
 Settings. No telemetry, no analytics, no crash reporting, no third-party services.
 
 The URLSession used for the usage request is ephemeral, so no response is cached to disk, and it
@@ -40,7 +40,7 @@ returning one.
 
 ## What it stores
 
-In `UserDefaults` (`com.vickipetrova.headroom`) only:
+In `UserDefaults` (`com.vickipetrova.cashew`) only:
 
 - your four preferences: refresh interval, alert threshold, colour mode, and which limits you chose
   to show in the menu bar title
@@ -53,15 +53,15 @@ model's display name exactly as the API reported it. Your menu bar choices store
 your plan reports do reach disk. That is the whole extent of it: no percentages, no reset times, no
 history of your usage, and nothing that identifies your account.
 
-Launch at Login is stored by macOS, not by Headroom. No credentials and no logs.
+Launch at Login is stored by macOS, not by Cashew. No credentials and no logs.
 
 ### On disk
 
 Two files, both written after a successful poll and only after a successful poll:
 
 ```
-~/Library/Application Support/com.vickipetrova.headroom/history.json
-~/Library/Application Support/com.vickipetrova.headroom/snapshot.json
+~/Library/Application Support/com.vickipetrova.cashew/history.json
+~/Library/Application Support/com.vickipetrova.cashew/snapshot.json
 ```
 
 `history.json` is what the burn-rate forecast is computed from: a timestamp, a limit identifier, and
@@ -75,28 +75,28 @@ numbers it last had, labelled with when they were from, instead of an error over
 As above, a per-model limit's identifier and heading contain the model's display name as the API
 reported it, so those names appear in both files.
 
-A third file may appear in the same directory, `statusline.json`, but **Headroom never writes it** —
+A third file may appear in the same directory, `statusline.json`, but **Cashew never writes it** —
 it only reads it. It exists if you opted into the Claude Code statusline shortcut described in the
 README, in which case your own statusline script writes it. The snippet in the README filters the
 payload down to `rate_limits` before writing, so the working directory, session id, transcript path
 and cost that Claude Code also passes stay out of it. If you wrote your own variant that stores more
-than that, it stores what you told it to; Headroom reads only `rate_limits` either way.
+than that, it stores what you told it to; Cashew reads only `rate_limits` either way.
 
-In `~/Library/Application Support/com.vickipetrova.headroom/sessions/`, one small file per live
+In `~/Library/Application Support/com.vickipetrova.cashew/sessions/`, one small file per live
 Claude Code session: its state, folder, transcript path, the tool *name* in use and the Claude Code
 process id. Never prompt text, tool input or output. Deleted when the session ends, or after a day
 untouched.
 
-In `~/.claude/settings.json`, Headroom's own hook entries for ten events (`SessionStart`,
+In `~/.claude/settings.json`, Cashew's own hook entries for ten events (`SessionStart`,
 `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`,
-`PermissionRequest`, `Stop`, `StopFailure`, `SessionEnd`) — commands that run Headroom's bundled
-`Contents/Helpers/headroom-hook` — with a one-time backup of the original at
-`~/.claude/settings.json.bak-headroom`.
+`PermissionRequest`, `Stop`, `StopFailure`, `SessionEnd`) — commands that run Cashew's bundled
+`Contents/Helpers/cashew-hook` — with a one-time backup of the original at
+`~/.claude/settings.json.bak-cashew`.
 
 That is everything. No token, nothing derived from a token, no account identifier, no request or
 response bodies, and no prompt text, tool input or tool output. The usage files say only how full
 each quota was and when; the session files do say *where* you were working — the project folder and
-the transcript's path — and which tool was running, but not what the conversation contained. Delete them whenever you like; Headroom starts fresh and the forecast reappears once there are
+the transcript's path — and which tool was running, but not what the conversation contained. Delete them whenever you like; Cashew starts fresh and the forecast reappears once there are
 samples to draw a line through.
 
 ## Reporting a problem
@@ -109,7 +109,7 @@ you think your token has been exposed, sign out of Claude Code and sign back in 
 
 ## Scope note
 
-Headroom is unofficial and reads an undocumented endpoint. It cannot change your plan or spend
+Cashew is unofficial and reads an undocumented endpoint. It cannot change your plan or spend
 money, and the only thing it ever writes into your Claude Code setup is its own hook entries in
 `~/.claude/settings.json`, toggled from Settings and removed the moment you turn tracking off. But
 it is a side project maintained by one person and audited by whoever reads the source — which is the

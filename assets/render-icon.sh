@@ -1,7 +1,7 @@
 #!/bin/bash
-# Regenerates assets/icon-1024.png from assets/Headroom.icon.
+# Regenerates assets/icon-1024.png from assets/Cashew.icon.
 #
-# `Headroom.icon` is the source of truth, but it can only be *rendered* by actool, which lives inside
+# `Cashew.icon` is the source of truth, but it can only be *rendered* by actool, which lives inside
 # Xcode.app. `build.sh` must work with the Command Line Tools alone, so the render is committed as a
 # flat PNG and build.sh downscales that into the .icns. This script is what keeps the two in step —
 # run it whenever the Icon Composer document changes, and commit the result alongside it.
@@ -18,7 +18,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-DOC="assets/Headroom.icon"
+DOC="assets/Cashew.icon"
 OUT="assets/icon-1024.png"
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
@@ -36,7 +36,7 @@ fi
   --compile "$STAGE" \
   --platform macosx \
   --minimum-deployment-target 13.0 \
-  --app-icon Headroom \
+  --app-icon Cashew \
   --standalone-icon-behavior all \
   --output-partial-info-plist "$STAGE/partial.plist" \
   --errors --warnings --notices > "$STAGE/actool.log" 2>&1 || true
@@ -50,7 +50,7 @@ if ! plutil -extract CFBundleIconName raw "$STAGE/partial.plist" >/dev/null 2>&1
 fi
 
 rm -rf "$STAGE/x.iconset"
-iconutil -c iconset "$STAGE/Headroom.icns" -o "$STAGE/x.iconset"
+iconutil -c iconset "$STAGE/Cashew.icns" -o "$STAGE/x.iconset"
 cp "$STAGE/x.iconset/icon_512x512@2x.png" "$OUT"
 
 echo "Wrote $OUT ($(sips -g pixelWidth -g pixelHeight "$OUT" | tail -2 | tr -d ' \n' | sed 's/pixelWidth:/w=/;s/pixelHeight:/ h=/'))"

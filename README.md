@@ -1,4 +1,4 @@
-# Headroom
+# Cashew
 
 Your Claude Code plan usage, in the macOS menu bar:
 
@@ -9,17 +9,17 @@ Your Claude Code plan usage, in the macOS menu bar:
 Session (5-hour window) on the left, this week on the right. Click for reset times, live
 countdowns, and per-model weekly limits when your plan reports them.
 
-<!-- HERO GIF: record the menu bar with the dropdown open, save it as assets/headroom.gif,
+<!-- HERO GIF: record the menu bar with the dropdown open, save it as assets/cashew.gif,
      and uncomment the line below.
-<img src="assets/headroom.gif" alt="Headroom in the menu bar, with the dropdown open" width="420">
+<img src="assets/cashew.gif" alt="Cashew in the menu bar, with the dropdown open" width="420">
 -->
 
-**Zero setup.** No cookies, no DevTools, nothing to paste. Headroom reads the OAuth token Claude
+**Zero setup.** No cookies, no DevTools, nothing to paste. Cashew reads the OAuth token Claude
 Code already has and asks Anthropic the same question `/usage` does.
 
 ## How it works
 
-Every five minutes (configurable), Headroom sends one request:
+Every five minutes (configurable), Cashew sends one request:
 
 ```
 GET https://api.anthropic.com/api/oauth/usage
@@ -28,7 +28,7 @@ anthropic-beta: oauth-2025-04-20
 ```
 
 The token comes from wherever Claude Code keeps it — the macOS login Keychain (generic password,
-service `Claude Code-credentials`) or `~/.claude/.credentials.json`. If both exist, Headroom uses
+service `Claude Code-credentials`) or `~/.claude/.credentials.json`. If both exist, Cashew uses
 whichever one lives longest, so a leftover file can't shadow your live login.
 
 Claude Code refreshes that token itself while you work, so there is nothing to maintain. If it has
@@ -44,7 +44,7 @@ is closed.
 > [!NOTE]
 > **This endpoint is undocumented and community-discovered.** It is not a public API, and Anthropic
 > can change or remove it without notice — it has already grown a second response shape alongside
-> the original one. Headroom treats every field as optional: anything missing, null, or unexpected
+> the original one. Cashew treats every field as optional: anything missing, null, or unexpected
 > renders as `–` rather than crashing. If the numbers ever look wrong, check `/usage` inside Claude
 > Code and [open an issue](../../issues) if they disagree.
 
@@ -53,11 +53,11 @@ is closed.
 ### Build from source
 
 ```bash
-git clone https://github.com/vickipetrova/headroom.git
-cd headroom
+git clone https://github.com/vickipetrova/cashew.git
+cd cashew
 ./build.sh
-cp -R build/Headroom.app /Applications/
-open /Applications/Headroom.app
+cp -R build/Cashew.app /Applications/
+open /Applications/Cashew.app
 ```
 
 That's the whole toolchain: the Xcode Command Line Tools. No Xcode project, no third-party
@@ -66,21 +66,21 @@ the Command Line Tools don't ship.
 
 `swift run` won't work, and that's expected — it produces a bare binary with no `Info.plist`, so
 there's no `LSUIElement`, no bundle identity for login items, and no notification registration.
-`./build.sh && open build/Headroom.app` is the way to run it.
+`./build.sh && open build/Cashew.app` is the way to run it.
 
 ### DMG
 
-Download the latest `Headroom.dmg` from [Releases](../../releases), open it, and drag Headroom into
+Download the latest `Cashew.dmg` from [Releases](../../releases), open it, and drag Cashew into
 Applications.
 
 ## Requirements
 
 - **macOS 13+** (Ventura). Launch at login uses `SMAppService`, which is 13.0 and later.
 - **A Claude Pro or Max plan.** Session and weekly windows are plan quotas. Metered API-key
-  accounts don't have them, so there is nothing for Headroom to show — it says so plainly instead
+  accounts don't have them, so there is nothing for Cashew to show — it says so plainly instead
   of showing zeroes.
 - **Claude Code, signed in at least once**, so there's a token to read. If you set
-  `CLAUDE_CONFIG_DIR`, Headroom won't find your login — Claude Code moves both the credentials file
+  `CLAUDE_CONFIG_DIR`, Cashew won't find your login — Claude Code moves both the credentials file
   and the Keychain service name to match, and an app launched from Finder can't see that variable.
 
 ## Settings
@@ -110,8 +110,8 @@ image, so the whole item adapts like a built-in menu bar control.
 Alerts fire at most once per window per reset period, so sitting at 85% doesn't produce an alert on
 every poll. Lowering the threshold mid-window counts as a new crossing and will alert again.
 
-macOS asks for notification permission the first time Headroom runs with alerts switched on. If you
-decline — or later switch Headroom off in System Settings › Notifications — the menu says
+macOS asks for notification permission the first time Cashew runs with alerts switched on. If you
+decline — or later switch Cashew off in System Settings › Notifications — the menu says
 *"Alerts blocked — open Notification settings"* rather than silently never alerting you.
 
 ## Live usage from Claude Code
@@ -120,11 +120,11 @@ Optional, and off until you add one line.
 
 Claude Code already knows your plan usage — it hands `rate_limits.five_hour` and
 `rate_limits.seven_day` to whatever statusline command you've configured, every time it renders,
-which is far more often than Headroom polls. Let Headroom read that and **your session and weekly
+which is far more often than Cashew polls. Let Cashew read that and **your session and weekly
 numbers become live instead of up to fifteen minutes old**, updating as you work rather than on a
 timer.
 
-Headroom will **not** edit the `statusLine` in `~/.claude/settings.json` (the only thing it ever
+Cashew will **not** edit the `statusLine` in `~/.claude/settings.json` (the only thing it ever
 changes there is its own session-tracking hooks). Your statusline is yours, and quietly replacing
 it to install a helper would be a bad trade for a menu bar app. So opting in is something you do, in
 one of two ways depending on whether you already have a statusline.
@@ -135,25 +135,25 @@ Add this right after the line that reads stdin (usually `input=$(cat)`). **Setti
 Updates…** shows the same line with a button to copy it:
 
 ```bash
-{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.headroom" \
+{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.cashew" \
   && printf '%s' "$input" | jq -c '{rate_limits}' \
-     > "$HOME/Library/Application Support/com.vickipetrova.headroom/statusline.json"; } 2>/dev/null || true
+     > "$HOME/Library/Application Support/com.vickipetrova.cashew/statusline.json"; } 2>/dev/null || true
 ```
 
 If your script stores stdin under a different name than `input`, change `$input` to match.
 
 ### You don't have one yet
 
-Most people don't. Save this as `~/.claude/headroom-statusline.sh` — it shows the model and the
-current folder, and hands the usage numbers to Headroom:
+Most people don't. Save this as `~/.claude/cashew-statusline.sh` — it shows the model and the
+current folder, and hands the usage numbers to Cashew:
 
 ```bash
 #!/bin/bash
 input=$(cat)
 
-{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.headroom" \
+{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.cashew" \
   && printf '%s' "$input" | jq -c '{rate_limits}' \
-     > "$HOME/Library/Application Support/com.vickipetrova.headroom/statusline.json"; } 2>/dev/null || true
+     > "$HOME/Library/Application Support/com.vickipetrova.cashew/statusline.json"; } 2>/dev/null || true
 
 printf '%s' "$input" | jq -r '"\(.model.display_name // "Claude") · \(.workspace.current_dir // "" | split("/") | last // "")"'
 ```
@@ -165,7 +165,7 @@ object if the file already has settings in it):
 {
   "statusLine": {
     "type": "command",
-    "command": "bash ~/.claude/headroom-statusline.sh"
+    "command": "bash ~/.claude/cashew-statusline.sh"
   }
 }
 ```
@@ -174,12 +174,12 @@ The statusline appears the next time Claude Code renders one — send a message 
 
 ### Checking it works
 
-**Settings › Live from Claude Code** shows what Headroom sees:
+**Settings › Live from Claude Code** shows what Cashew sees:
 
 | Status | Meaning |
 |---|---|
 | On · updated 1m ago | Working. |
-| On · last reading 3h ago | Set up, but Claude Code hasn't rendered a statusline in the last five minutes — normal when it's closed. Headroom falls back to polling. |
+| On · last reading 3h ago | Set up, but Claude Code hasn't rendered a statusline in the last five minutes — normal when it's closed. Cashew falls back to polling. |
 | Off | No reading has ever arrived. The line isn't in your script, or the script isn't the one in `settings.json`. |
 | Not working — is jq installed? | The script runs but writes nothing. The snippet needs `jq`, which macOS 15 and later include; on macOS 13 or 14, `brew install jq`. |
 | On · no plan limits reported | Readings arrive but carry no usage — an account without plan limits, or a session that hasn't made a request yet. |
@@ -191,24 +191,24 @@ statusline, which is also why the status above exists. Delete the line to opt ou
 **It supplements polling rather than replacing it.** The statusline payload has no per-model
 breakdown, so a `WEEKLY · OPUS` row can only come from the API — and an earlier version of this that
 used the statusline *instead of* polling made that row blink in and out depending on whether a Claude
-Code session happened to be open, which was worse than either source alone. Headroom keeps polling on
+Code session happened to be open, which was worse than either source alone. Cashew keeps polling on
 your normal schedule and overlays the live numbers on top, matched by limit, so no row ever
 disappears.
 
-Once the file is more than five minutes old Headroom stops trusting it and shows the polled numbers
+Once the file is more than five minutes old Cashew stops trusting it and shows the polled numbers
 alone — an idle session isn't refreshing the file, but idle usage isn't moving either. Nothing to
 configure either way, and nothing changes if you skip this entirely.
 
 ## Why not the built-in menu bar?
 
-Claude Code will tell you a number. `/usage` gives you the same percentages Headroom reads, and you
+Claude Code will tell you a number. `/usage` gives you the same percentages Cashew reads, and you
 can look at them whenever you think to.
 
 The gap isn't the number, it's the rate. **40% an hour into a five-hour window and 40% four hours in
 are the same reading and opposite situations**, and nothing that samples once can tell them apart.
 The first is a morning that ends fine. The second is a morning that ends at 3pm.
 
-So Headroom keeps a short history of what each limit has read and works out how fast you're actually
+So Cashew keeps a short history of what each limit has read and works out how fast you're actually
 moving. When that rate would reach the cap before the window resets, one line appears under the
 limit:
 
@@ -226,7 +226,7 @@ it matters. Silence is the normal state, and the forecast appearing is the signa
 Two honest limits. It's a straight-line projection over a trailing window — 90 minutes for a session
 limit, a day for a weekly one — so it assumes the next hour looks like the last, which it won't if
 you stop for lunch or start a big refactor. And it needs a few samples before it will say anything,
-so a freshly installed Headroom stays quiet for a while. When it can't tell, it says nothing rather
+so a freshly installed Cashew stays quiet for a while. When it can't tell, it says nothing rather
 than guessing.
 
 ## Roadmap
@@ -252,7 +252,7 @@ Out of scope: cost dashboards, telemetry, anything needing an API key. See
 
 ## Other projects in this space
 
-There are several good ones, and they solve different problems. If Headroom isn't the shape you
+There are several good ones, and they solve different problems. If Cashew isn't the shape you
 want, one of these probably is:
 
 - **[ClaudeBar](https://github.com/tddworks/ClaudeBar)** — the big one. Tracks a dozen assistants
@@ -261,51 +261,51 @@ want, one of these probably is:
   history charts, per-model breakdown, extra-usage spend in USD.
 - **[ClaudeUsageBar](https://github.com/Artzainnn/claudeusagebar)** — covers claude.ai usage too,
   not just Claude Code. Setup is copying a cookie out of DevTools.
-- **[Claude Usage](https://github.com/richhickson/claudecodeusage)** — closest to Headroom in
+- **[Claude Usage](https://github.com/richhickson/claudecodeusage)** — closest to Cashew in
   spirit: small, native, session and weekly at a glance.
 - **[Claude Status Bar](https://github.com/m1ckc3s/claude-status-bar)** — a different question
   entirely: whether Claude Code is *currently* thinking, running a tool, or waiting on you. Pairs
   well with this one, and its repo is the template this one's build script follows.
 
-Headroom's one distinguishing bet is that you shouldn't have to set anything up.
+Cashew's one distinguishing bet is that you shouldn't have to set anything up.
 
 ## Uninstall
 
 First, if you use session tracking, turn off **Settings › Track Claude Code Sessions** while
-Headroom is still installed — that removes its hooks from `~/.claude/settings.json`. If you turned
-on Launch at Login, switch that off too (or remove Headroom from System Settings › General › Login
+Cashew is still installed — that removes its hooks from `~/.claude/settings.json`. If you turned
+on Launch at Login, switch that off too (or remove Cashew from System Settings › General › Login
 Items). Then:
 
 ```bash
-rm -rf /Applications/Headroom.app
-rm -rf ~/Library/Application\ Support/com.vickipetrova.headroom
-defaults delete com.vickipetrova.headroom
-rm -f ~/.claude/settings.json.bak-headroom
+rm -rf /Applications/Cashew.app
+rm -rf ~/Library/Application\ Support/com.vickipetrova.cashew
+defaults delete com.vickipetrova.cashew
+rm -f ~/.claude/settings.json.bak-cashew
 ```
 
 That is everything: the app; the usage history the forecast is computed from and the session files;
-your preferences; and `settings.json.bak-headroom`, the one-time backup of your Claude Code settings
-Headroom took before first adding its hooks — safe to delete, nothing reads it. No caches, no logs,
+your preferences; and `settings.json.bak-cashew`, the one-time backup of your Claude Code settings
+Cashew took before first adding its hooks — safe to delete, nothing reads it. No caches, no logs,
 no other files.
 
 ## Claude Code sessions
 
-Headroom also shows what Claude Code is doing. The spark in the menu bar spins while a session is
+Cashew also shows what Claude Code is doing. The spark in the menu bar spins while a session is
 working and gains a dot when one is waiting for your permission, and the dropdown lists each live
 session with its project, branch, current step and how long the turn has run.
 
-To do that, Headroom adds hooks for ten Claude Code events to `~/.claude/settings.json` the first
+To do that, Cashew adds hooks for ten Claude Code events to `~/.claude/settings.json` the first
 time it runs from `/Applications` (or `~/Applications`): `SessionStart`, `UserPromptSubmit`,
 `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `Stop`,
 `StopFailure` and `SessionEnd`. It changes nothing else in that file, keeps a one-time backup at
-`~/.claude/settings.json.bak-headroom`, and records only each session's state, folder, transcript
+`~/.claude/settings.json.bak-cashew`, and records only each session's state, folder, transcript
 path and tool *name* — never your prompts, tool input or output. Sessions already open when the hooks are added appear
 once they're restarted.
 
 Turn it off under **Settings › Track Claude Code Sessions**, which removes the hooks. **Turn it off
-before deleting Headroom.** If you forget, each leftover hook checks that Headroom's helper is still
+before deleting Cashew.** If you forget, each leftover hook checks that Cashew's helper is still
 there and exits quietly when it isn't, so your sessions are unaffected — but the entries stay in
-`settings.json` until you remove them (reinstalling Headroom and turning tracking off does it for
+`settings.json` until you remove them (reinstalling Cashew and turning tracking off does it for
 you).
 
 Session tracking was inspired by [claude-status-bar](https://github.com/m1ckc3s/claude-status-bar)
@@ -313,8 +313,8 @@ by Mick Cesanek.
 
 ## Security
 
-Headroom reads your OAuth token, holds it in memory for one request, and sends it to exactly one
-place: `api.anthropic.com`. It also asks GitHub once a day whether a newer Headroom exists (turn it
+Cashew reads your OAuth token, holds it in memory for one request, and sends it to exactly one
+place: `api.anthropic.com`. It also asks GitHub once a day whether a newer Cashew exists (turn it
 off under Settings). No telemetry, no analytics, no identifiers. See [SECURITY.md](SECURITY.md).
 
 ## Trademark / Not affiliated

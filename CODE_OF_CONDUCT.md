@@ -32,7 +32,7 @@ Examples of unacceptable behavior include:
 * Other conduct which could reasonably be considered inappropriate in a professional setting
 
 In this project specifically, that comes down to one thing: **critique code, not people, and assume
-the other person is trying to help.** Headroom reads an undocumented endpoint and gets things wrong
+the other person is trying to help.** Cashew reads an undocumented endpoint and gets things wrong
 sometimes; so does everyone working on it.
 
 ## Enforcement Responsibilities
@@ -53,7 +53,7 @@ community in public spaces.
 
 ## Enforcement
 
-Headroom is maintained by one person. Instances of abusive, harassing, or otherwise unacceptable
+Cashew is maintained by one person. Instances of abusive, harassing, or otherwise unacceptable
 behavior may be reported privately through this repository's **Security › Report a vulnerability**
 form, which is the private channel GitHub provides here — it is labelled for security reports, but it
 reaches the maintainer and nobody else, and a conduct report sent through it will be treated as such.
