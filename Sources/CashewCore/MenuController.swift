@@ -213,8 +213,12 @@ final class MenuController: NSObject, NSMenuDelegate {
         // it prefixes are the thing it is interrupting. Secondary colour so the percentages, which
         // carry the alert colours, stay the loudest thing in the item.
         if Settings.showStatusWords, let word = StatusWords.title(for: sessions.first) {
-            title.append(NSAttributedString(string: "\(word) · ", attributes: [
-                .foregroundColor: NSColor.secondaryLabelColor,
+            // Full label colour, and no separator before the numbers. The word is the part you read
+            // at a glance while something is running; in secondary grey behind a `·` it read as an
+            // aside to the percentages rather than the headline, and the dot made two unrelated
+            // things look like one list.
+            title.append(NSAttributedString(string: "\(word)  ", attributes: [
+                .foregroundColor: NSColor.labelColor,
             ]))
         }
         for (index, window) in titleWindows().enumerated() {
