@@ -95,8 +95,8 @@ produces one without uninstalling anything, and is how both tiers get tested on 
 `icon.json` declares no dark or tinted variant and does not need to: `"fill": {"automatic-gradient":
 …}` is the feature that derives them. `assetutil --info` on the compiled car shows all three
 appearances registered, with Aqua and Tintable referencing the declared cream gradient while
-**DarkAqua references a two-stop grey ramp 0.192 → 0.078 that `actool` generated itself**. The two SVG
-layer groups are shared byte-for-byte across all three.
+**DarkAqua references a two-stop grey ramp 0.192 → 0.078 that `actool` generated itself**. The layer
+group is shared byte-for-byte across all three.
 
 What you cannot conclude from that is how it looks on screen, and the obvious checks don't work.
 `NSWorkspace.shared.icon(forFile:)` returns the default rendition no matter the appearance — verified

@@ -6,12 +6,8 @@
     {
       "layers" : [
         {
-          "image-name" : "headroom-layer-tracks.svg",
-          "name" : "headroom-layer-tracks"
-        },
-        {
-          "image-name" : "headroom-layer-fills.svg",
-          "name" : "headroom-layer-fills"
+          "image-name" : "cashew.png",
+          "name" : "cashew"
         }
       ],
       "shadow" : {
