@@ -2,10 +2,15 @@ import AppKit
 
 /// What the menu bar draws while a Claude Code session is working.
 ///
-/// Every style is drawn here rather than shipped as artwork, for two reasons. Headroom is going to
-/// track more than one tool, so a mascot belonging to any single vendor would date the app the week
-/// a second provider lands — and drawing means one square canvas, one set of rules about colour, and
+/// Most styles are drawn here in code rather than shipped as artwork: Headroom is going to track
+/// more than one tool, so a mascot belonging to any single vendor would date the app the week a
+/// second provider lands, and drawing means one square canvas, one set of rules about colour, and
 /// one test that measures the rendered pixels of all of them.
+///
+/// `cashew` is the exception, and the shape of it is the rule for any future sprite style: it is
+/// Headroom's own character, drawn by the author, shipped as two sheets of frames — full colour,
+/// and an alpha-only template for System mode — that go through the same canvas, the same resting
+/// frame and the same pixel tests as everything drawn in code.
 ///
 /// **Colour.** In `.system` the image is a *template*: macOS draws it the way it draws a built-in
 /// menu bar control, so it inverts when highlighted and follows light and dark. A template's shape
@@ -31,6 +36,8 @@ enum MenuBarAnimation: String, CaseIterable {
     case orbitingDot
     /// Three bars rising and falling, like a level meter.
     case meterBars
+    /// A drawn character, animated from sprite frames rather than by code.
+    case cashew
 
     /// Frames per second. Twelve, not the four this started at: at four, a turning glyph and a
     /// breathing one were barely perceptible — the eye reads slow discrete steps as a still image
@@ -50,6 +57,10 @@ enum MenuBarAnimation: String, CaseIterable {
         case .gaugeSweep: return 24    // one lap every 2s
         case .orbitingDot: return 30   // one lap every 2.5s — the slowest, it travels furthest
         case .meterBars: return 18
+        // One pass through the sprite sheet — a whole backflip, so it meets its own start — plus a
+        // beat on the resting pose before the next one. At 12 fps that is 1.3s of flip and half a
+        // second of standing there.
+        case .cashew: return Self.cashewFrameCount + Self.cashewRestFrames
         }
     }
 
@@ -73,6 +84,7 @@ enum MenuBarAnimation: String, CaseIterable {
         case .gaugeSweep: return "Gauge sweep"
         case .orbitingDot: return "Orbiting dot"
         case .meterBars: return "Meter bars"
+        case .cashew: return "Cashew"
         }
     }
 
@@ -98,15 +110,47 @@ enum MenuBarAnimation: String, CaseIterable {
     private static let dotDiameter: CGFloat = 6
     private static let dotGap: CGFloat = 2
 
+    /// How tall the sprite styles' art is drawn.
+    ///
+    /// The image *is* the character: no margin, the way the reference project draws its own sprite.
+    /// That detail is the whole reason Cashew looked small next to it. A status item pads its
+    /// content, so an image as tall as the 22pt menu bar is scaled down to fit — a 22pt canvas
+    /// holding a 20pt character rendered *smaller* than an 18pt image made entirely of character.
+    /// 20pt of pure art is therefore bigger on screen than the 22pt canvas it replaced.
+    ///
+    /// 20 and not more, measured: a status item does not scale an oversized image down, it *clips*
+    /// it. At 26 the character rendered visibly larger with its head and feet cut off by the bar.
+    /// The frames put roughly 32 of their 36 rows to use, so 20pt of image is about 18pt of ink,
+    /// which is what the button's content actually has room for.
+    private static let spriteHeight: CGFloat = 26
+
+    /// The canvas this style draws into.
+    ///
+    /// Square for everything drawn in code, because they are glyphs that need room to turn and grow
+    /// inside it. Exactly the art for Cashew, whose frames are 37×36 with ink out to every edge:
+    /// there is no margin in the art, so adding one in the canvas only costs size.
+    private var canvas: NSSize {
+        let side = Self.side
+        guard self == .cashew, let sprite = Self.cashewColourFrames.first,
+              sprite.size.width > 0, sprite.size.height > 0 else {
+            return NSSize(width: side, height: side)
+        }
+        let height = Self.spriteHeight
+        return NSSize(width: height * sprite.size.width / sprite.size.height, height: height)
+    }
+
     /// `working` is what stops the animation when every session is idle; `reduceMotion` freezes it
     /// for someone who asked the system for less movement. Both resolve to the resting frame, which
     /// is frame 0 of each style — the shape the style looks like when nothing is happening.
     func image(mode: Settings.ColorMode, frame: Int, working: Bool, attention: Bool,
                reduceMotion: Bool) -> NSImage {
         let side = Self.side
+        let canvas = self.canvas
         // System mode can't use colour, so waiting is drawn as an extra shape and the image widens.
-        let needsDot = attention && mode == .system
-        let width = side + (needsDot ? Self.dotGap + Self.dotDiameter : 0)
+        // Cashew is drawn art rather than a glyph: its colours are its own and tinting it yellow
+        // would just make a yellow blob, so it takes the dot in both modes.
+        let needsDot = attention && (mode == .system || self == .cashew)
+        let width = canvas.width + (needsDot ? Self.dotGap + Self.dotDiameter : 0)
         let moving = working && !reduceMotion
         // Where this frame sits in the style's own loop, 0..<1. Styles are written against the
         // phase rather than a frame index so their speeds can differ without their drawing knowing.
@@ -118,7 +162,7 @@ enum MenuBarAnimation: String, CaseIterable {
         // `NSImage(size:flipped:drawingHandler:)` rather than lockFocus: the handler re-runs per
         // destination scale, so the image stays sharp on a second display with a different backing
         // scale instead of being rasterized once at whatever the main screen happened to be.
-        let image = NSImage(size: NSSize(width: width, height: side), flipped: false) { _ in
+        let image = NSImage(size: NSSize(width: width, height: canvas.height), flipped: false) { _ in
             switch self {
             case .sparkSpin:
                 // 45°, not 360: ✻ has eight spokes, so a 45° turn *is* a full revolution to the eye.
@@ -132,10 +176,15 @@ enum MenuBarAnimation: String, CaseIterable {
             case .gaugeSweep: Self.drawGauge(side: side, ink: ink, phase: phase, working: moving)
             case .orbitingDot: Self.drawOrbit(side: side, ink: ink, phase: phase, working: moving)
             case .meterBars: Self.drawBars(side: side, ink: ink, phase: phase, working: moving)
+            case .cashew:
+                Self.drawCashew(canvas: canvas,
+                                frame: moving ? Self.cashewFrame(atTick: frame) : 0,
+                                template: mode == .system)
             }
             if needsDot {
                 ink.setFill()
-                NSBezierPath(ovalIn: NSRect(x: side + Self.dotGap, y: (side - Self.dotDiameter) / 2,
+                NSBezierPath(ovalIn: NSRect(x: canvas.width + Self.dotGap,
+                                            y: (canvas.height - Self.dotDiameter) / 2,
                                             width: Self.dotDiameter, height: Self.dotDiameter)).fill()
             }
             return true
@@ -205,6 +254,49 @@ enum MenuBarAnimation: String, CaseIterable {
         ink.setFill()
         NSBezierPath(ovalIn: NSRect(x: centre.x - diameter / 2, y: centre.y - diameter / 2,
                                     width: diameter, height: diameter)).fill()
+    }
+
+    /// How many frames the Cashew sheet holds, taken from the sheet itself rather than written down
+    /// twice — regenerating it with a different count should change the speed, not break the loop.
+    static let cashewFrameCount = min(cashewFramePNGs.count, cashewTemplateFramePNGs.count)
+
+    /// Extra ticks spent on the resting pose before each flip, so the character pauses between them
+    /// instead of tumbling continuously.
+    ///
+    /// Held here rather than by repeating frame 0 in the sheet: the sheets describe the art and
+    /// nothing else, so a regenerated sheet does not have to carry timing in it, the pause is one
+    /// number to tune instead of a dozen duplicated base64 strings, and nothing decodes or stores
+    /// the same picture six times over.
+    static let cashewRestFrames = 6
+
+    /// Decoded once, not per frame: at twelve frames a second, base64-decoding and re-parsing a PNG
+    /// every tick would be real work to produce a picture that never changes.
+    private static let cashewColourFrames = decode(cashewFramePNGs)
+    private static let cashewTemplateFrames = decode(cashewTemplateFramePNGs)
+
+    /// Which sprite frame a tick shows: the resting pose for the first `cashewRestFrames` ticks of
+    /// the loop, then one frame of the flip per tick.
+    static func cashewFrame(atTick tick: Int) -> Int {
+        let cycle = cashewFrameCount + cashewRestFrames
+        let step = ((tick % cycle) + cycle) % cycle
+        return step < cashewRestFrames ? 0 : step - cashewRestFrames
+    }
+
+    private static func decode(_ encoded: [String]) -> [NSImage] {
+        encoded.compactMap { Data(base64Encoded: $0).flatMap(NSImage.init(data:)) }
+    }
+
+    /// One sprite frame, scaled to sit inside the shared square with the same margin the drawn
+    /// styles keep. The template sheet is purpose-drawn as alpha-only ink, so it is used as-is in
+    /// System mode rather than being derived from the colour art.
+    private static func drawCashew(canvas: NSSize, frame: Int, template: Bool) {
+        let frames = template ? cashewTemplateFrames : cashewColourFrames
+        guard !frames.isEmpty else { return }
+        let sprite = frames[((frame % frames.count) + frames.count) % frames.count]
+        guard sprite.size.width > 0, sprite.size.height > 0 else { return }
+        // Filling the canvas, not inset into it: the canvas was measured from this art's own
+        // proportions, so the character lands exactly, and every point of the image is character.
+        sprite.draw(in: NSRect(origin: .zero, size: canvas))
     }
 
     /// Three bars. At rest they sit low and level, so the style still says "nothing is happening".
