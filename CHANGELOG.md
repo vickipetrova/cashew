@@ -4,68 +4,29 @@ All notable changes to Cashew are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project follows
 [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.1.0] - unreleased
 
-### Security
-
-- **The update check no longer follows redirects.** The usage request has refused them since it was
-  written — it carries your token, and a cross-host hop is how a token leaks — but the once-a-day
-  check to GitHub never did, because the policy was private to the usage client. No token rides on
-  that request; what a redirect could have forwarded is the `User-Agent` header. Both sessions now
-  share one policy, and SECURITY.md states one rule instead of describing an exception.
-- **SECURITY.md now matches the code.** An audit of every claim against the source found two that
-  were wrong: `history.json` and `snapshot.json` are written about once a minute rather than only
-  after a successful poll, and eleven preferences are stored rather than four. It also found two
-  things the document never mentioned — Cashew reads the tail of a tracked session's transcript to
-  tell an interrupted turn from a finished one, and a stored MCP tool name reveals which MCP servers
-  you have configured. Nothing about the app's behaviour changed; the description of it did.
-
-### Fixed
-
-- **The dropdown is no longer wider than it needs to be.** A session row asked for its project,
-  branch, status phrase and elapsed time all at full length — 393pt measured — and `NSMenu` sizes
-  itself to its widest item, so the whole panel sat at 457pt while the usage rows needed 259. The
-  row now has a stated width budget and the project name truncates in the middle, as it always
-  claimed it would; the menu settles at 364pt.
-
-### Changed
-
-- **The DMG filename carries the version** — `Cashew-0.1.0.dmg` rather than `Cashew.dmg`. A Homebrew
-  cask's URL has to contain the version verbatim for automated version bumps to work, and a filename
-  cannot be changed once anyone has linked to it. The volume name and the app inside are unchanged.
-- **The README is a landing page.** It was 338 lines with the install buried in the middle; it is now
-  149, and the statusline setup, the forecast rationale, the settings table, the troubleshooting
-  cases and the roadmap each have their own page under `docs/`. Nothing was deleted.
-- **The Copy Setup Snippet link points at a file rather than a README heading.** That URL is pasted
-  into your own statusline script and cannot be corrected afterwards, so it should not depend on a
-  heading keeping its exact wording.
-- **Settings is now three levels instead of one long column.** Hover Settings, then **Menu Bar**,
-  **Alerts & Refresh** or **Claude Code**, and that section opens with only its own rows in it.
-  **Open at Login** and **Check for Updates** stay at the Settings level, where they are one hover
-  away rather than two.
-- **Every on/off setting is a switch.** Flipping one leaves the menu open, so you can change two or
-  three in a visit; picking from a list still closes the menu the way any macOS menu does.
-- **The wording assumes you have not used Cashew before.** *Show Status Words* is **Status words**,
-  under "Say what Claude Code is doing". *Track Claude Code Sessions* is **Track sessions**, under
-  "See what each session is doing". *Launch at Login* is **Open at Login**, which is what System
-  Settings itself calls it. *Notify above → Off* is **Notify when usage passes → Never**, and the
-  colour modes are now **Only when usage is high** and **Never** rather than *Alerts only* and
-  *System*.
-- **Headroom is now Cashew**, after the character in the menu bar and on the icon. The app, the
-  bundle identifier (`com.vickipetrova.headroom` → `com.vickipetrova.cashew`), the hook helper, the
-  Swift modules and the repository all take the new name.
-
-  macOS keys a great deal to the bundle identifier, so anyone carrying an install across from the
-  last pre-release should expect it to look new: the Application Support folder, the preferences and
-  the login item all live under the old identifier. Nothing is lost — copy
-  `~/Library/Application Support/com.vickipetrova.headroom` to `…cashew`, re-tick Launch at Login,
-  and re-copy the statusline snippet from Settings if you use it. Cashew writes its own hooks into
-  `~/.claude/settings.json` on the next launch; the old `headroom-hook` entries stay behind, harmless
-  — each one checks the helper exists and exits quietly — and can be deleted by hand. The Keychain
-  asks once more for the token, because it trusts a binary rather than a name.
+First release.
 
 ### Added
 
+- **Menu bar title** — `✻ 42% · 67%`: session (5-hour) and weekly utilization, calm until usage is
+  worth noticing and then yellow, then red (see Color below). Monospaced digits so the title
+  doesn't shuffle as numbers change, and you choose which limits appear in it. Unticking all of them
+  is allowed and means what it says: the cashew alone, plus whatever the status words are saying.
+- **The dropdown is a panel, not a greyed-out menu.** Each limit gets a small-caps heading with its
+  reset time, the percentage alongside a live countdown, and a slim progress bar in Anthropic
+  orange. Informational rows are custom views, which macOS renders at full strength, while the menu
+  itself still supplies the native material, dismissal and ⌘R/⌘Q. Countdowns refresh in place while
+  the menu is open. **Refresh Now** says how old the numbers are — "Refresh Now (just now)",
+  "Refresh Now (5m ago)" — so freshness sits next to the thing that acts on it.
+- **Zero-setup authentication.** Reads the OAuth token Claude Code already holds, from
+  `~/.claude/.credentials.json` or the login Keychain, ranked so a stale leftover file can't shadow
+  the login Claude Code is actively refreshing. Nothing to paste, no cookies, no DevTools.
+- **Per-model weekly limits.** The usage endpoint's `limits` array reports model-scoped windows
+  that name their own model, so the third row reads "WEEKLY · OPUS" or "WEEKLY · FABLE"
+  according to what your plan actually reports. Falls back to the older `five_hour` /
+  `seven_day` / `seven_day_opus` keys per field if the array is absent.
 - **Claude Code session activity.** The menu bar spark spins while a session is working and shows a
   dot when one is waiting for permission; the dropdown lists live sessions with project, branch,
   current step and elapsed time. Cashew installs its own hooks for ten Claude Code events
@@ -74,8 +35,48 @@ All notable changes to Cashew are documented here. The format follows
   `~/Applications`, never over a read-only file, nothing else in the file touched, the original
   backed up once — and removes them when the setting is turned off. Each hook command checks the
   helper exists before running it, so a deleted Cashew's leftover hooks exit quietly instead of
-  showing hook errors. Compaction mid-turn keeps the session's state. An Esc-interrupted turn is detected from the transcript, since Claude Code
-  fires no hook for it. Inspired by claude-status-bar.
+  showing hook errors. Compaction mid-turn keeps the session's state. An Esc-interrupted turn is
+  detected from the transcript, since Claude Code fires no hook for it. Inspired by
+  claude-status-bar.
+- **Burn-rate forecasting.** A percentage can't tell you whether you'll make it to the reset — 40% an
+  hour into a five-hour window and 40% four hours in read identically. Cashew keeps a rolling
+  history of utilization samples and projects the rate forward. When a limit is on pace to hit 100%
+  before it resets, one line appears under it — *"On pace to hit the limit ~Thu 14:00"* — and a
+  weekly limit in that state also turns its menu bar percentage yellow, even below the usual 50%
+  threshold. Nothing is shown otherwise, deliberately: there is no "you're fine" message to learn to
+  ignore. The projection is a straight line over a trailing window (90 minutes for a session limit,
+  24 hours for a weekly one), it discards samples from before a reset, and it stays silent rather
+  than guessing when the rate is indistinguishable from idle, when there are too few samples, when
+  they don't span at least a quarter of the trailing window, or when the whole movement is within the
+  endpoint's own rounding — `percent` arrives as an integer, and a single one-point tick over twenty
+  minutes is noise, not a rate.
+
+  Samples live in `~/Library/Application Support/com.vickipetrova.cashew/history.json` and are
+  pruned after seven days. `SECURITY.md` documents exactly what is in it, and the README's Uninstall
+  section removes it.
+- **The last good reading survives a restart.** A launch whose first poll fails — an expired token,
+  no network, or the API rate-limiting the request — restores what it last saw, with the error
+  underneath and *"Showing data from 14:02"* saying how old it is, rather than showing an error over
+  an empty panel. Windows that have reset since are dropped rather than shown, because their
+  percentage describes a period that has already ended. A reading too stale to display is also too
+  stale to restore — one rule decides both.
+- **Settings, in three sections.** Hover **Settings**, then **Menu Bar**, **Alerts & Refresh** or
+  **Claude Code**, and that section opens with only its own rows in it. **Open at Login** and
+  **Check for Updates** sit at the Settings level, one hover away rather than two. Every on/off
+  setting is a switch, and flipping one leaves the menu open, so you can change two or three in a
+  visit; picking from a list closes the menu the way any macOS menu does.
+  - **Limits shown** — which limits appear in the menu bar title. The list is built from what the
+    API reports rather than a fixed set, so per-model limits appear by name; the choice is stored
+    per limit identifier and survives a limit disappearing and returning.
+  - **Color** — *Only when usage is high* (default) keeps the menu bar and panel calm, colouring
+    only once usage passes 50% and again at 80%, so colour carries information instead of being
+    permanently on. *Never* is fully monochrome and renders the spark as a template image, so the
+    item adapts like a built-in menu bar control.
+  - **Notify when usage passes** 50/80/90% or Never, and **Check usage every** 1/5/15 minutes.
+  - **Open at Login** delegates to `SMAppService`, so revoking it in System Settings is reflected
+    back in the switch.
+- **Threshold alerts**, at most one per limit window per reset period. Lowering the threshold
+  mid-window counts as a new crossing.
 - **Update checks.** Once a day Cashew asks GitHub for the latest release and offers a menu item
   when a newer one exists. No identifiers are sent and nothing is downloaded; it can be turned off.
 - **Optional: live numbers from Claude Code's statusline.** Claude Code hands
@@ -89,121 +90,47 @@ All notable changes to Cashew are documented here. The format follows
   touch the `statusLine` key; opting in and out of this is a line you control, and the snippet writes
   only `rate_limits` rather than the cwd, session id, transcript path and cost the rest of the payload
   carries.
-  **Settings › Live from Claude Code** says whether it's on, off, or not working because `jq` is
-  missing, and when it isn't working offers **Set Up Live Updates…**, a dialog that explains the
-  feature and copies the line. The README now has a complete starter script for anyone without a statusline yet.
-- **Burn-rate forecasting.** A percentage can't tell you whether you'll make it to the reset — 40% an
-  hour into a five-hour window and 40% four hours in read identically. Cashew now keeps a rolling
-  history of utilization samples and projects the rate forward. When a limit is on pace to hit 100%
-  before it resets, one line appears under it — *"On pace to hit the limit ~Thu 14:00"* — and a
-  weekly limit in that state also turns its menu bar percentage yellow, even below the usual 50%
-  threshold. Nothing is shown otherwise, deliberately: there is no "you're fine" message to learn to
-  ignore. The projection is a straight line over a trailing window (90 minutes for a session limit,
-  24 hours for a weekly one), it discards samples from before a reset, and it stays silent rather
-  than guessing when the rate is indistinguishable from idle, when there are too few samples, when
-  they don't span at least a quarter of the trailing window, or when the whole movement is within the
-  endpoint's own rounding — `percent` arrives as an integer, and a single one-point tick over twenty
-  minutes is noise, not a rate.
-- Samples are stored in `~/Library/Application Support/com.vickipetrova.cashew/history.json` and
-  pruned after seven days — the first thing Cashew has ever written to disk. `SECURITY.md`
-  documents exactly what is in it, and Uninstall in the README removes it.
-- **The last good reading survives a restart.** A launch whose first poll fails — an expired token, no
-  network, or the API rate-limiting the request — used to show an error over an empty panel, even
-  though perfectly good numbers had been on screen an hour earlier. It now restores what it last saw,
-  with the error underneath and *"Showing data from 14:02"* saying how old it is, which is the same
-  thing it already did when a poll failed mid-session. Windows that have reset since are dropped
-  rather than shown, because their percentage describes a period that has already ended.
-
-### Fixed
-
-- **The menu bar can show no numbers at all.** Unticking the last limit under *Limits shown* used to
-  snap back to the session window; it now means what it says, leaving the cashew and whatever the
-  status words are saying. The item is still there and still opens the menu, which is what the old
-  fallback was really protecting against.
-- **Cashew now backs off when the API says to.** A rate-limited app kept asking every five minutes
-  regardless, discarding the `Retry-After` header along with the rest of the response, and had no way
-  back except being noticed and restarted — one instance sat refused for fifteen days. It now honours
+  **Settings › Claude Code › Live updates** says whether it's on, off, or not working because `jq`
+  is missing, and when it isn't working offers **Set Up Live Updates…**, a dialog that explains the
+  feature and copies the line. [`docs/LIVE-UPDATES.md`](docs/LIVE-UPDATES.md) has a complete starter
+  script for anyone without a statusline yet.
+- **Honest failure states.** No login found, expired token, Keychain access declined, and
+  unreachable network each say what happened rather than what didn't. A rate-limited app honours
   `Retry-After` when the server sends one (in either the seconds or HTTP-date form), doubles the
   interval when it doesn't, caps the wait at an hour, and returns to the normal cadence on the first
-  success. The message is no longer *"Usage API returned HTTP 429"* but *"Too many requests — Cashew
-  is asking less often until this clears"*, since this is the one error whose fix is to wait.
-- **Stale readings are no longer presented as data.** Keeping the last good numbers when a poll fails
-  is right for a short outage and wrong for a long one: a reading over a day old, or one for a window
-  that has since reset, is now dropped rather than shown, and the panel says only what went wrong.
-  The same rule decides what a restart restores, so a reading can't be too stale to keep showing yet
-  fresh enough to bring back.
-- **"Showing data from …" no longer reports a 15-day-old reading as a time of day.** `Fmt.clock` picks
-  its weekday format from `date.timeIntervalSince(now) >= dayThreshold`, which is only ever true
-  looking forward; fed a past timestamp it always rendered a bare time. A reading from fifteen days
-  earlier displayed as *"Showing data from 4:44 AM"* directly above a correct *"Refresh Now (15d
-  ago)"*. Past timestamps now keep the clock time only for today and switch to elapsed time beyond
-  that.
-- **Message rows no longer clip when their text changes.** A view-backed row was measured once, when
-  it was created, so a row built around a short string — "Loading…", or a one-line network error —
-  kept that height when a longer message replaced it, and the multi-line Keychain-permission message
-  was cut off at one line. Rows created *with* a long message were clipped the same way. Heights are
-  now re-measured whenever the content changes, at the width the menu actually gave the row, and the
-  open menu grows and shrinks to match.
-
-## [0.1.0] - 2026-08-02
-
-First release.
-
-### Added
-
-- **Menu bar title** — `✻ 42% · 67%`: session (5-hour) and weekly utilization, calm until usage is
-  worth noticing and then yellow, then red (see Colors below). Monospaced digits so the title
-  doesn't shuffle as numbers change, and you choose which limits appear in it.
-- **Dropdown** with each limit window's percentage, reset time, and a live countdown. Countdowns
-  refresh in place while the menu is open.
-- **Zero-setup authentication.** Reads the OAuth token Claude Code already holds, from
-  `~/.claude/.credentials.json` or the login Keychain. Nothing to paste, no cookies, no DevTools.
-- **Per-model weekly limits.** The usage endpoint's `limits` array reports model-scoped windows
-  that name their own model, so the third row reads "WEEKLY · OPUS" or "WEEKLY · FABLE"
-  according to what your plan actually reports. Falls back to the older `five_hour` /
-  `seven_day` / `seven_day_opus` keys per field if the array is absent.
-- **Show in Menu Bar** — choose which limits appear in the menu bar title. The list is built from
-  what the API reports rather than a fixed set, so per-model limits appear by name; the choice is
-  stored per limit identifier, survives a limit disappearing and returning, and always keeps at
-  least one showing.
-- **Colors setting** — *Alerts only* (default) keeps the menu bar and panel calm, colouring only
-  once usage passes 50% and again at 80%, so colour carries information instead of being permanently
-  on. *System* is fully monochrome and renders the spark as a template image, so the item adapts like
-  a built-in menu bar control.
-- **Settings submenu** — refresh every 1/5/15 minutes, alert above 50/80/90% or off, colours, launch
-  at login. Launch at login delegates to `SMAppService`, so revoking it in System Settings is
-  reflected back in the checkmark.
-- **Threshold alerts**, at most one per limit window per reset period. Lowering the threshold
-  mid-window counts as a new crossing.
-- **Honest failure states.** No login found, expired token, and unreachable network each say what
-  happened; a failed refresh keeps the last known numbers on screen and timestamps them rather than
-  blanking the title.
+  success — saying *"Too many requests — Cashew is asking less often until this clears"*, since this
+  is the one error whose fix is to wait.
 - **Refresh on wake** from sleep, since timers are unreliable across it.
-- `./build.sh` produces a universal (arm64 + x86_64) ad-hoc signed bundle with no Xcode project and
-  no third-party dependencies; `--dmg` packages an installer image.
 - **An app icon** — two gauge tracks with Anthropic-orange fills, echoing the dropdown's progress
   bars. Cashew has no Dock tile and no window, so this is what Finder, notification banners, Login
   Items and the Keychain prompt show. Built from `assets/icon-1024.png` with `sips` and `iconutil`,
   so the Command Line Tools remain enough to build; when Xcode is present, `assets/Cashew.icon` is
   also compiled with `actool` so macOS 26 and later render the layered icon, including the dark and
   tinted appearances it derives. The `.icns` is identical either way.
-- The DMG carries a **volume icon**, so the window you drag from shows Cashew rather than a generic
-  white disk.
+- `./build.sh` produces a universal (arm64 + x86_64) ad-hoc signed bundle with no Xcode project and
+  no third-party dependencies; `--dmg` packages an installer image named `Cashew-<version>.dmg`,
+  carrying a **volume icon** so the window you drag from shows Cashew rather than a generic white
+  disk.
+- **Tests.** `swift test --disable-xctest` covers endpoint parsing, formatting, alert
+  de-duplication, preference validation, credential parsing, the forecast, the hook state machine
+  and the dropdown's view models.
 
-- **The dropdown is a panel, not a greyed-out menu.** Each limit gets a small-caps heading with its
-  reset time, the percentage alongside a countdown, and a slim progress bar in Anthropic orange.
-  Previously every informational row was a *disabled* menu item, which macOS draws dimmed — so the
-  whole panel read as unavailable. Those rows are now custom views, which macOS renders at full
-  strength, while the menu itself still supplies the native material, dismissal and ⌘R/⌘Q.
-  **Refresh Now** says how old the numbers are — "Refresh Now (just now)", "Refresh Now (5m ago)" —
-  instead of a separate Updated line, so freshness sits next to the thing that acts on it.
-- **Tests.** `swift test --disable-xctest` covers endpoint parsing, formatting, alert de-duplication, preference
-  validation, credential parsing, and the dropdown's view model. The project builds through SwiftPM (`Package.swift`, no
-  third-party dependencies); `build.sh` still produces the universal, ad-hoc-signed `.app`.
+### Security
+
+- **Two network destinations, and neither follows a redirect.** `api.anthropic.com` for usage,
+  carrying your token; `api.github.com` for the once-a-day update check, carrying none. Refusing
+  redirects is what makes the first of those a guarantee rather than an expectation — the token
+  cannot be forwarded to another host even if the endpoint starts returning a `Location`. No
+  telemetry, no analytics, no identifiers, nothing downloaded.
+- **[`SECURITY.md`](SECURITY.md) documents every file written, every preference stored, and
+  everything read** — including that, with session tracking on, Cashew reads the tail of a session's
+  transcript to tell an interrupted turn from a finished one, keeping nothing from it but a
+  yes-or-no. It was audited line by line against the source before release, twice.
 
 ### Fixed
 
-Found in a pre-release code review, before first release:
+Found in a pre-release code review, before first release — no published version of Cashew ever had
+these:
 
 - **Alerts fired on every poll instead of once per window.** The usage endpoint re-stamps
   `resets_at` on every request — three polls twenty seconds apart returned the same reset instant
@@ -214,20 +141,38 @@ Found in a pre-release code review, before first release:
   store that had *anything* in it, so a stale `~/.claude/.credentials.json` — from an older Claude
   Code, a restored backup, or synced dotfiles — hid the Keychain token Claude Code was actively
   refreshing. Every poll failed and the menu advised opening a Claude Code session, which could never
-  fix it. Cashew now compares expiry timestamps and uses whichever credential lives longest.
+  fix it. Cashew now ranks the two stores rather than taking the first it finds.
 - **"Access denied" was reported as "you've never signed in."** Claude Code's Keychain item only
   trusts the app that created it, so Cashew is prompted for access; declining produced advice that
   couldn't help. It now says what actually happened, and asks once rather than on every poll.
 - **The Keychain read could freeze the menu bar.** It ran on the main thread, and it can put a modal
   permission dialog on screen.
-- **The bearer token could have followed a redirect to another host.** The connection now refuses
-  redirects outright, so "one network destination" is enforced rather than merely documented.
+- **The bearer token could have followed a redirect to another host.** Both connections now refuse
+  redirects outright, so "two network destinations" is enforced rather than merely documented.
 - **A slow refresh could overwrite newer data with older**, timestamped as if it were current.
 - **Numbers froze in a dropdown left open.** Percentages and the "Updated" line never changed while
   the menu was on screen, and a countdown would keep running toward a reset time that had already
   been replaced — reaching "now" and staying pinned there until the menu was closed and reopened.
+- **Message rows clipped when their text changed.** A view-backed row was measured once, when it was
+  created, so a row built around a short string — "Loading…", or a one-line network error — kept that
+  height when a longer message replaced it, and the multi-line Keychain-permission message was cut
+  off at one line. Heights are now re-measured whenever the content changes, at the width the menu
+  actually gave the row, and the open menu grows and shrinks to match.
+- **The dropdown was wider than it needed to be.** A session row asked for its project, branch,
+  status phrase and elapsed time all at full length — 393pt measured — and `NSMenu` sizes itself to
+  its widest item, so the whole panel sat at 457pt while the usage rows needed 259. The row now has a
+  stated width budget and the project name truncates in the middle; the menu settles at 364pt.
 - **A model name reported by the server flowed unbounded into the menu, notifications and stored
-  preferences.** It is now trimmed, length-capped, and an empty one no longer renders a heading with empty brackets.
+  preferences.** It is now trimmed, length-capped, and an empty one no longer renders a heading with
+  empty brackets.
+- **Stale readings were presented as data.** Keeping the last good numbers when a poll fails is right
+  for a short outage and wrong for a long one: a reading over a day old, or one for a window that has
+  since reset, is now dropped rather than shown, and the panel says only what went wrong.
+- **"Showing data from …" reported a 15-day-old reading as a time of day.** `Fmt.clock` picks its
+  weekday format from `date.timeIntervalSince(now) >= dayThreshold`, which is only ever true looking
+  forward; fed a past timestamp it always rendered a bare time. A reading from fifteen days earlier
+  displayed as *"Showing data from 4:44 AM"* directly above a correct *"Refresh Now (15d ago)"*.
+  Past timestamps now keep the clock time only for today and switch to elapsed time beyond that.
 - **The documented release procedure discarded its own notarization.** It rebuilt the app after
   signing and stapling, replacing both with an ad-hoc signature before packaging the DMG. `build.sh`
   gained `--dmg-only` for that step.
@@ -258,6 +203,20 @@ Found while building the test suite:
   "Resets 9:00 AM — in 1d 0h" without the weekday that removes the ambiguity.
 - **Reset times kept their old format after a system locale change**, because the date formatters
   were built once at launch.
+
+### Upgrading from a pre-release build
+
+Only relevant if you ran a build from source before this release, when the project was called
+Headroom. The app, the bundle identifier (`com.vickipetrova.headroom` → `com.vickipetrova.cashew`),
+the hook helper, the Swift modules and the repository all took the new name.
+
+macOS keys a great deal to the bundle identifier, so an install carried across will look new: the
+Application Support folder, the preferences and the login item all live under the old identifier.
+Nothing is lost — copy `~/Library/Application Support/com.vickipetrova.headroom` to `…cashew`,
+re-tick Open at Login, and re-copy the statusline snippet from Settings if you use it. Cashew writes
+its own hooks into `~/.claude/settings.json` on the next launch; the old `headroom-hook` entries stay
+behind, harmless — each one checks the helper exists and exits quietly — and can be deleted by hand.
+The Keychain asks once more for the token, because it trusts a binary rather than a name.
 
 ### Known limitations
 

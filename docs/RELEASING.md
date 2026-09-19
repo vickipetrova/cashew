@@ -8,6 +8,10 @@ the maintainer's Mac, documented here.
 
 - Bump `VERSION` in `build.sh`.
 - Add the release section to `CHANGELOG.md`.
+- **Set that section's date to the day you are actually tagging.** A version being prepared carries
+  `- unreleased` rather than a guessed date, precisely so this cannot go out stale — a changelog
+  dated three weeks before the release is a small, permanent inaccuracy, and the release is the only
+  moment the real date is known.
 - Commit, then tag and push:
 
 ```bash
