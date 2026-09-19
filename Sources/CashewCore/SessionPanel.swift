@@ -71,10 +71,19 @@ struct SessionRowView: View {
                 // The elapsed time ticks every second; it must not shuffle the row sideways.
                 .monospacedDigit()
                 .lineLimit(1)
+                // Wins the squeeze against the title. The status is the part that is actually
+                // changing, and `StatusWords.rowMaxLength` already bounds it; the title is
+                // identification, is the only one marked `.middle`, and a project is recognisable
+                // from its ends. Without this both shrink proportionally and neither reads.
+                .layoutPriority(1)
         }
         .padding(.horizontal, PanelMetrics.horizontalPadding)
         .padding(.vertical, 3)
-        .frame(minWidth: PanelMetrics.minimumWidth, maxWidth: .infinity, alignment: .leading)
+        // `idealWidth` is the load-bearing one: `HostedRow` measures with `fittingSize`, which
+        // proposes nothing and therefore gets the ideal. Without it the row asks for both texts in
+        // full and the menu widens to match instead of the title truncating. See `sessionRowWidth`.
+        .frame(minWidth: PanelMetrics.minimumWidth, idealWidth: PanelMetrics.sessionRowWidth,
+               maxWidth: .infinity, alignment: .leading)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel(row.spoken)
     }
