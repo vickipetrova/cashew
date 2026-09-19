@@ -6,6 +6,14 @@ All notable changes to Cashew are documented here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **The dropdown is no longer wider than it needs to be.** A session row asked for its project,
+  branch, status phrase and elapsed time all at full length — 393pt measured — and `NSMenu` sizes
+  itself to its widest item, so the whole panel sat at 457pt while the usage rows needed 259. The
+  row now has a stated width budget and the project name truncates in the middle, as it always
+  claimed it would; the menu settles at 364pt.
+
 ### Changed
 
 - **Settings is now three levels instead of one long column.** Hover Settings, then **Menu Bar**,

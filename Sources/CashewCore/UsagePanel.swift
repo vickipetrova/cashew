@@ -189,6 +189,21 @@ enum PanelMetrics {
     /// type sizes — it was 240 before the small text moved from `.caption` to `.callout`. Any change
     /// to the row's fonts or copy moves this number; re-measure rather than guessing.
     static var textWrapWidth: CGFloat { 258 - horizontalPadding * 2 }
+
+    /// The most a session row may *ask* for, which is the only row in the menu that needs a ceiling.
+    ///
+    /// Every other row's width is bounded by its own content: a usage row measures 259pt at its
+    /// widest, a heading 200. A session row is two `lineLimit(1)` texts side by side with nothing
+    /// proposing a width, so `fittingSize` returns the sum of both at full length — measured at
+    /// 393pt for `headroom · feat/settings-menu` next to `Typing at the terminal… · 42s`, which put
+    /// the whole menu at 457. The `truncationMode(.middle)` on the title could never fire, because
+    /// the menu simply grew until the title fitted.
+    ///
+    /// So the ceiling is what makes the truncation reachable, not a cosmetic limit. 300 is chosen to
+    /// land the menu at ~365 with AppKit's 65pt of chrome; it is deliberately well above the 259 the
+    /// numbers need, because squeezing the row to exactly that leaves almost nothing for the project
+    /// name once a phrase and an elapsed time have taken their share.
+    static let sessionRowWidth: CGFloat = 300
 }
 
 // MARK: - Hosting

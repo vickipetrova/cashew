@@ -260,6 +260,18 @@ Live rows close over the window's **`id`** and look it up in current state, neve
 `LimitWindow` value. Capturing the value made a held-open menu keep counting down to a reset the poll
 had already replaced, reach "now", and stay pinned there until the menu was reopened.
 
+**One row needs a width ceiling, and it is the session row.** Every other row is bounded by its own
+content — a usage row measures 259pt at its widest, a heading 200. A session row is two
+`lineLimit(1)` texts side by side with nothing proposing a width, so `fittingSize` returns the sum of
+both at full length: measured at 393pt for `headroom · feat/settings-menu` beside `Typing at the
+terminal… · 42s`, which put the whole menu at 457. The `truncationMode(.middle)` on the title could
+never fire, because the menu just grew until the title fitted. `PanelMetrics.sessionRowWidth` (300)
+is therefore what makes the truncation *reachable*, and it is set through `idealWidth` specifically —
+`HostedRow` measures with `fittingSize`, which proposes nothing and so gets the ideal; a `maxWidth`
+would not be consulted. The status carries `.layoutPriority(1)` so the title absorbs the squeeze: the
+status is the part that changes and is already bounded by `StatusWords.rowMaxLength`, and without a
+priority both shrink proportionally and neither reads. Menu after: 364pt.
+
 Measured, not assumed: an open `NSMenu` **does re-layout** when a row's text grows — it does not clip
 to its open-time width. A held-open menu was observed resizing 253 → 293 → 640 points mid-tracking
 (gaining a weekday at the 24h threshold, then an error footer), growing leftward to keep its right
