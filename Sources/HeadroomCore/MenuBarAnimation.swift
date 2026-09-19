@@ -8,9 +8,9 @@ import AppKit
 /// one test that measures the rendered pixels of all of them.
 ///
 /// `cashew` is the exception, and the shape of it is the rule for any future sprite style: it is
-/// Headroom's own character, shipped as two sheets of frames — full colour, and an alpha-only
-/// template for System mode — that go through the same canvas, the same resting frame and the same
-/// pixel tests as everything drawn in code.
+/// Headroom's own character, drawn by the author, shipped as two sheets of frames — full colour,
+/// and an alpha-only template for System mode — that go through the same canvas, the same resting
+/// frame and the same pixel tests as everything drawn in code.
 ///
 /// **Colour.** In `.system` the image is a *template*: macOS draws it the way it draws a built-in
 /// menu bar control, so it inverts when highlighted and follows light and dark. A template's shape
@@ -57,8 +57,8 @@ enum MenuBarAnimation: String, CaseIterable {
         case .gaugeSweep: return 24    // one lap every 2s
         case .orbitingDot: return 30   // one lap every 2.5s — the slowest, it travels furthest
         case .meterBars: return 18
-        // One pass through the sprite sheet: 16 frames filling, then the same frames reversed, so
-        // it ping-pongs and meets its own start. At 12 fps that is a 2.5s loop.
+        // One pass through the sprite sheet, which is a whole backflip and so meets its own start.
+        // At 12 fps that is a 1.3s loop.
         case .cashew: return Self.cashewFrameCount
         }
     }
