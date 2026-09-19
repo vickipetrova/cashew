@@ -35,7 +35,8 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/cashew-hook/main.swift` | The Claude Code hook helper. Top-level code only; reads the hook payload, writes one session file, exits 0. Bundled at `Contents/Helpers/` |
 | `Sources/CashewShared/` | Foundation-only code shared by the app and the helper: `SessionRecord` and its files, `HookEvent` (the hook → state machine), `SessionOwner`, `isJSONBoolean`. Must never import AppKit — the helper runs on every tool call |
 | `Sources/CashewCore/AppDelegate.swift` | Wires provider → menu, owns the poll timer and the 60s countdown tick, refreshes on wake. The **only** public symbol in the module |
-| `Sources/CashewCore/MenuController.swift` | The status item: menu bar title, dropdown, Settings submenu. Knows nothing about where usage comes from |
+| `Sources/CashewCore/MenuController.swift` | The status item: menu bar title, dropdown, and the three-level Settings tree. Knows nothing about where usage comes from |
+| `Sources/CashewCore/MenuToggle.swift` | The Settings switch and the rows built from it. `MenuToggle` is the pure metrics and colour rule; `MenuToggleView` is the layer-hosted control; `SettingsRow` builds the headers, notes and toggle rows the Settings submenus are made of |
 | `Sources/CashewCore/UsagePanel.swift` | The dropdown's SwiftUI rows, and the pure `UsageRow` view model behind them. Which limits reach the *menu bar title* is `TitleSelection`, in MenuController.swift |
 | `Sources/CashewCore/UsageAPI.swift` | `LimitWindow` model, `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
 | `Sources/CashewCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
@@ -190,6 +191,62 @@ row did nothing, and `NSMenuDelegate.menuHasKeyEquivalent` — the documented ho
 is not consulted for status-item menus. A custom command row costs the shortcut, the native
 highlight, and AppKit's click routing; that is why Refresh Now shows its age as plain text rather
 than as a badge.
+
+The Settings switches are the deliberate exception, and they pay every one of those costs on purpose
+— a switch *wants* not to dismiss the menu, has no shortcut to lose, and reimplements its own click
+handling because that is the feature. See the next section.
+
+## The Settings tree, and its switches
+
+Three levels — Settings, a section, that section's rows — and one rule running through it, which is
+the macOS one: **picking dismisses, switching does not.** A choice among several (an animation, a
+colour, a threshold) is a command and closes the menu like any other. An on/off is a control you may
+want two or three of in one visit, so it stays put. That is the entire reason the switches are custom
+views rather than checkmarked `NSMenuItem`s, and it is the opposite call from Refresh Now above.
+
+Adapted from `m1ckc3s/claude-status-bar` (MIT), which had already worked out the first two:
+
+- **`NSSwitch` cannot be used in a menu.** A menu is a vibrant, non-key window, and AppKit draws a
+  control's accent as the inactive grey in one — an "on" switch looks exactly like an "off" one. The
+  track and knob are `CALayer`s with the accent filled in by hand.
+- **The animation has to be CoreAnimation, not a timer.** A menu runs its own modal tracking loop, so
+  timer-driven redraws stall for exactly as long as the menu is visible, which is the whole time
+  anyone can see the control. CA animations run in the render server and play regardless.
+- **A dynamic `NSColor` handed to CoreAnimation as `.cgColor` resolves against whatever appearance is
+  current at that instant**, which during menu construction is not reliably the menu's. Latching the
+  light variant onto a dark menu is survivable; latching the dark one onto a light menu is a white
+  track on a white background. So the off grey is built from an explicit black or white, chosen from
+  the view's own `effectiveAppearance` — and `viewDidChangeEffectiveAppearance` redoes it, because at
+  `init` the view has not landed in the menu yet and reports the app's appearance instead.
+
+Three more, measured here:
+
+- **A *disabled* view-backed item still delivers mouse events to its view.** This is what makes the
+  design work at all, and it is not obvious — `isEnabled = false` is set for the reason `HostedRow`
+  documents (an enabled view-backed item is *selected* on mouse-up, which dismisses the whole menu),
+  and the worry was that it would take the clicks with it. It does not: verified by clicking a
+  toggle in a running build and watching `get name of every menu item` go from `(on)` to `(off)`
+  with the menu still open.
+- **The row carries the click, not just the switch.** A click on the label is what people actually
+  aim at, and a subview gets the event before its superview, so `MenuToggleView` handles direct hits
+  and `SettingsToggleRow` forwards everything else. Both go through one debounced `flip()`.
+- **A status line under a switch has to be rewritten by hand.** Flipping a switch no longer dismisses
+  the menu, and `rebuild()` refuses to run while the menu is on screen — so nothing else will do it.
+  The hook status under Track sessions went on saying "On · 2 sessions" under a switch that had just
+  been turned off until `claudeCodeSettings` started updating it in the handler. Installing hooks is
+  synchronous, so `hookOutcome` is already the new one by the time the handler resumes.
+
+**`SettingsRow.toggle`'s `settled` closure is for settings macOS owns, not Cashew.** Launch-at-login
+is the one: registration legitimately fails from a quarantined or temporary location, and
+`Settings.launchAtLogin` reads the real `SMAppService` status rather than a mirror of it. A plain
+checkmark used to get this right for free, because the menu was rebuilt from fresh state on every
+open; a switch that slides over and stays there is a lie about something the system just refused. So
+the value is re-read after the handler and the switch is put where the answer says.
+
+**A toggle row's `title` has to say which way it is set** — `"Status words (on)"`. A view-backed item
+draws no title, but `title` is still what VoiceOver and `get name of every menu item` report, and a
+plain item's state used to live in `NSMenuItem.state` where both could reach it. A switch keeps it in
+a layer's fill, where neither can.
 
 ## The open dropdown
 
@@ -427,7 +484,7 @@ it.
 session tracking reports "Move Cashew to Applications" — unless you opt in with
 `defaults write com.vickipetrova.cashew allowHooksOutsideApplications -bool true`. Doing so
 rewrites the real `~/.claude/settings.json` to point at the dev bundle. Before deleting that build,
-turn Track Claude Code Sessions off, or unset the default and relaunch the `/Applications` copy so
+turn Settings › Claude Code › Track sessions off, or unset the default and relaunch the `/Applications` copy so
 it points the hooks back at itself. **Never delete or rename the `Claude Code-credentials` Keychain item** — that is Claude Code's
 live login, not test data.
 

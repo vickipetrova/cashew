@@ -20,10 +20,13 @@ enum Settings {
         /// image, so the whole item adapts like a built-in menu bar control.
         case system
 
+        /// Read under the word COLOR, which is what lets both of these be this short — and what
+        /// makes them parallel answers to one question instead of two jargon terms. "Alerts only"
+        /// and "System" named the *modes*; these name what you'd see.
         var label: String {
             switch self {
-            case .alertsOnly: return "Alerts only"
-            case .system: return "System"
+            case .alertsOnly: return "Only when usage is high"
+            case .system: return "Never"
             }
         }
     }
