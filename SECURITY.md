@@ -13,8 +13,11 @@ The access token Claude Code already stores, from either of:
 - The macOS login Keychain, generic password, service `Claude Code-credentials`
 - `~/.claude/.credentials.json` → `claudeAiOauth.accessToken`
 
-When both exist Cashew compares their expiry timestamps and uses whichever lives longest, so a
-stale leftover file can't shadow the login Claude Code is actively refreshing.
+When both exist Cashew ranks them rather than taking the first it finds, so a stale leftover file
+can't shadow the login Claude Code is actively refreshing. In order: a file containing a bare token
+wins outright — Claude Code never writes that shape, so it can only be a deliberate override you put
+there yourself; otherwise whichever expires later wins; and a tie goes to the Keychain, matching
+Claude Code's own precedence.
 
 The Keychain read goes through `Security.framework` in-process (`SecItemCopyMatching`), not by
 shelling out to `/usr/bin/security` — so the token never crosses a pipe or appears in any
@@ -30,14 +33,16 @@ Both are read and immediately discarded. Neither is stored, logged, or sent anyw
 
 **The tail of each tracked session's transcript.** Claude Code does not fire a `Stop` hook when you
 interrupt a turn with Esc, so the only way to know a turn ended that way is to look. Cashew reads
-the **last 64 KB** of the transcript, walks back to the last `user` or `assistant` entry, and tests
-one thing: whether its text begins `[Request interrupted by user`. What it keeps is that single
-true/false, in memory, keyed on the file's modification time so the read is skipped while nothing
-changes. The conversation itself is parsed and thrown away — none of it reaches a variable that
-outlives the check, a file, or the network.
+the **last 64,000 bytes** of the transcript, walks back to the last `user` or `assistant` entry, and
+tests one thing: whether its text begins `[Request interrupted by user`. What it keeps is that
+single true/false, in memory, keyed on the file's modification time so the read is skipped while
+nothing changes. The conversation itself is parsed and thrown away — none of it reaches a variable
+that outlives the check, a file, or the network.
 
-**`.git/HEAD` in each session's folder**, to show the branch name next to the project. Only the
-branch string is kept, and only in memory.
+**The nearest `.git/HEAD` at or above each session's folder**, to show the branch name next to the
+project. Cashew walks up from the folder to find it, and when `.git` is a file rather than a
+directory — a worktree or a submodule — it follows the `gitdir:` pointer inside, which can lead
+outside the session's folder. Only the branch string is kept, and only in memory.
 
 If you would rather Cashew did not open your transcripts at all, turn off
 **Settings › Claude Code › Track sessions**. That is the switch that governs both reads — with it
@@ -87,9 +92,10 @@ full list, because a partial one isn't worth much:
 colour mode, which limits appear in the menu bar title, whether sessions are tracked, which menu bar
 animation, whether status words show, and whether to check for updates.
 
-**Two the update check keeps for itself** — when it last ran, and the newest release it has been
-told about (`tag_name` and `html_url`, nothing else). The first is a timestamp of when Cashew was
-running; the second is a version number you were offered.
+**Two the update check keeps for itself** — when it last *tried*, successful or not, and the newest
+release it has been offered (`tag_name` and `html_url`, nothing else). The first is a timestamp of
+when Cashew was running; the second only ever holds a version newer than the one you have, so it is
+empty until there is an update to tell you about.
 
 **One developer switch with no menu item**, `allowHooksOutsideApplications`, which lets a build
 outside `/Applications` install hooks. It exists for working on Cashew and is documented in
@@ -103,8 +109,11 @@ the model's display name exactly as the API reported it. Your menu bar choices s
 (`scoped:Opus`); each alert marker puts one in its key (`notified.scoped:Opus`). So the model names
 your plan reports do reach disk.
 
-What is *not* there: no percentages, no reset times, no history of your usage, and nothing that
-identifies your account.
+What is *not* there: no usage percentages, no history of your usage, and nothing that identifies
+your account. The alert markers do carry one time — the reset the period belongs to, rounded to the
+minute, which is the whole point of a marker. That rounding is deliberate: the endpoint re-stamps
+`resets_at` with new fractional seconds on every single request, so a marker keyed on the raw value
+would look like a new period each poll and alert you every time.
 
 Launch at Login is stored by macOS, not by Cashew. No credentials and no logs.
 
@@ -117,17 +126,18 @@ Two files:
 ~/Library/Application Support/com.vickipetrova.cashew/snapshot.json
 ```
 
-Both are written whenever Cashew has a current reading to record — after a successful poll, and
-then on the same once-a-minute tick that drives the countdowns, for as long as a reading is
-current. If you opted into the Claude Code statusline feed, a reading arriving that way counts too,
-so these files can be written on a run where no poll ever succeeded.
+Both are written whenever Cashew has a reading in hand — after a successful poll, and then on the
+same once-a-minute tick that drives the countdowns, for the rest of that run. If you opted into the
+Claude Code statusline feed, a reading arriving that way counts too, so these files can be written
+on a run where no poll ever succeeded.
 
 `history.json` is what the burn-rate forecast is computed from: a timestamp, a limit identifier, and
 a utilization percentage, one entry per limit. Anything older than seven days is dropped on every
 write.
 
 `snapshot.json` is the single most recent reading kept whole — the percentages, each window's
-identifier and kind, its headings, and its reset time — so that a launch which can't reach the API
+identifier and kind, the display strings it is labelled with, and its reset time, plus the moment
+the reading was taken — so that a launch which can't reach the API
 can still show the numbers it last had, labelled with when they were from, instead of an error over
 an empty panel.
 
@@ -143,11 +153,13 @@ wrote your own variant that stores more than that, it stores what you told it to
 `rate_limits` either way.
 
 In `~/Library/Application Support/com.vickipetrova.cashew/sessions/`, one small file per live
-Claude Code session, **named after the session's own id**. Each holds: the session's state and the
-fixed phrase Cashew shows for it, the folder you're working in, the transcript's path, the *name*
-of the tool in use, the Claude Code process id, and three timestamps (when the session and the
-current turn started, and when the file was last touched). Never prompt text, tool input or output.
-Deleted when the session ends, when the Claude Code process is gone, or after a day untouched.
+Claude Code session, **named after the session's own id** (sanitized, and cut to 64 characters).
+Each holds: the session's state and the plain phrase for what it is doing, the folder you're working
+in, the transcript's path, the *name* of the tool in use, the Claude Code process id, two timestamps
+— when the current turn started, and when the file was last touched — a flag for whether the session
+has done anything yet, and a schema version. That is the complete list. Never prompt text, tool
+input or output. Deleted when the session ends, when the Claude Code process is gone, or after a day
+untouched.
 
 One consequence of storing a tool's name worth spelling out: for an MCP tool the name is the whole
 identifier, `mcp__<server>__<action>`. So these files can reveal **which MCP servers you have
@@ -168,10 +180,12 @@ That is everything. No token, nothing derived from a token, no account identifie
 response bodies, and no prompt text, tool input or tool output.
 
 Read plainly: the usage files say only how full each quota was and when. The session files do say
-*where* you were working — the project folder, the transcript's path, the branch — which tool was
-running, and which MCP servers you use. They do not say what the conversation contained, and
-although Cashew *reads* your transcript to spot an interrupted turn, it keeps nothing from it but a
-yes-or-no. Delete any of these whenever you like; Cashew starts fresh and the forecast reappears
+*where* you were working — the project folder and the transcript's path — which tool was running,
+and which MCP servers you use. The branch is not among them: it is shown in the menu but never
+written down, and Cashew re-reads it from `.git/HEAD` each time it needs it.
+
+They do not say what the conversation contained, and although Cashew *reads* your transcript to spot
+an interrupted turn, it keeps nothing from it but a yes-or-no. Delete any of these whenever you like; Cashew starts fresh and the forecast reappears
 once there are samples to draw a line through.
 
 ## Reporting a problem
