@@ -87,13 +87,17 @@ enum UpdateCheck {
         return elapsed >= interval || elapsed < 0
     }
 
-    private static let session: URLSession = {
+    private static let redirectPolicy = RefuseRedirects()
+
+    /// Same policy as the usage session, for the reason in `RefuseRedirects`: no token rides along
+    /// here, but the `User-Agent` does, and one rule is easier to state and to keep than two.
+    static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.httpCookieStorage = nil
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         config.timeoutIntervalForRequest = 15
-        return URLSession(configuration: config)
+        return URLSession(configuration: config, delegate: redirectPolicy, delegateQueue: nil)
     }()
 
     /// Real network. Never call from a test.

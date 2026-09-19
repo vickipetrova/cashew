@@ -39,6 +39,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/MenuToggle.swift` | The Settings switch and the rows built from it. `MenuToggle` is the pure metrics and colour rule; `MenuToggleView` is the layer-hosted control; `SettingsRow` builds the headers, notes and toggle rows the Settings submenus are made of |
 | `Sources/CashewCore/UsagePanel.swift` | The dropdown's SwiftUI rows, and the pure `UsageRow` view model behind them. Which limits reach the *menu bar title* is `TitleSelection`, in MenuController.swift |
 | `Sources/CashewCore/UsageAPI.swift` | `LimitWindow` model, `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
+| `Sources/CashewCore/RefuseRedirects.swift` | The redirect policy both sessions install. Its own file so the two can't drift — the update check spent its whole life following redirects while the usage session refused them |
 | `Sources/CashewCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
 | `Sources/CashewCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
 | `Sources/CashewCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |

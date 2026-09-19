@@ -150,26 +150,15 @@ enum Backoff {
 struct ClaudeProvider: UsageProvider {
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
-    /// Refuses every redirect, so the bearer token can only ever be sent to the one host in
-    /// `endpoint`. SECURITY.md promises the token goes to exactly one destination; without this that
-    /// promise rests on CFNetwork's uncontracted behaviour for `Authorization` across a cross-host
-    /// hop, for an endpoint we already expect to drift. A 3xx now surfaces as an ordinary
-    /// `UsageError.http`.
-    private final class RefuseRedirects: NSObject, URLSessionTaskDelegate {
-        func urlSession(_ session: URLSession, task: URLSessionTask,
-                        willPerformHTTPRedirection response: HTTPURLResponse,
-                        newRequest request: URLRequest,
-                        completionHandler: @escaping (URLRequest?) -> Void) {
-            completionHandler(nil)
-        }
-    }
-
     private static let redirectPolicy = RefuseRedirects()
 
     /// Ephemeral: no on-disk cache of usage responses, and no chance of serving a stale one.
-    private static let session: URLSession = {
+    /// `httpCookieStorage` is nil rather than merely in-memory, matching the update check — the
+    /// endpoint sets no cookie today, and this way nothing changes if it starts.
+    static let session: URLSession = {
         let config = URLSessionConfiguration.ephemeral
         config.timeoutIntervalForRequest = 15
+        config.httpCookieStorage = nil
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
         return URLSession(configuration: config, delegate: redirectPolicy, delegateQueue: nil)
