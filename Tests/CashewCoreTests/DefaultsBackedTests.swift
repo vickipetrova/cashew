@@ -329,23 +329,26 @@ struct DefaultsBacked {
                 == [LimitWindow.sessionID])
         }
 
-        /// Unchecking the last one would otherwise leave a title with no numbers in it — and no
-        /// obvious way back, since the only route to this setting is through that menu.
-        @Test func unCheckingTheLastOneFallsBackToSession() {
+        /// Unchecking everything is allowed, and means what it says: no numbers in the menu bar.
+        /// The item still draws its spark, so it stays clickable and this setting stays two hovers
+        /// away — which is why the old "always keep one" fallback was protecting nothing.
+        @Test func unCheckingTheLastOneLeavesNothingSelected() {
             #expect(Settings.titleLimitIDs(toggling: LimitWindow.weeklyID, in: [LimitWindow.weeklyID])
-                == [LimitWindow.sessionID])
-            #expect(Settings.titleLimitIDs(toggling: "scoped:Fable", in: ["scoped:Fable"])
-                == [LimitWindow.sessionID])
+                == [])
+            #expect(Settings.titleLimitIDs(toggling: "scoped:Fable", in: ["scoped:Fable"]) == [])
             // Including unchecking session itself.
             #expect(Settings.titleLimitIDs(toggling: LimitWindow.sessionID, in: [LimitWindow.sessionID])
-                == [LimitWindow.sessionID])
+                == [])
         }
 
-        /// Defensive: a hand-edited plist holding an empty array is the same problem as unchecking
-        /// everything, and has to be caught on the way out too.
-        @Test func anEmptyStoredSelectionFallsBack() {
-            defaults.set([String](), forKey: "titleLimitIDs")
-            #expect(Settings.titleLimitIDs == [LimitWindow.sessionID])
+        /// The distinction the getter turns on: *never set* means "give me the defaults", and an
+        /// empty array means "the user unchecked them all". `UserDefaults` keeps the two apart —
+        /// `array(forKey:)` returns nil for the first and `[]` for the second — so an emptied
+        /// selection has to survive a relaunch rather than springing back to the defaults.
+        @Test func anEmptySelectionRoundTrips() {
+            Settings.titleLimitIDs = []
+            #expect(defaults.array(forKey: "titleLimitIDs") as? [String] == [])
+            #expect(Settings.titleLimitIDs == [])
         }
 
         /// A stored value of the wrong shape entirely — a hand-edited plist, or a format change in a

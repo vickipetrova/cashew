@@ -12,10 +12,14 @@ enum TitleSelection {
         // `ClaudeProvider.windows(in:)` already fixes as session, then weekly, then scoped. A
         // selection whose scope has vanished simply doesn't match, and the stored preference is
         // untouched, so it renders again if the scope returns.
+        // Choosing nothing is a real choice, and it has to be told apart from choosing something
+        // that has since gone missing — the fallback below must not fire for it, or unchecking the
+        // last limit would silently put a number back.
+        guard !selection.isEmpty else { return [] }
         let shown = windows.filter { selection.contains($0.id) }
         guard shown.isEmpty else { return shown }
-        // Everything chosen has gone missing. One number beats a bare spark, which reads as broken
-        // and offers no route back to the setting.
+        // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list is
+        // no reason to show none of them.
         return windows.first { $0.kind == .session }.map { [$0] } ?? Array(windows.prefix(1))
     }
 }

@@ -55,13 +55,17 @@ enum Settings {
     ///
     /// Ids that no longer appear in the response are kept here on purpose. A scope that vanishes for
     /// a week and comes back should come back selected.
+    ///
+    /// Empty is a legitimate choice — a menu bar item with no numbers in it, just the spark and
+    /// whatever the sessions are saying. The `guard` is what keeps that distinct from never having
+    /// chosen: `array(forKey:)` returns nil for a key that was never written and `[]` for one the
+    /// user emptied, so the defaults apply to the first and not the second.
     static var titleLimitIDs: Set<String> {
         get {
             guard let stored = defaults.array(forKey: Key.titleLimitIDs) as? [String] else {
                 return defaultTitleLimitIDs
             }
-            // An empty stored set would render a title with no numbers in it at all.
-            return stored.isEmpty ? [LimitWindow.sessionID] : Set(stored)
+            return Set(stored)
         }
         set { defaults.set(Array(newValue), forKey: Key.titleLimitIDs) }
     }
@@ -69,15 +73,17 @@ enum Settings {
     /// The two headline windows — what the title showed before this was configurable.
     static let defaultTitleLimitIDs: Set<String> = [LimitWindow.sessionID, LimitWindow.weeklyID]
 
-    /// Pure, so the "at least one" rule is testable without a menu.
+    /// Pure, so the rule is testable without a menu.
     ///
-    /// Unchecking the last one falls back to the session window rather than leaving an empty title:
-    /// a menu bar item showing only the spark looks broken, and there is no way back from it except
-    /// through this same submenu.
+    /// Unchecking the last limit leaves the set empty, and that is allowed. It used to fall back to
+    /// the session window on the grounds that a bare spark "looks broken and offers no way back" —
+    /// but the spark is drawn whether or not any limit is selected, so the item stays clickable and
+    /// this setting stays two hovers away. The fallback was guarding a state that was never
+    /// unreachable, at the cost of making a deliberate choice impossible to express.
     static func titleLimitIDs(toggling id: String, in current: Set<String>) -> Set<String> {
         var next = current
         if next.contains(id) { next.remove(id) } else { next.insert(id) }
-        return next.isEmpty ? [LimitWindow.sessionID] : next
+        return next
     }
 
     /// Same shape as the two above: a stored value we don't recognise falls back to the default
