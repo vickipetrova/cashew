@@ -17,6 +17,8 @@ enum StatusWords {
     static let thinkingWords = [
         "Thinking…", "Percolating…", "Pondering…", "Noodling…", "Mulling…",
         "Brewing…", "Tinkering…", "Untangling…", "Puzzling…", "Cogitating…",
+        // The app's own. It turns up as often as any other word, which is the joke.
+        "Cashewing…",
     ]
 
     /// Nil when there is nothing worth saying — no session, or one that is idle.
