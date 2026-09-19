@@ -412,7 +412,6 @@ final class MenuController: NSObject, NSMenuDelegate {
         /// What System Settings itself calls this, in General › Login Items. Matching the platform's
         /// own word costs nothing and means one less thing to translate on the way to finding it.
         static let launchTitle = "Open at Login"
-        static let launchSubtitle = "Start Cashew when you log in"
     }
 
     private func settingsItem() -> NSMenuItem {
@@ -432,14 +431,17 @@ final class MenuController: NSObject, NSMenuDelegate {
         // runs from a quarantined or temporary location, and `Settings.launchAtLogin` reads the real
         // `SMAppService` status rather than a mirror of it. Without the re-read the switch would
         // slide over and stay there, claiming something macOS had just refused.
+        // No subtitles on these two, unlike the switches inside the sections: both are settings
+        // every Mac app has, and a line explaining "Start Cashew when you log in" under "Open at
+        // Login" is the kind of help that reads as padding. The subtitle is for the ones that are
+        // genuinely unguessable — "Status words" — not for every switch on principle.
         submenu.addItem(SettingsRow.toggle(
-            Copy.launchTitle, subtitle: Copy.launchSubtitle,
+            Copy.launchTitle,
             isOn: Settings.launchAtLogin, settled: { Settings.launchAtLogin }
         ) { isOn in Settings.launchAtLogin = isOn })
 
         submenu.addItem(SettingsRow.toggle(
-            UpdateCheck.settingsTitle, subtitle: UpdateCheck.settingsSubtitle,
-            isOn: Settings.checkForUpdates
+            UpdateCheck.settingsTitle, isOn: Settings.checkForUpdates
         ) { [weak self] isOn in
             Settings.checkForUpdates = isOn
             self?.onCheckForUpdatesChanged?()
