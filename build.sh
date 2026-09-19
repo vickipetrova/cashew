@@ -223,7 +223,12 @@ fi  # end of the build-the-app branch
 
 if [[ "$MODE" == "--dmg" || "$MODE" == "--dmg-only" ]]; then
   echo "Packaging DMG…"
-  DMG="build/$APP_NAME.dmg"
+  # The filename carries the version; the volume name and the .app inside do not, so the window the
+  # user drags from looks the same every release. A Homebrew cask's `url` has to contain the version
+  # verbatim — `brew bump-cask-pr` builds the next URL by substituting it — so a constant filename
+  # would rule out automated version bumps later. That is worth more than a permanent
+  # releases/latest/download link, and the filename cannot be changed once anyone has linked to it.
+  DMG="build/$APP_NAME-$VERSION.dmg"
   STAGE="build/dmg-stage"
   rm -rf "$STAGE" "$DMG"
   mkdir -p "$STAGE"
@@ -246,7 +251,7 @@ if [[ "$MODE" == "--dmg" || "$MODE" == "--dmg-only" ]]; then
   # and writes no files there, which is a much smaller exposure than laying out the whole payload —
   # verified, the finished image contains .VolumeIcon.icns and nothing else hidden.
   if SETFILE="$(xcrun --find SetFile 2>/dev/null)"; then
-    RW="build/$APP_NAME-rw.dmg"
+    RW="build/$APP_NAME-$VERSION-rw.dmg"
     rm -f "$RW"
     hdiutil create -volname "$APP_NAME" -srcfolder "$STAGE" -ov -format UDRW "$RW" >/dev/null
     MOUNT="$(hdiutil attach "$RW" -nobrowse -mountrandom /tmp | grep -oE '/tmp/[A-Za-z0-9.]+$' | tail -1)"

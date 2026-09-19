@@ -18,7 +18,7 @@ git push origin main --tags
 ## 2. CI builds a draft
 
 `.github/workflows/release.yml` runs on any `v*` tag: it builds the app and DMG on a
-`macos-latest` runner and opens a **draft** GitHub Release with `Cashew.dmg` attached.
+`macos-latest` runner and opens a **draft** GitHub Release with `Cashew-$VERSION.dmg` attached.
 
 That asset is ad-hoc signed — CI never sees a Developer ID, by design. It is fine for testing and
 wrong to publish. Replace it with a properly signed one below.
@@ -53,6 +53,11 @@ Then, per release:
 
 SIGN_ID="Developer ID Application: Your Name (YOURTEAMID)"
 
+# The DMG filename carries the version, so read it from the same place build.sh does rather than
+# typing it twice — a mismatch here signs one file and notarizes another, and the failure surfaces
+# as a confusing "file not found" three commands later.
+VERSION="$(sed -n 's/^VERSION="\(.*\)"/\1/p' build.sh)"
+
 # Sign and notarize the .app first, so a copy dragged out of the DMG carries its own ticket.
 # Inside-out: the Claude Code hook helper before the app. The notary service requires the hardened
 # runtime on every executable in the bundle, helpers included, and rejects the app otherwise.
@@ -68,9 +73,9 @@ rm build/app-notarize.zip
 # check a downloader actually hits. --dmg-only, NOT --dmg: rebuilding here would recompile the app
 # and re-sign it ad-hoc, throwing away the Developer ID signature and the ticket just stapled to it.
 ./build.sh --dmg-only
-codesign --force --timestamp --sign "$SIGN_ID" build/Cashew.dmg
-xcrun notarytool submit build/Cashew.dmg --keychain-profile "cashew" --wait
-xcrun stapler staple build/Cashew.dmg
+codesign --force --timestamp --sign "$SIGN_ID" build/Cashew-$VERSION.dmg
+xcrun notarytool submit build/Cashew-$VERSION.dmg --keychain-profile "cashew" --wait
+xcrun stapler staple build/Cashew-$VERSION.dmg
 ```
 
 (Equivalent: `CASHEW_SIGN_ID="$SIGN_ID" ./build.sh --dmg` now signs both correctly; the manual lines
@@ -79,13 +84,13 @@ stay for the existing procedure.)
 Verify before publishing:
 
 ```bash
-spctl -a -t open --context context:primary-signature -v build/Cashew.dmg   # expect: accepted
-xcrun stapler validate build/Cashew.dmg                                     # expect: validated
+spctl -a -t open --context context:primary-signature -v build/Cashew-$VERSION.dmg   # expect: accepted
+xcrun stapler validate build/Cashew-$VERSION.dmg                                     # expect: validated
 ```
 
 ## 4. Publish
 
-Replace the draft release's asset with the notarized `build/Cashew.dmg`, paste the CHANGELOG
+Replace the draft release's asset with the notarized `build/Cashew-$VERSION.dmg`, paste the CHANGELOG
 section as the release notes, and publish.
 
 ## Why notarization matters here

@@ -7,7 +7,7 @@ Notes for Claude Code sessions working in this repo.
 ```bash
 swift test --disable-xctest       # the whole suite, ~0.05s
 ./build.sh                        # -> build/Cashew.app (universal, ad-hoc signed)
-./build.sh --dmg                  # also -> build/Cashew.dmg
+./build.sh --dmg                  # also -> build/Cashew-$VERSION.dmg
 ./build.sh --dmg-only             # DMG around the existing app, without rebuilding it
 open build/Cashew.app
 ls build/Cashew.app/Contents/Helpers/   # cashew-hook, the Claude Code hook helper
@@ -45,7 +45,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/CashewCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
 | `Sources/CashewCore/UsageHistory.swift` | Everything Cashew writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
-| `Sources/CashewCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — the feed never writes the file or touches `~/.claude/`; hook installation is `HookInstaller`'s, and only for its own hooks. Also owns the setup snippet and the status shown in Settings; the README quotes the snippet and a test holds the two together |
+| `Sources/CashewCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — the feed never writes the file or touches `~/.claude/`; hook installation is `HookInstaller`'s, and only for its own hooks. Also owns the setup snippet and the status shown in Settings; `docs/LIVE-UPDATES.md` quotes the snippet and a test holds the two together. The snippet's URL is pasted into the user's own script and can never be corrected, so it names a file, not a heading |
 | `Sources/CashewCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
 | `Sources/CashewCore/HookInstaller.swift` | Adds/removes Cashew's hooks in `~/.claude/settings.json` and nothing else |
 | `Sources/CashewCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |

@@ -10,7 +10,7 @@ macOS 13+ and the Xcode Command Line Tools (`xcode-select --install`). Nothing e
 ```bash
 swift test --disable-xctest   # run the suite first, it takes ~0.05s
 ./build.sh                    # -> build/Cashew.app
-./build.sh --dmg              # also -> build/Cashew.dmg
+./build.sh --dmg              # also -> build/Cashew-$VERSION.dmg
 open build/Cashew.app
 ```
 

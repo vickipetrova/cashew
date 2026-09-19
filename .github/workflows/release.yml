@@ -39,8 +39,11 @@ jobs:
       - name: Build app + DMG
         run: ./build.sh --dmg
 
+      # The filename carries the version, so this also catches build.sh and the tag disagreeing in
+      # a way the check above could not — that one compares the tag to VERSION, this one confirms
+      # the file VERSION actually produced is the file we are about to attach.
       - name: Verify the DMG
-        run: test -f build/Cashew.dmg
+        run: test -f "build/Cashew-${GITHUB_REF_NAME#v}.dmg"
 
       # The DMG from CI is ad-hoc signed, not notarized — CI never sees a Developer ID. The release
       # is created as a DRAFT so the maintainer can sign, notarize, and staple locally
@@ -53,4 +56,4 @@ jobs:
             --draft \
             --title "${GITHUB_REF_NAME}" \
             --notes "Draft. Replace the attached DMG with a signed + notarized build before publishing — see docs/RELEASING.md. Release notes: see CHANGELOG.md." \
-            build/Cashew.dmg
+            "build/Cashew-${GITHUB_REF_NAME#v}.dmg"

@@ -19,7 +19,7 @@ already has and asks Anthropic the same question `/usage` does.
 
 *Signed and notarized by Apple.*
 
-1. Download the latest `Cashew.dmg` from [Releases](../../releases).
+1. Download the latest `Cashew-<version>.dmg` from [Releases](../../releases).
 2. Open it and drag **Cashew** into Applications.
 3. Launch it. It'll ask once for permission to read Claude Code's Keychain item — that's the token.
 
