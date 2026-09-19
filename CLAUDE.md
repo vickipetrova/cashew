@@ -321,11 +321,16 @@ menu bar and the dropdown could — and did — describe the same session differ
   menu bar falls back to when a pick doesn't fit, *and* it's the label `HookEvent` writes into the
   session file. `everyLabelTheHookCanWriteHasAPool` holds the two lists together, because they live
   in different modules — the helper links Foundation only, so it can't share the pools themselves.
-- **One punctuation rule, enforced by `everyPhraseEndsTheSameWay`.** Every phrase trails off with
-  an ellipsis — `Done…` included — except the permission pool, which ends flat with no mark at all.
-  Those aren't trailing off: the session has stopped and is asking you something, so an ellipsis
-  would say the opposite of what is happening. Sentence punctuation *inside* a phrase is fine
-  (`Still here. Been a while…`); it's the last character the rule is about.
+- **The ending follows the meaning, not a house style.** Work in progress — starting, thinking,
+  lingering, tools — trails off with an ellipsis. A turn that has *stopped* — permission, finished —
+  ends flat with no mark at all, because an ellipsis there points the wrong way and a full stop
+  makes a question look settled. `workInProgressTrailsOff` and `aStoppedTurnEndsFlat` hold the two
+  halves. Sentence punctuation *inside* a phrase is fine (`Still here. Been a while…`); the rule is
+  about the last character only. `Oh, a job!` is the single exclamation — an interjection is a
+  reaction rather than a state — and `exclamationsAreRareAndOnlyAtTheStart` keeps it to one, since
+  several would stop being a character and start being a mood.
+- **`freshTurn` is five seconds, and short on purpose.** The greeting is a reaction to being handed
+  work; one that lasts twenty seconds reads as Cashew stuck on hello rather than getting on with it.
 - **Two caps, for two different reasons.** `maxLength` (18) is the menu bar, shared with every other
   app's item. `rowMaxLength` (30) is the dropdown, and it exists because `NSMenu` sizes itself to
   its *widest* item — one long phrase widens the whole panel, not just its own row.

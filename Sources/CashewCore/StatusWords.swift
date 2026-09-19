@@ -27,7 +27,11 @@ enum StatusWords {
 
     /// A turn younger than this is still getting going; one older than `longTurn` has been at it a
     /// while. Both are read off `turnStartedAt`, so they cost nothing but a comparison.
-    static let freshTurn: TimeInterval = 20
+    ///
+    /// `freshTurn` is short on purpose. The greeting is a reaction to being given work, and a
+    /// reaction that lasts twenty seconds isn't one — it reads as Cashew being stuck on hello.
+    /// Five seconds is about as long as the first beat of a turn actually lasts.
+    static let freshTurn: TimeInterval = 5
     static let longTurn: TimeInterval = 600
 
     /// What a session is in the middle of. Not `SessionState`: that is written to disk by the
@@ -43,8 +47,16 @@ enum StatusWords {
         case tool(String)
     }
 
+    /// The first beat of a turn, and the one pool that doesn't lead with `Thinking…` — every phrase
+    /// here already fits the menu bar, so it needs no fallback, and a greeting that is sometimes
+    /// just "Thinking…" isn't much of a greeting.
+    ///
+    /// `Oh, a job!` keeps its exclamation. It is the only one, and deliberately: an interjection is
+    /// a reaction rather than a state, so it neither trails off nor sits flat. Several of them would
+    /// stop being a character and start being a mood, which `exclamationsAreRareAndOnlyAtTheStart`
+    /// holds it to.
     static let startingPhrases = [
-        SessionLabels.thinking + "…", "On it…", "Oh, a job…", "Right then…", "Here we go…",
+        "On it…", "Oh, a job!", "Right then…", "Here we go…", "Let's see…",
     ]
 
     static let thinkingPhrases = [
@@ -69,8 +81,10 @@ enum StatusWords {
         "Your call, this one",
     ]
 
+    /// Flat, like the permission pool and for the same reason: nothing here is still going, so an
+    /// ellipsis would point the wrong way.
     static let finishedPhrases = [
-        "Done…", "Done. That one was tidy…", "Didn't even break a sweat…", "Finished. Next…",
+        "Done", "Done. That one was tidy", "Didn't even break a sweat", "Finished. That's that",
     ]
 
     /// Keyed by the plain label `HookEvent` writes, which is also each pool's first entry.

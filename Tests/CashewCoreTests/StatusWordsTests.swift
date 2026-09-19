@@ -34,18 +34,31 @@ import Testing
         }
     }
 
-    /// One shape for all of it. Everything trails off with an ellipsis; the one moment that is
-    /// waiting on *you* ends flat, because it isn't trailing off — it has stopped and is asking.
-    @Test func everyPhraseEndsTheSameWay() {
-        for pool in StatusWords.allPools where pool != StatusWords.permissionPhrases {
-            for phrase in pool {
-                #expect(phrase.hasSuffix("…"), "should trail off: \(phrase)")
-            }
+    /// The ending says whether the work is still going, so it follows the meaning rather than being
+    /// uniform for its own sake. Something in progress trails off; something that has stopped ends
+    /// flat. An interjection is the one licence — it is a reaction, not a state.
+    @Test func workInProgressTrailsOff() {
+        let running = [StatusWords.startingPhrases, StatusWords.thinkingPhrases,
+                       StatusWords.lingeringPhrases] + StatusWords.toolPhrases.values
+        for phrase in running.flatMap({ $0 }) {
+            #expect(phrase.hasSuffix("…") || phrase.hasSuffix("!"), "should trail off: \(phrase)")
         }
-        for phrase in StatusWords.permissionPhrases {
+    }
+
+    /// Waiting on you, or finished. Neither is trailing off, so an ellipsis would say the opposite
+    /// of what is happening and a full stop would make a question look settled.
+    @Test func aStoppedTurnEndsFlat() {
+        for phrase in StatusWords.permissionPhrases + StatusWords.finishedPhrases {
             let last = phrase.last.map(String.init) ?? ""
             #expect(!"….!?,;:".contains(last), "should end flat: \(phrase)")
         }
+    }
+
+    /// Only an interjection earns one, and only at the top of a turn.
+    @Test func exclamationsAreRareAndOnlyAtTheStart() {
+        let shouted = StatusWords.allPools.flatMap { $0 }.filter { $0.hasSuffix("!") }
+        #expect(shouted.allSatisfy { StatusWords.startingPhrases.contains($0) })
+        #expect(shouted.count == 1, "one is a character; several is a mood: \(shouted)")
     }
 
     @Test func noPhraseIsRepeatedWithinItsPool() {
@@ -77,14 +90,14 @@ import Testing
     // MARK: Which moment a session is in
 
     @Test func aTurnMovesThroughThreeMomentsAsItRunsOn() {
-        #expect(StatusWords.moment(for: session(.thinking, started: 5), now: now) == .starting)
+        #expect(StatusWords.moment(for: session(.thinking, started: 2), now: now) == .starting)
         #expect(StatusWords.moment(for: session(.thinking, started: 65), now: now) == .thinking)
         #expect(StatusWords.moment(for: session(.thinking, started: 601), now: now) == .lingering)
     }
 
     @Test func momentBoundariesAreClosedAtTheTop() {
-        #expect(StatusWords.moment(for: session(.thinking, started: 19.9), now: now) == .starting)
-        #expect(StatusWords.moment(for: session(.thinking, started: 20), now: now) == .thinking)
+        #expect(StatusWords.moment(for: session(.thinking, started: 4.9), now: now) == .starting)
+        #expect(StatusWords.moment(for: session(.thinking, started: 5), now: now) == .thinking)
         #expect(StatusWords.moment(for: session(.thinking, started: 599.9), now: now) == .thinking)
         #expect(StatusWords.moment(for: session(.thinking, started: 600), now: now) == .lingering)
     }
@@ -145,7 +158,7 @@ import Testing
     /// …and changes when the moment does, so one turn running on visibly moves along: the same
     /// session, the same turn, read at three points on the clock.
     @Test func thePhraseChangesWhenTheMomentDoes() {
-        let turn = session(.thinking, started: 5)
+        let turn = session(.thinking, started: 2)
         let alongTheTurn = [0.0, 60.0, 700.0]
             .map { StatusWords.phrase(for: turn, now: now.addingTimeInterval($0)) }
         #expect(Set(alongTheTurn.compactMap { $0 }).count == 3)
