@@ -54,4 +54,13 @@ struct TitleWordHold {
     /// spend on the image alone — without it, a word held back during a burst would sit there until
     /// the next session event, which in a quiet moment can be a while.
     var hasPending: Bool { pending }
+
+    /// What is on screen now, as far as the hold knows — nil before anything has been drawn, and
+    /// nil again once the word goes away.
+    ///
+    /// `hasPending` catches a change the *hooks* announced and the hold deferred. Some moments have
+    /// no announcement behind them at all: a turn crossing into "been a while" happens on the clock,
+    /// with Claude Code silent throughout, so nothing was ever offered to `display` to defer.
+    /// `MenuController` compares the prospective word against this to catch those.
+    var current: String? { shown ?? nil }
 }

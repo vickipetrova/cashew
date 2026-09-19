@@ -49,6 +49,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/SessionActivity.swift` | Reads session files: liveness, the no-owner age limit, interrupt detection, ordering. Owns the session menu copy |
 | `Sources/CashewCore/TranscriptTail.swift` | Esc-interrupt detection from the end of a transcript |
 | `Sources/CashewCore/GitBranch.swift` | Branch from `.git/HEAD`, following worktree `gitdir:` files |
+| `Sources/CashewCore/StatusWords.swift` | The phrase book: what Cashew *says* a session is doing, for the menu bar and the dropdown alike |
 | `Sources/CashewCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
 | `Sources/CashewCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
 | `Sources/CashewCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
@@ -309,6 +310,48 @@ reads the folder. Traps, each measured and each with a test:
   spokes once it turns — measured: ink pixels fell and ink touched the canvas edge at
   11.25°/22.5°/33.75°. `ElapsedAndImageTests.rotationDoesNotClipTheSpark` renders the pixels to hold
   this.
+
+## What Cashew says
+
+`StatusWords` is one phrase book for two surfaces, and both the sharing and the splitting are
+load-bearing. `SessionRow` used to build its own status string from the same `session.label`, so the
+menu bar and the dropdown could — and did — describe the same session differently.
+
+- **Every pool leads with the plain wording**, and that is not decoration. Element 0 is what the
+  menu bar falls back to when a pick doesn't fit, *and* it's the label `HookEvent` writes into the
+  session file. `everyLabelTheHookCanWriteHasAPool` holds the two lists together, because they live
+  in different modules — the helper links Foundation only, so it can't share the pools themselves.
+- **The ending follows the meaning, not a house style.** Work in progress — starting, thinking,
+  lingering, tools — trails off with an ellipsis. A turn that has *stopped* — permission, finished —
+  ends flat with no mark at all, because an ellipsis there points the wrong way and a full stop
+  makes a question look settled. `workInProgressTrailsOff` and `aStoppedTurnEndsFlat` hold the two
+  halves. Sentence punctuation *inside* a phrase is fine (`Still here. Been a while…`); the rule is
+  about the last character only. `Oh, a job!` is the single exclamation — an interjection is a
+  reaction rather than a state — and `exclamationsAreRareAndOnlyAtTheStart` keeps it to one, since
+  several would stop being a character and start being a mood.
+- **`freshTurn` is five seconds, and short on purpose.** The greeting is a reaction to being handed
+  work; one that lasts twenty seconds reads as Cashew stuck on hello rather than getting on with it.
+- **Two caps, for two different reasons.** `maxLength` (18) is the menu bar, shared with every other
+  app's item. `rowMaxLength` (30) is the dropdown, and it exists because `NSMenu` sizes itself to
+  its *widest* item — one long phrase widens the whole panel, not just its own row.
+- **A phrase too long for the menu bar falls back to element 0 rather than being truncated.** So the
+  bar can read `Awaiting approval` while the row reads `Tap me — I've got a question.` They agree
+  about what is happening; the bar just says it plainly.
+- **The pick is keyed on session + turn + moment**, via the same FNV-1a as before (`hashValue` is
+  seeded per process, so a word chosen with it would change on every restart, mid-turn). That's what
+  holds a phrase still for as long as its moment lasts while letting a long turn visibly move along.
+- **`.tool` keeps naming its tool** however long it runs. `lingering` is thinking-only: the row
+  already shows `· 12m 30s`, so "still running a command" beats "still".
+- **"Done." is dropdown-only.** The dropdown is rebuilt on every open; nothing re-renders the menu
+  bar once every session goes quiet, so a finished phrase up there would outstay its 60 seconds with
+  no one left to clear it. `Session.justFinished` is derived in `SessionActivity.effectiveState` on
+  the genuine-`Stop` branch alone — the interrupted and went-quiet branches return separately, so
+  Cashew never congratulates itself for being cancelled.
+- **`MenuController.wordWentStale` is not a duplicate of `titleWord.hasPending`.** `hasPending`
+  means the hooks announced a change and the hold deferred it. A turn crossing 20s or 10 minutes is
+  announced by nothing — it happens on the clock while Claude Code sits silent, which is exactly
+  when "been here a while" is worth saying — so there was never anything to defer. Without the
+  second check the later moments render only when some unrelated hook happens to fire.
 
 ## The app icon
 

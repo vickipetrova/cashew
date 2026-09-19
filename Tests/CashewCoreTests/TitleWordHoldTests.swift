@@ -12,6 +12,22 @@ import Testing
 @Suite struct TitleWordHoldTests {
     private let start = Date(timeIntervalSince1970: 1_790_000_000)
 
+    /// Some moments pass on the clock alone — a turn crossing into "been a while" fires no hook, so
+    /// nothing marks a change as pending. `MenuController` compares the prospective word against
+    /// this instead, on an animation frame it would otherwise spend on the image.
+    @Test func theHoldSaysWhatIsOnScreen() {
+        var hold = TitleWordHold()
+        #expect(hold.current == nil)
+        _ = hold.display("Percolating…", now: start)
+        #expect(hold.current == "Percolating…")
+        _ = hold.display("Still going.", now: start.addingTimeInterval(0.2))
+        #expect(hold.current == "Percolating…", "held back, so the screen still says the old one")
+        _ = hold.display("Still going.", now: start.addingTimeInterval(9))
+        #expect(hold.current == "Still going.")
+        _ = hold.display(nil, now: start.addingTimeInterval(20))
+        #expect(hold.current == nil)
+    }
+
     @Test func theFirstWordAppearsImmediately() {
         var hold = TitleWordHold()
         #expect(hold.display("Percolating…", now: start) == "Percolating…")
