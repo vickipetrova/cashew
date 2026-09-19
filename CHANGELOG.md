@@ -6,6 +6,20 @@ All notable changes to Cashew are documented here. The format follows
 
 ## [Unreleased]
 
+### Security
+
+- **The update check no longer follows redirects.** The usage request has refused them since it was
+  written — it carries your token, and a cross-host hop is how a token leaks — but the once-a-day
+  check to GitHub never did, because the policy was private to the usage client. No token rides on
+  that request; what a redirect could have forwarded is the `User-Agent` header. Both sessions now
+  share one policy, and SECURITY.md states one rule instead of describing an exception.
+- **SECURITY.md now matches the code.** An audit of every claim against the source found two that
+  were wrong: `history.json` and `snapshot.json` are written about once a minute rather than only
+  after a successful poll, and eleven preferences are stored rather than four. It also found two
+  things the document never mentioned — Cashew reads the tail of a tracked session's transcript to
+  tell an interrupted turn from a finished one, and a stored MCP tool name reveals which MCP servers
+  you have configured. Nothing about the app's behaviour changed; the description of it did.
+
 ### Fixed
 
 - **The dropdown is no longer wider than it needs to be.** A session row asked for its project,
@@ -16,6 +30,15 @@ All notable changes to Cashew are documented here. The format follows
 
 ### Changed
 
+- **The DMG filename carries the version** — `Cashew-0.1.0.dmg` rather than `Cashew.dmg`. A Homebrew
+  cask's URL has to contain the version verbatim for automated version bumps to work, and a filename
+  cannot be changed once anyone has linked to it. The volume name and the app inside are unchanged.
+- **The README is a landing page.** It was 338 lines with the install buried in the middle; it is now
+  149, and the statusline setup, the forecast rationale, the settings table, the troubleshooting
+  cases and the roadmap each have their own page under `docs/`. Nothing was deleted.
+- **The Copy Setup Snippet link points at a file rather than a README heading.** That URL is pasted
+  into your own statusline script and cannot be corrected afterwards, so it should not depend on a
+  heading keeping its exact wording.
 - **Settings is now three levels instead of one long column.** Hover Settings, then **Menu Bar**,
   **Alerts & Refresh** or **Claude Code**, and that section opens with only its own rows in it.
   **Open at Login** and **Check for Updates** stay at the Settings level, where they are one hover
