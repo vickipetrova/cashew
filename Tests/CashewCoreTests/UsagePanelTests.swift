@@ -251,8 +251,16 @@ import Testing
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
-    /// Every selection missing must not render an empty title — a bare spark reads as broken and
-    /// gives no route back to the setting that caused it.
+    /// Choosing nothing is not the same as choosing something that went missing, and this is the
+    /// test that holds the two apart. An empty selection is a deliberate "no numbers, thanks" and
+    /// is rendered literally; the fallback below exists for a selection that *was* made and can no
+    /// longer be honoured. Collapsing them would make unchecking the last limit silently re-tick it.
+    @Test func selectingNothingRendersNothing() {
+        #expect(TitleSelection.windows(from: all, selection: []).isEmpty)
+    }
+
+    /// Every selection missing must not render an empty title — the user asked for numbers and a
+    /// stale scope list is no reason to show none of them.
     @Test func everySelectionMissingFallsBackToSession() {
         let shown = TitleSelection.windows(from: all, selection: ["scoped:GoneAway", "alsoGone"])
         #expect(shown.map(\.id) == [LimitWindow.sessionID])

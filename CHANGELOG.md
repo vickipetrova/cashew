@@ -16,6 +16,18 @@ All notable changes to Cashew are documented here. The format follows
 
 ### Changed
 
+- **Settings is now three levels instead of one long column.** Hover Settings, then **Menu Bar**,
+  **Alerts & Refresh** or **Claude Code**, and that section opens with only its own rows in it.
+  **Open at Login** and **Check for Updates** stay at the Settings level, where they are one hover
+  away rather than two.
+- **Every on/off setting is a switch.** Flipping one leaves the menu open, so you can change two or
+  three in a visit; picking from a list still closes the menu the way any macOS menu does.
+- **The wording assumes you have not used Cashew before.** *Show Status Words* is **Status words**,
+  under "Say what Claude Code is doing". *Track Claude Code Sessions* is **Track sessions**, under
+  "See what each session is doing". *Launch at Login* is **Open at Login**, which is what System
+  Settings itself calls it. *Notify above → Off* is **Notify when usage passes → Never**, and the
+  colour modes are now **Only when usage is high** and **Never** rather than *Alerts only* and
+  *System*.
 - **Headroom is now Cashew**, after the character in the menu bar and on the icon. The app, the
   bundle identifier (`com.vickipetrova.headroom` → `com.vickipetrova.cashew`), the hook helper, the
   Swift modules and the repository all take the new name.
@@ -81,6 +93,10 @@ All notable changes to Cashew are documented here. The format follows
 
 ### Fixed
 
+- **The menu bar can show no numbers at all.** Unticking the last limit under *Limits shown* used to
+  snap back to the session window; it now means what it says, leaving the cashew and whatever the
+  status words are saying. The item is still there and still opens the menu, which is what the old
+  fallback was really protecting against.
 - **Cashew now backs off when the API says to.** A rate-limited app kept asking every five minutes
   regardless, discarding the `Retry-After` header along with the rest of the response, and had no way
   back except being noticed and restarted — one instance sat refused for fifteen days. It now honours

@@ -23,7 +23,9 @@ enum UpdateCheck {
     static let launchDelay: TimeInterval = 60
     static let interval: TimeInterval = 24 * 3600
 
-    static let settingsTitle = "Check for Updates Automatically"
+    /// "Automatically" is dropped: it said when but never what, and a once-a-day check is what
+    /// anyone assumes this means anyway. The README covers the detail.
+    static let settingsTitle = "Check for Updates"
 
     static func menuTitle(_ release: Release) -> String { "Update Available: \(release.tag)…" }
 

@@ -12,10 +12,14 @@ enum TitleSelection {
         // `ClaudeProvider.windows(in:)` already fixes as session, then weekly, then scoped. A
         // selection whose scope has vanished simply doesn't match, and the stored preference is
         // untouched, so it renders again if the scope returns.
+        // Choosing nothing is a real choice, and it has to be told apart from choosing something
+        // that has since gone missing — the fallback below must not fire for it, or unchecking the
+        // last limit would silently put a number back.
+        guard !selection.isEmpty else { return [] }
         let shown = windows.filter { selection.contains($0.id) }
         guard shown.isEmpty else { return shown }
-        // Everything chosen has gone missing. One number beats a bare spark, which reads as broken
-        // and offers no route back to the setting.
+        // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list is
+        // no reason to show none of them.
         return windows.first { $0.kind == .session }.map { [$0] } ?? Array(windows.prefix(1))
     }
 }
@@ -384,43 +388,94 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     // MARK: - Settings submenu
     //
-    // Rebuilt with the rest of the menu, so every checkmark is read fresh rather than cached —
-    // launch-at-login in particular can be revoked in System Settings behind our back.
+    // Three levels deep: Settings, one of its sections, and that section's own rows. Flat, it was
+    // eight headed groups in one column — every one of them visible whichever one you came for.
+    //
+    // Rebuilt with the rest of the menu, so every switch and mark is read fresh rather than cached
+    // — launch-at-login in particular can be revoked in System Settings behind our back.
+    //
+    // One rule runs through it, and it is the macOS one: **picking dismisses, switching does not.**
+    // A choice among several (an animation, a colour, a threshold) is a command and closes the menu
+    // like any other menu command. An on/off is a control you may want two or three of in a visit,
+    // so it stays put. That is the whole reason the switches are custom views — see `MenuToggle`.
+
+    private enum Copy {
+        static let menuBarSection = "Menu Bar"
+        static let alertsSection = "Alerts & Refresh"
+        static let limitsHeader = "LIMITS SHOWN"
+        static let colorHeader = "COLOR"
+        static let notifyHeader = "NOTIFY WHEN USAGE PASSES"
+        static let refreshHeader = "CHECK USAGE EVERY"
+        /// Under `notifyHeader` this reads as an answer; "Off" read as a label for a switch that
+        /// wasn't there.
+        static let neverNotify = "Never"
+        /// What System Settings itself calls this, in General › Login Items. Matching the platform's
+        /// own word costs nothing and means one less thing to translate on the way to finding it.
+        static let launchTitle = "Open at Login"
+    }
 
     private func settingsItem() -> NSMenuItem {
         let submenu = NSMenu()
         submenu.autoenablesItems = false
 
-        submenu.addItem(header("REFRESH EVERY"))
-        for minutes in Settings.refreshOptions {
-            let title = minutes == 1 ? "1 minute" : "\(minutes) minutes"
-            let item = action(title, key: "", selector: #selector(setInterval(_:)))
-            item.tag = minutes
-            item.state = Settings.refreshMinutes == minutes ? .on : .off
-            submenu.addItem(item)
-        }
-
+        submenu.addItem(section(Copy.menuBarSection, menuBarSettings()))
+        submenu.addItem(section(Copy.alertsSection, alertSettings()))
+        submenu.addItem(section(SessionActivity.settingsHeading, claudeCodeSettings()))
         submenu.addItem(.separator())
-        submenu.addItem(header("NOTIFY ABOVE"))
-        for threshold in Settings.thresholdOptions {
-            let item = action(threshold == 0 ? "Off" : "\(threshold)%",
-                              key: "", selector: #selector(setThreshold(_:)))
-            item.tag = threshold
-            item.state = Settings.notifyThreshold == threshold ? .on : .off
-            submenu.addItem(item)
-        }
+
+        // These two stay at the Settings level rather than going into a section. Neither belongs to
+        // any of the three groups above, and they are the two a first-time user goes looking for, so
+        // a third hover to reach them would cost more than the two extra rows cost here.
+        //
+        // `settled` matters on this one specifically: registration legitimately fails when the app
+        // runs from a quarantined or temporary location, and `Settings.launchAtLogin` reads the real
+        // `SMAppService` status rather than a mirror of it. Without the re-read the switch would
+        // slide over and stay there, claiming something macOS had just refused.
+        // No subtitles on these two, unlike the switches inside the sections: both are settings
+        // every Mac app has, and a line explaining "Start Cashew when you log in" under "Open at
+        // Login" is the kind of help that reads as padding. The subtitle is for the ones that are
+        // genuinely unguessable — "Status words" — not for every switch on principle.
+        submenu.addItem(SettingsRow.toggle(
+            Copy.launchTitle,
+            isOn: Settings.launchAtLogin, settled: { Settings.launchAtLogin }
+        ) { isOn in Settings.launchAtLogin = isOn })
+
+        submenu.addItem(SettingsRow.toggle(
+            UpdateCheck.settingsTitle, isOn: Settings.checkForUpdates
+        ) { [weak self] isOn in
+            Settings.checkForUpdates = isOn
+            self?.onCheckForUpdatesChanged?()
+        })
+
+        let item = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
+        item.isEnabled = true
+        item.submenu = submenu
+        return item
+    }
+
+    private func section(_ title: String, _ contents: NSMenu) -> NSMenuItem {
+        contents.autoenablesItems = false
+        let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+        item.isEnabled = true
+        item.submenu = contents
+        return item
+    }
+
+    /// What the menu bar item itself shows: which numbers, whether it talks, and how it looks.
+    private func menuBarSettings() -> NSMenu {
+        let menu = NSMenu()
 
         // Built from the windows the response actually reported, never from a hardcoded list — the
         // set of model-scoped limits is the vendor's to change, and has already changed once.
         // Omitted entirely when there is nothing to choose between yet.
         if !windows.isEmpty {
-            submenu.addItem(.separator())
-            submenu.addItem(header("SHOW IN MENU BAR"))
+            menu.addItem(SettingsRow.header(Copy.limitsHeader))
             let selected = Settings.titleLimitIDs
-            // What the title is *actually* showing, which differs from the selection when every
-            // chosen scope has vanished and `TitleSelection` fell back. Marking that row `.mixed`
-            // rather than `.off` stops the submenu claiming a limit is hidden while its number is
-            // sitting in the menu bar.
+            // What the title is *actually* showing, which differs from the selection when a chosen
+            // scope has vanished and `TitleSelection` fell back. Marking that row `.mixed` rather
+            // than `.off` stops the submenu claiming a limit is hidden while its number is sitting
+            // in the menu bar. Unticking everything is not that case: it renders nothing, so every
+            // row is plainly `.off`.
             let rendered = Set(TitleSelection.windows(from: windows, selection: selected).map(\.id))
             for window in windows {
                 let item = action(window.optionLabel,
@@ -431,75 +486,119 @@ final class MenuController: NSObject, NSMenuDelegate {
                 if selected.contains(window.id) { item.state = .on }
                 else if rendered.contains(window.id) { item.state = .mixed }
                 else { item.state = .off }
-                submenu.addItem(item)
+                menu.addItem(item)
             }
+            menu.addItem(.separator())
         }
 
-        submenu.addItem(.separator())
-        submenu.addItem(header("COLORS"))
-        for mode in Settings.ColorMode.allCases {
-            let item = action(mode.label, key: "", selector: #selector(setColorMode(_:)))
-            item.representedObject = mode
-            item.state = Settings.colorMode == mode ? .on : .off
-            submenu.addItem(item)
-        }
+        menu.addItem(SettingsRow.toggle(
+            SessionActivity.statusWordsMenuTitle, subtitle: SessionActivity.statusWordsMenuSubtitle,
+            isOn: Settings.showStatusWords
+        ) { [weak self] isOn in
+            // Repaints the menu bar and nothing else — deliberately *not* `onSettingsChanged`, which
+            // exists so a shortened poll interval feels immediate. This has nothing to do with
+            // polling, and calling it would spend a usage request on a preference.
+            Settings.showStatusWords = isOn
+            self?.renderTitle()
+        })
 
-        submenu.addItem(.separator())
-        submenu.addItem(header(SessionActivity.settingsHeading))
-        let track = action(SessionActivity.trackMenuTitle, key: "", selector: #selector(toggleTrackSessions))
-        track.state = Settings.trackSessions ? .on : .off
-        submenu.addItem(track)
-        let hookStatus = NSMenuItem(
-            title: HookInstaller.statusLabel(hookOutcome, enabled: Settings.trackSessions,
-                                             sessionCount: sessions.count),
-            action: nil, keyEquivalent: "")
-        hookStatus.isEnabled = false
-        submenu.addItem(hookStatus)
-
-        let words = action(SessionActivity.statusWordsMenuTitle,
-                           key: "", selector: #selector(toggleStatusWords))
-        words.state = Settings.showStatusWords ? .on : .off
-        submenu.addItem(words)
-
-        submenu.addItem(.separator())
-        submenu.addItem(header(SessionActivity.animationHeading))
+        menu.addItem(.separator())
+        menu.addItem(SettingsRow.header(SessionActivity.animationHeading))
         for style in MenuBarAnimation.allCases {
             let item = action(style.label, key: "", selector: #selector(setAnimation(_:)))
             // `representedObject`, not `tag`: tags are Int, and a positional tag would break the
             // moment the list is reordered.
             item.representedObject = style
             item.state = Settings.menuBarAnimation == style ? .on : .off
-            submenu.addItem(item)
+            menu.addItem(item)
         }
+
+        menu.addItem(.separator())
+        menu.addItem(SettingsRow.header(Copy.colorHeader))
+        for mode in Settings.ColorMode.allCases {
+            let item = action(mode.label, key: "", selector: #selector(setColorMode(_:)))
+            item.representedObject = mode
+            item.state = Settings.colorMode == mode ? .on : .off
+            menu.addItem(item)
+        }
+
+        return menu
+    }
+
+    /// When Cashew interrupts you, and how often it looks.
+    private func alertSettings() -> NSMenu {
+        let menu = NSMenu()
+
+        menu.addItem(SettingsRow.header(Copy.notifyHeader))
+        for threshold in Settings.thresholdOptions {
+            let item = action(threshold == 0 ? Copy.neverNotify : "\(threshold)%",
+                              key: "", selector: #selector(setThreshold(_:)))
+            item.tag = threshold
+            item.state = Settings.notifyThreshold == threshold ? .on : .off
+            menu.addItem(item)
+        }
+
+        menu.addItem(.separator())
+        menu.addItem(SettingsRow.header(Copy.refreshHeader))
+        for minutes in Settings.refreshOptions {
+            let title = minutes == 1 ? "1 minute" : "\(minutes) minutes"
+            let item = action(title, key: "", selector: #selector(setInterval(_:)))
+            item.tag = minutes
+            item.state = Settings.refreshMinutes == minutes ? .on : .off
+            menu.addItem(item)
+        }
+
+        return menu
+    }
+
+    /// Session tracking and the live feed — the two things that need Claude Code's cooperation, and
+    /// the two that therefore have a status to report rather than only a setting to hold.
+    private func claudeCodeSettings() -> NSMenu {
+        let menu = NSMenu()
+
+        let hookStatus = SettingsRow.note(hookStatusText())
+        menu.addItem(SettingsRow.toggle(
+            SessionActivity.trackMenuTitle, subtitle: SessionActivity.trackMenuSubtitle,
+            isOn: Settings.trackSessions
+        ) { [weak self, weak hookStatus] isOn in
+            // Not `onSettingsChanged`: this has nothing to do with polling usage.
+            Settings.trackSessions = isOn
+            self?.onTrackSessionsChanged?()
+            // The switch leaves the menu open, so unlike every other row here this status line is
+            // read *after* the thing it describes has changed and with nobody about to rebuild it —
+            // `rebuild` refuses while the menu is on screen. Installing hooks is synchronous, so by
+            // now `hookOutcome` is the new one; without this the line would go on saying "On · 2
+            // sessions" underneath a switch the user had just turned off.
+            hookStatus?.attributedTitle = SettingsRow.noteTitle(self?.hookStatusText() ?? "")
+        })
+        menu.addItem(hookStatus)
+        // Also refreshed on the 60-second tick: the session count in it goes stale on its own while
+        // the menu sits open, which matters more now that a switch no longer closes it.
+        liveRows.append(LiveRow { [weak self, weak hookStatus] in
+            guard let self else { return }
+            hookStatus?.attributedTitle = SettingsRow.noteTitle(self.hookStatusText())
+        })
 
         // A status line and a way in. The opt-in is a line in the user's own statusline script, which
         // Cashew deliberately never edits — so the menu's job is to make it findable and to say
-        // whether it's working. Read fresh on every open, like the checkmarks above.
-        submenu.addItem(.separator())
-        submenu.addItem(header(StatuslineFeed.menuHeading))
+        // whether it's working. Read fresh on every open, like everything else here.
+        menu.addItem(.separator())
+        menu.addItem(SettingsRow.header(StatuslineFeed.menuHeading))
         let status = statusline.status()
-        let statusItem = NSMenuItem(title: status.label(), action: nil, keyEquivalent: "")
-        statusItem.isEnabled = false
-        submenu.addItem(statusItem)
+        menu.addItem(SettingsRow.note(status.label()))
         if status.offersSetup {
-            submenu.addItem(action(StatuslineFeed.setupMenuTitle,
-                                   key: "", selector: #selector(showLiveSetup)))
+            menu.addItem(action(StatuslineFeed.setupMenuTitle,
+                                key: "", selector: #selector(showLiveSetup)))
         }
 
-        submenu.addItem(.separator())
-        let launch = action("Launch at Login", key: "", selector: #selector(toggleLaunchAtLogin))
-        launch.state = Settings.launchAtLogin ? .on : .off
-        submenu.addItem(launch)
-
-        let updates = action(UpdateCheck.settingsTitle, key: "", selector: #selector(toggleCheckForUpdates))
-        updates.state = Settings.checkForUpdates ? .on : .off
-        submenu.addItem(updates)
-
-        let item = NSMenuItem(title: "Settings", action: nil, keyEquivalent: "")
-        item.isEnabled = true
-        item.submenu = submenu
-        return item
+        return menu
     }
+
+    private func hookStatusText() -> String {
+        HookInstaller.statusLabel(hookOutcome, enabled: Settings.trackSessions,
+                                  sessionCount: sessions.count)
+    }
+
 
     @objc private func setInterval(_ sender: NSMenuItem) {
         Settings.refreshMinutes = sender.tag
@@ -556,33 +655,10 @@ final class MenuController: NSObject, NSMenuDelegate {
         NSPasteboard.general.setString(StatuslineFeed.setupSnippet, forType: .string)
     }
 
-    @objc private func toggleLaunchAtLogin() {
-        Settings.launchAtLogin.toggle()
-    }
-
-    /// Not `onSettingsChanged`: neither toggle has anything to do with polling usage.
-    @objc private func toggleTrackSessions() {
-        Settings.trackSessions.toggle()
-        onTrackSessionsChanged?()
-    }
-
-    /// Both of these repaint the menu bar immediately and nothing else — deliberately *not*
-    /// `onSettingsChanged`, which exists so a shortened poll interval feels immediate. Neither has
-    /// anything to do with polling, and calling it would spend a usage request on a preference.
-    @objc private func toggleStatusWords() {
-        Settings.showStatusWords.toggle()
-        renderTitle()
-    }
-
     @objc private func setAnimation(_ sender: NSMenuItem) {
         guard let style = sender.representedObject as? MenuBarAnimation else { return }
         Settings.menuBarAnimation = style
         renderTitle()
-    }
-
-    @objc private func toggleCheckForUpdates() {
-        Settings.checkForUpdates.toggle()
-        onCheckForUpdatesChanged?()
     }
 
     @objc private func openRelease() {
@@ -701,19 +777,6 @@ final class MenuController: NSObject, NSMenuDelegate {
     }
 
     // MARK: - Item builders
-
-    /// Section headings for the Settings submenu only. The main panel's headings are drawn by
-    /// `UsageRowView`; inside a submenu a dimmed heading is the conventional macOS look, and the
-    /// rows it labels are real commands rather than data.
-    private func header(_ text: String) -> NSMenuItem {
-        let item = NSMenuItem()
-        item.attributedTitle = NSAttributedString(string: text, attributes: [
-            .font: NSFont.systemFont(ofSize: 10, weight: .semibold),
-            .foregroundColor: NSColor.secondaryLabelColor,
-        ])
-        item.isEnabled = false
-        return item
-    }
 
     private func action(_ title: String, key: String, selector: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: selector, keyEquivalent: key)
