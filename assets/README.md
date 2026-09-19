@@ -2,7 +2,10 @@ Screenshots and the hero GIF (menu bar + open dropdown) live here, referenced fr
 
 The app icon's sources live here too:
 
-- `Headroom.icon` — the Icon Composer document, and **the source of truth**. Edit this one.
+- `Headroom.icon` — the Icon Composer document, and **the source of truth**. Edit this one. It holds
+  a single layer, `Assets/cashew.png`: the character on a transparent background, at 1024², because
+  macOS supplies the tile, the material and the shadow around it. Art with its own background baked
+  in would fight all three.
 - `icon-1024.png` — a committed *render* of that document, not a hand-made export. `build.sh`
   downscales it into the `.icns`, and on the Command-Line-Tools-only path it is the only icon input —
   `Headroom.icon` is never read there, because compiling it needs Xcode.

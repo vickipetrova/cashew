@@ -52,7 +52,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/HeadroomCore/SessionPanel.swift` | The `CLAUDE CODE` dropdown rows and their pure `SessionRow` view model |
 | `Sources/HeadroomCore/DirectoryWatcher.swift` | Debounced `DispatchSource` on the sessions folder |
 | `Sources/HeadroomCore/UpdateCheck.swift` | Once-a-day GitHub Releases check; version comparison and release parsing |
-| `assets/Headroom.icon` | Icon Composer document — the icon's source of truth. Two gauge tracks, orange fills, cream gradient |
+| `assets/Headroom.icon` | Icon Composer document — the icon's source of truth. One layer, `cashew.png`, over a cream gradient, with the shadow and material macOS 26 supplies |
 | `assets/icon-1024.png` | A committed *render* of that document, and the only icon input on the CLT-only path |
 | `assets/render-icon.sh` | Regenerates the PNG from the document. Run it after editing the icon, commit both |
 | `assets/README.md` | What belongs in `assets/` — screenshots, the hero GIF, and the icon sources |
