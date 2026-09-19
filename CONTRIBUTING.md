@@ -28,9 +28,9 @@ issue and genuinely up for grabs.
 Two labels, and the difference is real rather than decorative. **`good first issue`** means the shape
 is settled and it's a matter of writing the code. **`help wanted`** means there's a design decision to
 agree in the issue first — a second provider needs somewhere for two accounts' numbers to go in one
-menu bar title, and reading Claude Code's statusline needs a helper process and a write to the user's
-`~/.claude/settings.json`. Both are welcome; just don't spend a weekend on either before we've talked
-about the shape.
+menu bar title, and tracking a second tool's sessions needs its own helper process and its own
+entries in that tool's configuration, the way `cashew-hook` does for Claude Code. Both are welcome;
+just don't spend a weekend on either before we've talked about the shape.
 
 ## What won't be merged
 

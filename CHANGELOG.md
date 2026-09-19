@@ -16,8 +16,10 @@ All notable changes to Cashew are documented here. The format follows
   last pre-release should expect it to look new: the Application Support folder, the preferences and
   the login item all live under the old identifier. Nothing is lost — copy
   `~/Library/Application Support/com.vickipetrova.headroom` to `…cashew`, re-tick Launch at Login,
-  and re-copy the statusline snippet from Settings if you use it. Claude Code's hooks fix themselves
-  on the next launch, and the Keychain asks once more for the token, because it trusts a binary.
+  and re-copy the statusline snippet from Settings if you use it. Cashew writes its own hooks into
+  `~/.claude/settings.json` on the next launch; the old `headroom-hook` entries stay behind, harmless
+  — each one checks the helper exists and exits quietly — and can be deleted by hand. The Keychain
+  asks once more for the token, because it trusts a binary rather than a name.
 
 ### Added
 
