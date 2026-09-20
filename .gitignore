@@ -9,3 +9,6 @@ build/
 # Local working materials, not part of the published repo
 CASHEW_PLAN.md
 claude-usage-bar.zip
+
+# Master screen recording behind assets/cashew.gif; see assets/README.md
+cashew-demo.mp4
