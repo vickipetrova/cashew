@@ -1,5 +1,12 @@
 Screenshots and the hero GIF (menu bar + open dropdown) live here, referenced from the root README.
 
+- `cashew.gif` — the hero, 900x506 at 12fps, about 3.6 MB. It is a conversion of a screen recording
+  (`cashew-demo.mp4`), which is deliberately **not** committed: 20 MB of video would sit in every
+  clone forever, and GitHub will not play it anyway — its markdown sanitizer strips `<video>`, and
+  raw.githubusercontent serves mp4 as `application/octet-stream`, so a committed video can only ever
+  be a download link. An animated GIF is the only motion GitHub renders inline. Keep the recording
+  somewhere outside the repo if you want to re-cut it.
+
 The app icon's sources live here too:
 
 - `Cashew.icon` — the Icon Composer document, and **the source of truth**. Edit this one. It holds

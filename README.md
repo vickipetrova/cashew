@@ -4,10 +4,9 @@ and a warning when you're on pace to run out before the window resets.
 Zero setup: no cookies, no DevTools, nothing to paste. Cashew reads the OAuth token Claude Code
 already has and asks Anthropic the same question `/usage` does.
 
-<!-- HERO GIF: record the menu bar with the dropdown open, save it as assets/cashew.gif,
-     and uncomment the line below.
-<img src="assets/cashew.gif" alt="Cashew in the menu bar, with the dropdown open" width="480">
--->
+<p align="center">
+  <img src="assets/cashew.gif" alt="Cashew in the menu bar: the dropdown open over session and weekly percentages, reset times, live Claude Code sessions, and the Settings tree" width="760">
+</p>
 
 ```
 ✻ 42% · 67%
