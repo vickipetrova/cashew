@@ -7,9 +7,20 @@ Mostly things that look broken and aren't.
 Expected, once. Claude Code creates its Keychain item so that only Claude Code itself is trusted,
 so every other app — Cashew included — has to ask you. Click Allow.
 
-**"Always Allow" won't stick if you built from source.** Ad-hoc signatures change on every build, so
-macOS sees a different app each time and asks again. A release build, signed with a Developer ID,
-only asks once.
+**"Always Allow" won't stick if you built from source.** An ad-hoc signature's designated
+requirement is nothing but `cdhash H"..."` — no bundle identifier, no team — so every rebuild is a
+different app as far as macOS is concerned, the stored grant matches nothing, and you are asked
+again. A release build, signed with a Developer ID, only asks once.
+
+If you build from source often and have a Developer ID, sign with it and the grant survives
+rebuilds, because the requirement is then keyed to your identifier and team rather than to the
+compiled bytes:
+
+```bash
+CASHEW_SIGN_ID="Developer ID Application: Your Name (TEAMID)" ./build.sh
+```
+
+Expect one more prompt the first time — it is a new identity — and none after that.
 
 ## The menu says my token has expired
 
