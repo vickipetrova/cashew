@@ -48,12 +48,32 @@ xcrun notarytool store-credentials "cashew" \
   --team-id YOURTEAMID
 ```
 
-   `YOURTEAMID` is the parenthesised code in `security find-identity -v -p codesigning`.
+   `YOURTEAMID` is the parenthesised code on the **Developer ID Application** line of
+   `security find-identity -v -p codesigning` — and only that line. On an *Apple Development* line
+   the parentheses hold your personal developer ID, not a team, so copying from the wrong row yields
+   something that looks like a team ID and is rejected. If you have more than one team, read the
+   `OU` instead, which is always the team: `security find-certificate -c "Developer ID Application"
+   -p | openssl x509 -noout -subject`.
+
+   `--apple-id` must be the Apple ID that **generated the app-specific password**, and that account
+   must belong to `--team-id`. A password made on one Apple ID and passed with another fails with
+   `HTTP status code: 401. Invalid credentials`, which reads like a typo and isn't one.
+
+   An App Store Connect API key works instead of a password, if you'd rather not manage one:
+   `--key AuthKey_XXXX.p8 --key-id XXXX`, plus `--issuer <uuid>` for a Team key but *not* for an
+   Individual key. The key must come from the same team and hold a role of Developer or higher.
+   Note that APNs and MusicKit keys are also named `AuthKey_<id>.p8` and are also P-256, so the file
+   alone can't tell you what you have — the validation step is what settles it.
+
+   `store-credentials` needs a real terminal: it prompts interactively, so it can't be driven from a
+   script or a tool that gives it no TTY.
 
 Then, per release:
 
 ```bash
-./build.sh --dmg
+# Not --dmg: the DMG is packaged further down, after the app has been stapled, so an image
+# built here would only be thrown away by the --dmg-only run below.
+./build.sh
 
 SIGN_ID="Developer ID Application: Your Name (YOURTEAMID)"
 
@@ -82,8 +102,10 @@ xcrun notarytool submit build/Cashew-$VERSION.dmg --keychain-profile "cashew" --
 xcrun stapler staple build/Cashew-$VERSION.dmg
 ```
 
-(Equivalent: `CASHEW_SIGN_ID="$SIGN_ID" ./build.sh --dmg` now signs both correctly; the manual lines
-stay for the existing procedure.)
+`CASHEW_SIGN_ID="$SIGN_ID" ./build.sh` signs the app and the hook helper during the build, so the
+two `codesign` lines above become redundant. It is not a shortcut for the whole procedure: it never
+signs the DMG, and the app still has to be notarized and stapled *before* the image is packaged
+around it.
 
 Verify before publishing:
 
@@ -95,7 +117,24 @@ xcrun stapler validate build/Cashew-$VERSION.dmg                                
 ## 4. Publish
 
 Replace the draft release's asset with the notarized `build/Cashew-$VERSION.dmg`, paste the CHANGELOG
-section as the release notes, and publish.
+section as the release notes, and publish. From the CLI that is:
+
+```bash
+gh release upload "v$VERSION" "build/Cashew-$VERSION.dmg" --clobber
+gh release edit "v$VERSION" --notes-file notes.md --draft=false --latest
+```
+
+**Then download what you actually published and check it.** Shipping CI's ad-hoc asset is the one
+mistake here that looks fine from the release page and fails on every user's Mac:
+
+```bash
+curl -sL -o /tmp/v.dmg \
+  "https://github.com/vickipetrova/cashew/releases/download/v$VERSION/Cashew-$VERSION.dmg"
+shasum -a 256 /tmp/v.dmg                                          # expect: the local DMG's hash
+spctl -a -t open --context context:primary-signature -v /tmp/v.dmg  # expect: accepted, Notarized Developer ID
+```
+
+`rejected` with `source=Unnotarized Developer ID` means the draft's original asset went out.
 
 ## Why notarization matters here
 
