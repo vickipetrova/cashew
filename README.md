@@ -1,21 +1,72 @@
-# Cashew
+Your Claude Code plan usage, in the macOS menu bar — session and weekly percentages, reset times,
+and a warning when you're on pace to run out before the window resets.
 
-Your Claude Code plan usage, in the macOS menu bar:
+Zero setup: no cookies, no DevTools, nothing to paste. Cashew reads the OAuth token Claude Code
+already has and asks Anthropic the same question `/usage` does.
+
+<!-- HERO GIF: record the menu bar with the dropdown open, save it as assets/cashew.gif,
+     and uncomment the line below.
+<img src="assets/cashew.gif" alt="Cashew in the menu bar, with the dropdown open" width="480">
+-->
 
 ```
 ✻ 42% · 67%
 ```
 
-Session (5-hour window) on the left, this week on the right. Click for reset times, live
-countdowns, and per-model weekly limits when your plan reports them.
+## Install
 
-<!-- HERO GIF: record the menu bar with the dropdown open, save it as assets/cashew.gif,
-     and uncomment the line below.
-<img src="assets/cashew.gif" alt="Cashew in the menu bar, with the dropdown open" width="420">
--->
+### DMG
 
-**Zero setup.** No cookies, no DevTools, nothing to paste. Cashew reads the OAuth token Claude
-Code already has and asks Anthropic the same question `/usage` does.
+*Signed and notarized by Apple.*
+
+1. Download the latest `Cashew-<version>.dmg` from [Releases](../../releases).
+2. Open it and drag **Cashew** into Applications.
+3. Launch it. It'll ask once for permission to read Claude Code's Keychain item — that's the token.
+
+Homebrew isn't available yet; [RELATED.md](docs/RELATED.md#roadmap) explains why and when.
+
+### Build from source
+
+```bash
+git clone https://github.com/vickipetrova/cashew.git
+cd cashew
+./build.sh
+cp -R build/Cashew.app /Applications/
+open /Applications/Cashew.app
+```
+
+That's the whole toolchain: the Xcode Command Line Tools. No Xcode project, no third-party
+dependencies. Tests run with `swift test --disable-xctest`.
+
+> [!NOTE]
+> `swift run` won't work, and that's expected — it produces a bare binary with no `Info.plist`, so
+> there's no `LSUIElement`, no bundle identity for login items, and no notification registration.
+> `./build.sh && open build/Cashew.app` is the way to run it.
+
+## Updating
+
+Cashew asks GitHub once a day whether a newer version exists and adds an **Update Available** item
+to the menu, which opens the release page. Download the new DMG and drag it over the old one.
+
+It never downloads or installs anything by itself, and you can turn the check off under
+**Settings › Check for Updates**.
+
+## What it shows
+
+- **Session and weekly percentages** in the menu bar, with per-model weekly limits when your plan
+  reports them.
+- **Live countdowns to each reset**, in the dropdown.
+- **A forecast**, when your current burn rate would hit a limit before it resets — and only then.
+  It stays silent otherwise, on purpose. [How it works, and its two honest limits](docs/FORECAST.md).
+- **What Claude Code is doing**, if you want it: the spark spins while a session is working and
+  gains a dot when one wants your permission, and the dropdown lists each live session with its
+  project, branch and current step.
+
+Optionally, **live numbers instead of polled ones** — one line in your Claude Code statusline
+script makes usage update as you work rather than every few minutes.
+[Setup](docs/LIVE-UPDATES.md).
+
+Full list of settings: [SETTINGS.md](docs/SETTINGS.md).
 
 ## How it works
 
@@ -29,14 +80,8 @@ anthropic-beta: oauth-2025-04-20
 
 The token comes from wherever Claude Code keeps it — the macOS login Keychain (generic password,
 service `Claude Code-credentials`) or `~/.claude/.credentials.json`. If both exist, Cashew uses
-whichever one lives longest, so a leftover file can't shadow your live login.
-
-Claude Code refreshes that token itself while you work, so there is nothing to maintain. If it has
-gone stale because you haven't opened Claude Code in a while, the menu says so.
-
-The first Keychain read prompts for permission, because Claude Code's Keychain item only trusts the
-app that created it. Note that "Always Allow" won't stick across a rebuild if you built from source —
-ad-hoc signatures change every time, so macOS sees a different app.
+whichever one lives longest, so a leftover file can't shadow your live login. Claude Code refreshes
+that token itself while you work, so there is nothing to maintain.
 
 Because this is account-level data rather than session lifecycle, it keeps working when Claude Code
 is closed.
@@ -48,242 +93,21 @@ is closed.
 > renders as `–` rather than crashing. If the numbers ever look wrong, check `/usage` inside Claude
 > Code and [open an issue](../../issues) if they disagree.
 
-## Install
-
-### Build from source
-
-```bash
-git clone https://github.com/vickipetrova/cashew.git
-cd cashew
-./build.sh
-cp -R build/Cashew.app /Applications/
-open /Applications/Cashew.app
-```
-
-That's the whole toolchain: the Xcode Command Line Tools. No Xcode project, no third-party
-dependencies. Tests run with `swift test --disable-xctest` — plain `swift test` needs XCTest, which
-the Command Line Tools don't ship.
-
-`swift run` won't work, and that's expected — it produces a bare binary with no `Info.plist`, so
-there's no `LSUIElement`, no bundle identity for login items, and no notification registration.
-`./build.sh && open build/Cashew.app` is the way to run it.
-
-### DMG
-
-Download the latest `Cashew.dmg` from [Releases](../../releases), open it, and drag Cashew into
-Applications.
-
 ## Requirements
 
-- **macOS 13+** (Ventura). Launch at login uses `SMAppService`, which is 13.0 and later.
-- **A Claude Pro or Max plan.** Session and weekly windows are plan quotas. Metered API-key
-  accounts don't have them, so there is nothing for Cashew to show — it says so plainly instead
-  of showing zeroes.
-- **Claude Code, signed in at least once**, so there's a token to read. If you set
-  `CLAUDE_CONFIG_DIR`, Cashew won't find your login — Claude Code moves both the credentials file
-  and the Keychain service name to match, and an app launched from Finder can't see that variable.
+- **macOS 13+** (Ventura).
+- **A Claude Pro or Max plan.** Session and weekly windows are plan quotas; metered API-key accounts
+  don't have them, so there's nothing to show — Cashew says so plainly instead of showing zeroes.
+- **Claude Code, signed in at least once**, so there's a token to read.
 
-## Settings
-
-Everything lives in the dropdown under **Settings**, grouped into three sections:
-
-| Settings ▸ | Setting | Options | Default |
-|---|---|---|---|
-| **Menu Bar** | Limits shown | any combination of the limits your plan reports, or none | Session + Weekly |
-| | Status words | on / off | on |
-| | Animation | Spark spin / Spark pulse / Gauge sweep / Orbiting dot / Meter bars / Cashew | Spark spin |
-| | Color | Only when usage is high / Never | Only when usage is high |
-| **Alerts & Refresh** | Notify when usage passes | Never / 50% / 80% / 90% | 80% |
-| | Check usage every | 1 / 5 / 15 minutes | 5 minutes |
-| **Claude Code** | Track sessions | on / off, with a status line under it | on |
-| | Live updates | status, and setup when it's off — see [below](#live-usage-from-claude-code) | off |
-| *(top level)* | Open at Login | on / off | off |
-| | Check for Updates | on / off | on |
-
-On/off settings are switches, and flipping one leaves the menu open — you can change two or three in
-a visit. Picking from a list (an animation, a colour, a threshold) closes the menu, the way choosing
-from any macOS menu does.
-
-**Limits shown** picks which numbers appear in the title. The list is built from whatever the API
-currently reports, so a per-model limit shows up by name once your plan has one. Choices are stored
-against each limit's identifier rather than its name, so a limit that disappears for a while comes
-back selected rather than silently reset. Unticking all of them is allowed: the menu bar then shows
-the cashew on its own, plus whatever the status words are saying.
-
-**Color** decides how much colour the menu bar and the panel use. *Only when usage is high* keeps the
-spark orange and everything else in the ordinary label colour until usage is worth noticing, then
-turns yellow at 50% and red at 80% — so colour means "look at this" rather than being permanently on.
-*Never* is fully monochrome: the thresholds stop applying entirely and the spark becomes a template
-image, so the whole item adapts like a built-in menu bar control.
-
-Alerts fire at most once per window per reset period, so sitting at 85% doesn't produce an alert on
-every poll. Lowering the threshold mid-window counts as a new crossing and will alert again.
-
-macOS asks for notification permission the first time Cashew runs with alerts switched on. If you
-decline — or later switch Cashew off in System Settings › Notifications — the menu says
-*"Alerts blocked — open Notification settings"* rather than silently never alerting you.
-
-## Live usage from Claude Code
-
-Optional, and off until you add one line.
-
-Claude Code already knows your plan usage — it hands `rate_limits.five_hour` and
-`rate_limits.seven_day` to whatever statusline command you've configured, every time it renders,
-which is far more often than Cashew polls. Let Cashew read that and **your session and weekly
-numbers become live instead of up to fifteen minutes old**, updating as you work rather than on a
-timer.
-
-Cashew will **not** edit the `statusLine` in `~/.claude/settings.json` (the only thing it ever
-changes there is its own session-tracking hooks). Your statusline is yours, and quietly replacing
-it to install a helper would be a bad trade for a menu bar app. So opting in is something you do, in
-one of two ways depending on whether you already have a statusline.
-
-### You already have a statusline script
-
-Add this right after the line that reads stdin (usually `input=$(cat)`).
-**Settings › Claude Code › Set Up Live Updates…** shows the same line with a button to copy it:
-
-```bash
-{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.cashew" \
-  && printf '%s' "$input" | jq -c '{rate_limits}' \
-     > "$HOME/Library/Application Support/com.vickipetrova.cashew/statusline.json"; } 2>/dev/null || true
-```
-
-If your script stores stdin under a different name than `input`, change `$input` to match.
-
-### You don't have one yet
-
-Most people don't. Save this as `~/.claude/cashew-statusline.sh` — it shows the model and the
-current folder, and hands the usage numbers to Cashew:
-
-```bash
-#!/bin/bash
-input=$(cat)
-
-{ mkdir -p "$HOME/Library/Application Support/com.vickipetrova.cashew" \
-  && printf '%s' "$input" | jq -c '{rate_limits}' \
-     > "$HOME/Library/Application Support/com.vickipetrova.cashew/statusline.json"; } 2>/dev/null || true
-
-printf '%s' "$input" | jq -r '"\(.model.display_name // "Claude") · \(.workspace.current_dir // "" | split("/") | last // "")"'
-```
-
-Then point Claude Code at it by adding this to `~/.claude/settings.json` (merge it into the existing
-object if the file already has settings in it):
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "bash ~/.claude/cashew-statusline.sh"
-  }
-}
-```
-
-The statusline appears the next time Claude Code renders one — send a message in any session.
-
-### Checking it works
-
-**Settings › Claude Code › Live updates** shows what Cashew sees:
-
-| Status | Meaning |
-|---|---|
-| On · updated 1m ago | Working. |
-| On · last reading 3h ago | Set up, but Claude Code hasn't rendered a statusline in the last five minutes — normal when it's closed. Cashew falls back to polling. |
-| Off | No reading has ever arrived. The line isn't in your script, or the script isn't the one in `settings.json`. |
-| Not working — is jq installed? | The script runs but writes nothing. The snippet needs `jq`, which macOS 15 and later include; on macOS 13 or 14, `brew install jq`. |
-| On · no plan limits reported | Readings arrive but carry no usage — an account without plan limits, or a session that hasn't made a request yet. |
-
-Only `rate_limits` is written — not the working directory, session id, transcript path or cost that
-the rest of the payload carries. Every failure is swallowed, so a broken snippet can never break your
-statusline, which is also why the status above exists. Delete the line to opt out.
-
-**It supplements polling rather than replacing it.** The statusline payload has no per-model
-breakdown, so a `WEEKLY · OPUS` row can only come from the API — and an earlier version of this that
-used the statusline *instead of* polling made that row blink in and out depending on whether a Claude
-Code session happened to be open, which was worse than either source alone. Cashew keeps polling on
-your normal schedule and overlays the live numbers on top, matched by limit, so no row ever
-disappears.
-
-Once the file is more than five minutes old Cashew stops trusting it and shows the polled numbers
-alone — an idle session isn't refreshing the file, but idle usage isn't moving either. Nothing to
-configure either way, and nothing changes if you skip this entirely.
-
-## Why not the built-in menu bar?
-
-Claude Code will tell you a number. `/usage` gives you the same percentages Cashew reads, and you
-can look at them whenever you think to.
-
-The gap isn't the number, it's the rate. **40% an hour into a five-hour window and 40% four hours in
-are the same reading and opposite situations**, and nothing that samples once can tell them apart.
-The first is a morning that ends fine. The second is a morning that ends at 3pm.
-
-So Cashew keeps a short history of what each limit has read and works out how fast you're actually
-moving. When that rate would reach the cap before the window resets, one line appears under the
-limit:
-
-```
-On pace to hit the limit ~Thu 14:00
-```
-
-and, for a weekly limit, the percentage in the menu bar turns yellow even if it's nowhere near the
-usual threshold — because a weekly limit you'll hit on Thursday is worth knowing about at 30%.
-
-The rest of the time it says nothing at all. There is deliberately no "you're fine" message: a line
-that reassures you every ordinary day is a line you stop reading, and then it goes unread on the day
-it matters. Silence is the normal state, and the forecast appearing is the signal.
-
-Two honest limits. It's a straight-line projection over a trailing window — 90 minutes for a session
-limit, a day for a weekly one — so it assumes the next hour looks like the last, which it won't if
-you stop for lunch or start a big refactor. And it needs a few samples before it will say anything,
-so a freshly installed Cashew stays quiet for a while. When it can't tell, it says nothing rather
-than guessing.
-
-## Roadmap
-
-Deliberately small for v0.1. Not planned by me, but very welcome as contributions — each of these is
-[an open issue](../../issues) with the design questions written out:
-
-- A historical sparkline of the session window — [#2](../../issues/2)
-- Graceful mode for non-Pro/Max accounts — [#5](../../issues/5)
-- Additional providers — Cursor, Codex, Copilot — behind the existing `UsageProvider` protocol — [#1](../../issues/1)
-- Multiple accounts in one menu — [#12](../../issues/12)
-
-The first two are tagged
-[good first issue](../../issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22); the rest are
-[help wanted](../../issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22), meaning they need a
-design decision agreed in the issue before much code gets written.
-
-Already shipped, and no longer on the list: a configurable menu bar title format and a
-model-scoped-only mode, both of which the *Show in Menu Bar* setting covers.
-
-Out of scope: cost dashboards, telemetry, anything needing an API key. See
-[CONTRIBUTING.md](CONTRIBUTING.md).
-
-## Other projects in this space
-
-There are several good ones, and they solve different problems. If Cashew isn't the shape you
-want, one of these probably is:
-
-- **[ClaudeBar](https://github.com/tddworks/ClaudeBar)** — the big one. Tracks a dozen assistants
-  (Claude, Codex, Gemini, Copilot, and more), themes, Homebrew cask.
-- **[Claude Usage Bar](https://github.com/Blimp-Labs/claude-usage-bar)** — richer detail: usage
-  history charts, per-model breakdown, extra-usage spend in USD.
-- **[ClaudeUsageBar](https://github.com/Artzainnn/claudeusagebar)** — covers claude.ai usage too,
-  not just Claude Code. Setup is copying a cookie out of DevTools.
-- **[Claude Usage](https://github.com/richhickson/claudecodeusage)** — closest to Cashew in
-  spirit: small, native, session and weekly at a glance.
-- **[Claude Status Bar](https://github.com/m1ckc3s/claude-status-bar)** — a different question
-  entirely: whether Claude Code is *currently* thinking, running a tool, or waiting on you. Pairs
-  well with this one, and its repo is the template this one's build script follows.
-
-Cashew's one distinguishing bet is that you shouldn't have to set anything up.
+Something looking broken? [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) covers the cases that
+usually aren't.
 
 ## Uninstall
 
 First, if you use session tracking, turn off **Settings › Claude Code › Track sessions** while
-Cashew is still installed — that removes its hooks from `~/.claude/settings.json`. If you turned
-on Open at Login, switch that off too (or remove Cashew from System Settings › General › Login
-Items). Then:
+Cashew is still installed — that removes its hooks from `~/.claude/settings.json`. If you turned on
+Open at Login, switch that off too. Then:
 
 ```bash
 rm -rf /Applications/Cashew.app
@@ -292,39 +116,26 @@ defaults delete com.vickipetrova.cashew
 rm -f ~/.claude/settings.json.bak-cashew
 ```
 
-That is everything: the app; the usage history the forecast is computed from and the session files;
-your preferences; and `settings.json.bak-cashew`, the one-time backup of your Claude Code settings
-Cashew took before first adding its hooks — safe to delete, nothing reads it. No caches, no logs,
-no other files.
-
-## Claude Code sessions
-
-Cashew also shows what Claude Code is doing. The spark in the menu bar spins while a session is
-working and gains a dot when one is waiting for your permission, and the dropdown lists each live
-session with its project, branch, current step and how long the turn has run.
-
-To do that, Cashew adds hooks for ten Claude Code events to `~/.claude/settings.json` the first
-time it runs from `/Applications` (or `~/Applications`): `SessionStart`, `UserPromptSubmit`,
-`PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Notification`, `PermissionRequest`, `Stop`,
-`StopFailure` and `SessionEnd`. It changes nothing else in that file, keeps a one-time backup at
-`~/.claude/settings.json.bak-cashew`, and records only each session's state, folder, transcript
-path and tool *name* — never your prompts, tool input or output. Sessions already open when the hooks are added appear
-once they're restarted.
-
-Turn it off under **Settings › Claude Code › Track sessions**, which removes the hooks. **Turn it off
-before deleting Cashew.** If you forget, each leftover hook checks that Cashew's helper is still
-there and exits quietly when it isn't, so your sessions are unaffected — but the entries stay in
-`settings.json` until you remove them (reinstalling Cashew and turning tracking off does it for
-you).
-
-Session tracking was inspired by [claude-status-bar](https://github.com/m1ckc3s/claude-status-bar)
-by Mick Cesanek.
+That is everything: the app; the usage history and session files; your preferences; and the one-time
+backup of your Claude Code settings. No caches, no logs, no other files.
 
 ## Security
 
 Cashew reads your OAuth token, holds it in memory for one request, and sends it to exactly one
 place: `api.anthropic.com`. It also asks GitHub once a day whether a newer Cashew exists (turn it
-off under Settings). No telemetry, no analytics, no identifiers. See [SECURITY.md](SECURITY.md).
+off under Settings). Neither request follows a redirect. No telemetry, no analytics, no identifiers.
+
+With session tracking on it also reads the tail of your Claude Code transcripts — to tell an
+interrupted turn from a finished one — and keeps nothing from them but a yes-or-no.
+
+[SECURITY.md](SECURITY.md) is the complete account: every file written, every preference stored,
+and everything read.
+
+## Contributing
+
+Deliberately small. [CONTRIBUTING.md](CONTRIBUTING.md) has the scope, and
+[RELATED.md](docs/RELATED.md) the roadmap and the other projects in this space — several are better
+fits for things Cashew won't do.
 
 ## Trademark / Not affiliated
 

@@ -186,25 +186,28 @@ import Testing
 
     // MARK: - Setup copy
 
-    /// The menu's Copy Setup Snippet and the README must hand out the same command. Two copies that
+    private static let repository = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+
+    /// The menu's Copy Setup Snippet and the docs must hand out the same command. Two copies that
     /// drifted would leave one of them quietly writing a file Cashew doesn't read.
-    @Test func theReadmeQuotesTheSetupCommandVerbatim() throws {
-        let readme = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("README.md")
-        let text = try String(contentsOf: readme, encoding: .utf8)
+    @Test func theDocsQuoteTheSetupCommandVerbatim() throws {
+        let page = Self.repository.appendingPathComponent("docs/LIVE-UPDATES.md")
+        let text = try String(contentsOf: page, encoding: .utf8)
         #expect(text.contains(StatuslineFeed.setupCommand))
         #expect(StatuslineFeed.setupSnippet.contains(StatuslineFeed.setupCommand))
     }
 
-    /// The link in the copied snippet lands on the README heading, which GitHub derives from its text.
-    @Test func theSnippetLinksToAHeadingThatExists() throws {
-        let readme = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("README.md")
-        let text = try String(contentsOf: readme, encoding: .utf8)
-        #expect(StatuslineFeed.setupSnippet.contains("#live-usage-from-claude-code"))
-        #expect(text.contains("\n## Live usage from Claude Code\n"))
+    /// The snippet's link is pasted into the user's own statusline script and cannot be corrected
+    /// afterwards, so the page it names has to exist. It used to be a README anchor, which tied a
+    /// permanent URL to a heading's exact wording; a path only breaks if the file is removed, and
+    /// this fails the build when it is.
+    @Test func theSnippetLinksToAPageThatExists() throws {
+        let path = "docs/LIVE-UPDATES.md"
+        #expect(StatuslineFeed.setupSnippet
+            .contains("https://github.com/vickipetrova/cashew/blob/main/\(path)"))
+        #expect(FileManager.default
+            .fileExists(atPath: Self.repository.appendingPathComponent(path).path))
     }
 }
 

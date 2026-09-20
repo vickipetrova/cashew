@@ -10,7 +10,7 @@ macOS 13+ and the Xcode Command Line Tools (`xcode-select --install`). Nothing e
 ```bash
 swift test --disable-xctest   # run the suite first, it takes ~0.05s
 ./build.sh                    # -> build/Cashew.app
-./build.sh --dmg              # also -> build/Cashew.dmg
+./build.sh --dmg              # also -> build/Cashew-$VERSION.dmg
 open build/Cashew.app
 ```
 
@@ -22,7 +22,7 @@ Build from the latest `main` so you're not fixing something that already changed
 ## What's welcome
 
 Bug fixes. Compatibility fixes across macOS versions and architectures. Better handling when the
-usage endpoint drifts. Anything on the [Roadmap](README.md#roadmap) — every item there is an open
+usage endpoint drifts. Anything on the [Roadmap](docs/RELATED.md#roadmap) — every item there is an open
 issue and genuinely up for grabs.
 
 Two labels, and the difference is real rather than decorative. **`good first issue`** means the shape
@@ -41,7 +41,7 @@ just don't spend a weekend on either before we've talked about the shape.
 - **Another network destination.** No analytics, no telemetry, no crash reporting. Usage goes to
   `api.anthropic.com`; the only other request is the once-a-day, user-disableable update check to
   `api.github.com`.
-- **Cost dashboards, spend estimation, billing history.** Other projects do this well and the README
+- **Cost dashboards, spend estimation, billing history.** Other projects do this well and `docs/RELATED.md`
   links them. Cashew keeps a small rolling history of utilization samples for the burn-rate
   forecast — seven days, deleted on uninstall, documented in `SECURITY.md` — and that is as far as
   stored history goes. It exists to answer "will I make it to the reset", not "what have I spent".

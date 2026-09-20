@@ -57,7 +57,7 @@ enum Credentials {
     /// Both this and the path above change when `CLAUDE_CONFIG_DIR` is set — the file moves with the
     /// config dir and the service name gains a hash suffix — so those users will see "no Claude Code
     /// login found". Not chased: an app launched from Finder can't see Claude Code's environment
-    /// anyway. It's called out in the README's Requirements.
+    /// anyway. It is called out in `docs/TROUBLESHOOTING.md`.
     private static let keychainService = "Claude Code-credentials"
 
     /// The current access token.
