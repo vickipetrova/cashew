@@ -455,4 +455,18 @@ import Testing
         let rows = PanelSections.rows(for: both, now: now, hidden: [.codex])
         #expect(rows == [.usage(.claude, both[0].windows[0])])
     }
+
+    /// `PanelSections.visible` is the one place both the dropdown (`rows(for:)`) and the menu bar
+    /// title (`displayWindows()`/`titleWindows()`) learn what's worth showing, precisely so the two
+    /// can't disagree — see the doc comment on `displayWindows()`. A hidden provider has to drop out
+    /// of that shared list, not just out of the rows built from it, or hiding Codex would clear its
+    /// rows while leaving its percentage in the menu bar title, the one surface a user reads without
+    /// opening the menu at all.
+    @Test func aHiddenProviderContributesNothingToTheTitlePathEither() {
+        let both = [snapshot(.claude, ["session"]), snapshot(.codex, ["primary"])]
+        let visible = PanelSections.visible(both, now: now, hidden: [.codex])
+        #expect(visible.map(\.provider) == [.claude])
+        let windowsForTitle = visible.flatMap { $0.displayable(now: now) }
+        #expect(windowsForTitle == both[0].windows)
+    }
 }

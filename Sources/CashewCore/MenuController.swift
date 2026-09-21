@@ -347,7 +347,8 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// either on its own.
     private func displayWindows() -> [LimitWindow] {
         let now = Date()
-        return PanelSections.visible(snapshots, now: now).flatMap { $0.displayable(now: now) }
+        return PanelSections.visible(snapshots, now: now, hidden: Settings.hiddenProviders)
+            .flatMap { $0.displayable(now: now) }
     }
 
     /// The windows the title shows, across every provider.
@@ -358,7 +359,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// permanently unselectable.
     private func titleWindows() -> [(provider: ProviderID, window: LimitWindow)] {
         let now = Date()
-        let sections = PanelSections.visible(snapshots, now: now)
+        let sections = PanelSections.visible(snapshots, now: now, hidden: Settings.hiddenProviders)
             .map { (provider: $0.provider, windows: $0.displayable(now: now)) }
         return TitleSelection.windows(from: sections, selection: Settings.titleLimitIDs)
     }
