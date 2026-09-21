@@ -40,15 +40,6 @@ enum PanelSections {
         snapshots.filter { !$0.displayable(now: now).isEmpty || $0.failure != nil }
     }
 
-    /// Headings appear only once there is more than one section to tell apart.
-    ///
-    /// With a single provider the menu is exactly what it was before providers were a concept, which
-    /// is what makes adding the second one a change the existing user never sees until it applies
-    /// to them.
-    static func headingsNeeded(for snapshots: [ProviderSnapshot], now: Date = Date()) -> Bool {
-        visible(snapshots, now: now).count > 1
-    }
-
     /// One row of the dropdown's usage section, named by *what* it is rather than *how* it's drawn
     /// — `rebuild()` is the only place that knows an `NSMenuItem` exists.
     enum Row: Equatable {
@@ -69,6 +60,10 @@ enum PanelSections {
     /// between would let the heading count disagree with the sections actually drawn.
     static func rows(for snapshots: [ProviderSnapshot], now: Date = Date()) -> [Row] {
         let sections = visible(snapshots, now: now)
+        // Headings appear only once there is more than one section to tell apart, so a single
+        // provider gets exactly the menu it had before providers were a concept — which is what
+        // makes adding the second one a change the existing user never sees until it applies to
+        // them.
         let needHeadings = sections.count > 1
         var rows: [Row] = []
         for (index, section) in sections.enumerated() {
@@ -153,19 +148,6 @@ final class MenuController: NSObject, NSMenuDelegate {
     init(history: UsageHistory = .default, statusline: StatuslineFeed = .default) {
         self.history = history
         self.statusline = statusline
-        // Start from the last good reading rather than from nothing. A launch whose first poll fails
-        // — an expired token, no network, or the endpoint rate-limiting us — otherwise shows an error
-        // over an empty panel, even though the numbers from an hour ago were both known and still
-        // roughly true. Once seeded, everything downstream already behaves: `rebuild` takes its
-        // non-empty branch, so the rows render with the error beneath them, and `message(for:)`
-        // appends "Showing data from 14:02" because `lastUpdated` is set.
-        //
-        // Nothing here is treated as a fresh poll. `Notifier.evaluate` and `history.record` run only
-        // on a real success, so restored numbers can't fire an alert or invent a sample.
-        if let restored = history.restorableSnapshot() {
-            snapshots = [ProviderSnapshot(provider: .claude, windows: restored.windows,
-                                          updatedAt: restored.at, failure: nil)]
-        }
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false

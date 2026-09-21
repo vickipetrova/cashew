@@ -153,12 +153,53 @@ struct ProviderSnapshot {
     /// provider's section goes on showing numbers.
     let failure: Error?
 
+    /// True while `windows` are the last good reading read back off disk and no poll in *this*
+    /// process has confirmed them.
+    ///
+    /// The distinction has to be carried on the snapshot because the state it describes outlives the
+    /// call that created it: a restored reading sits in `AppDelegate.snapshots` being re-published
+    /// by the 60-second tick, which publishes on the default `recording: true`. Without this flag
+    /// that tick would re-record samples that are already in `history.json` — inventing a flat
+    /// stretch that never happened and dragging every burn rate towards idle — and would hand
+    /// `Notifier.evaluate` a reading no poll produced, which can fire a threshold alert off a file.
+    ///
+    /// Cleared by the first real success. Deliberately *not* cleared by `failed`: a failed poll
+    /// confirms nothing, and it is precisely the failing launch that keeps these numbers on screen.
+    let restored: Bool
+
+    /// Spelled out rather than synthesized so `restored` can default to false — a snapshot built
+    /// from a poll is the normal case and should not have to say so at every call site.
+    init(provider: ProviderID, windows: [LimitWindow], updatedAt: Date?, failure: Error?,
+         restored: Bool = false) {
+        self.provider = provider
+        self.windows = windows
+        self.updatedAt = updatedAt
+        self.failure = failure
+        self.restored = restored
+    }
+
     /// What is worth putting on screen for this provider, by the one `Freshness` rule.
     func displayable(now: Date = Date()) -> [LimitWindow] {
         Freshness.displayable(windows, updatedAt: updatedAt, now: now)
     }
 
-    /// The same snapshot with a fresh reading. Failure is cleared — a success supersedes it.
+    /// Which of these windows this process actually observed, and may therefore record as samples,
+    /// evaluate for alerts, and write back as the last good reading.
+    ///
+    /// For a polled snapshot that is all of them. For a restored one it is none of its own — those
+    /// rows were recorded when they were polled, by whichever run polled them — and only whatever
+    /// the live overlay just contributed. That split is what keeps the restore honest without
+    /// silencing the live feed: `StatuslineFeed` is rewritten every time Claude Code renders, so
+    /// during an outage it is the one genuinely new reading there is, and suppressing it too would
+    /// stop the forecast and the threshold alerts for as long as the failure lasts.
+    ///
+    /// - Parameter live: the overlay that was merged into `windows`, or empty if none was.
+    func observed(live: [LimitWindow] = []) -> [LimitWindow] {
+        restored ? live : windows
+    }
+
+    /// The same snapshot with a fresh reading. Failure is cleared — a success supersedes it — and so
+    /// is `restored`: a poll has now confirmed these numbers.
     func succeeded(windows: [LimitWindow], at now: Date) -> ProviderSnapshot {
         ProviderSnapshot(provider: provider, windows: windows, updatedAt: now, failure: nil)
     }
@@ -167,7 +208,8 @@ struct ProviderSnapshot {
     /// a dead network should not blank numbers that were true a few minutes ago, and `Freshness`
     /// is what eventually removes them.
     func failed(_ error: Error) -> ProviderSnapshot {
-        ProviderSnapshot(provider: provider, windows: windows, updatedAt: updatedAt, failure: error)
+        ProviderSnapshot(provider: provider, windows: windows, updatedAt: updatedAt, failure: error,
+                         restored: restored)
     }
 }
 

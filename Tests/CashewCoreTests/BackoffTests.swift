@@ -167,4 +167,96 @@ import Testing
         #expect(ok.displayable(now: now).count == 1)
         #expect(ok.failure == nil)
     }
+
+    /// The seam that broke, from the pure side. `AppDelegate` answers a failed poll with
+    /// `existing.failed(error)` and hands the result to `MenuController.update(snapshots:)`, which
+    /// replaces its whole array — so anything `failed` drops is gone from the dropdown and from the
+    /// menu bar title, not merely un-refreshed. Every earlier test on this branch built a snapshot
+    /// that already had both windows and a failure; none covered a snapshot *acquiring* one.
+    @Test func aFailureKeepsTheWindowsAndTheTimeTheyWereRead() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let read = now.addingTimeInterval(-600)
+        let before = ProviderSnapshot(provider: .claude,
+                                      windows: [window("session", resetsIn: 3600, from: now)],
+                                      updatedAt: read, failure: nil)
+        let after = before.failed(UsageError.unauthorized)
+        #expect(after.windows == before.windows)
+        #expect(after.updatedAt == read)
+        #expect(after.failure != nil)
+        #expect(after.displayable(now: now).count == 1)
+    }
+
+    /// A restored reading is still restored after the poll that failed on top of it. A failed poll
+    /// confirms nothing, so clearing the flag here would let the 60-second tick start recording
+    /// numbers off disk from the moment the first poll came back — which is the launch this whole
+    /// arrangement is for.
+    @Test func aFailureDoesNotTurnARestoredReadingIntoAPolledOne() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let restored = ProviderSnapshot(provider: .claude,
+                                        windows: [window("session", resetsIn: 3600, from: now)],
+                                        updatedAt: now.addingTimeInterval(-3600), failure: nil,
+                                        restored: true)
+        #expect(restored.failed(UsageError.network(UsageError.badResponse)).restored)
+        #expect(restored.failed(UsageError.network(UsageError.badResponse)).observed().isEmpty)
+    }
+
+    /// A poll confirms what a restore only remembered, so a success clears the flag — otherwise
+    /// nothing would ever be recorded again after a launch that started from disk.
+    @Test func aSuccessClearsTheRestoredFlag() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let fresh = [window("session", resetsIn: 3600, from: now)]
+        let restored = ProviderSnapshot(provider: .claude, windows: fresh,
+                                        updatedAt: now.addingTimeInterval(-3600), failure: nil,
+                                        restored: true)
+        let polled = restored.succeeded(windows: fresh, at: now)
+        #expect(!polled.restored)
+        #expect(polled.observed() == fresh)
+    }
+
+    /// The rule the seed introduces: restored rows are not an observation. They were recorded when
+    /// they were polled, and re-recording them once a minute would invent a flat stretch that never
+    /// happened and hand `Notifier` a reading no poll produced.
+    @Test func aRestoredSnapshotObservesNothingOfItsOwn() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let restored = ProviderSnapshot(provider: .claude,
+                                        windows: [window("session", resetsIn: 3600, from: now),
+                                                  window("weekly", resetsIn: 90_000, from: now)],
+                                        updatedAt: now.addingTimeInterval(-3600), failure: nil,
+                                        restored: true)
+        #expect(restored.observed().isEmpty)
+        // Still shown, which is the entire point of restoring it.
+        #expect(restored.displayable(now: now).count == 2)
+    }
+
+    /// The other half, and the one that is easy to get wrong by suppressing too much: the live
+    /// statusline overlay is written by Claude Code as it renders, so it is genuinely new even while
+    /// every poll is failing. Silencing it too would stop the forecast and the threshold alerts for
+    /// as long as the outage lasts. Only the overlay is observed — the restored row the overlay
+    /// doesn't cover (a scoped window, which the statusline never reports) is not.
+    @Test func aRestoredSnapshotStillObservesTheLiveOverlay() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let live = [window("session", resetsIn: 3600, from: now)]
+        let merged = ProviderSnapshot(provider: .claude,
+                                      windows: live + [window("scoped:Fable", resetsIn: 90_000,
+                                                              from: now)],
+                                      updatedAt: now, failure: nil, restored: true)
+        #expect(merged.observed(live: live).map(\.id) == ["session"])
+    }
+
+    /// A polled snapshot observes everything it has, overlay included — that is today's behaviour
+    /// and the flag must not narrow it.
+    @Test func aPolledSnapshotObservesAllOfItsWindows() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let windows = [window("session", resetsIn: 3600, from: now),
+                       window("weekly", resetsIn: 90_000, from: now)]
+        let polled = ProviderSnapshot(provider: .claude, windows: windows, updatedAt: now,
+                                      failure: nil)
+        #expect(polled.observed(live: [windows[0]]) == windows)
+    }
+
+    /// The default is the ordinary case, so nothing built from a poll has to say so.
+    @Test func aSnapshotIsPolledUnlessItSaysOtherwise() {
+        #expect(!ProviderSnapshot(provider: .claude, windows: [], updatedAt: nil,
+                                  failure: nil).restored)
+    }
 }

@@ -36,6 +36,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         menuController.onCheckForUpdatesChanged = { [weak self] in self?.startUpdateChecks() }
         Notifier.requestAuthorizationIfNeeded()
 
+        restoreLastGoodReading()
         refresh()
         reschedulePoll()
         startSessionTracking()
@@ -131,6 +132,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The last full reading from each provider, before any live overlay.
     private var snapshots: [ProviderID: ProviderSnapshot] = [:]
 
+    /// Start from the last good reading on disk rather than from nothing.
+    ///
+    /// A launch whose first poll fails — an expired token, no network, a 429, or no credentials at
+    /// all — otherwise shows an error over an empty panel, even though the numbers from an hour ago
+    /// were both known and still roughly true. That is the entire case the saved reading exists for.
+    ///
+    /// It is seeded **here and nowhere else**, and that is the fix rather than a tidy-up.
+    /// `MenuController` used to restore it for itself, which looked equivalent and was not: the
+    /// failure path rebuilds a provider's state from `snapshots[id]`, so a seed the delegate did not
+    /// have became `existing.failed(error)` over empty windows, and `update(snapshots:)` — a
+    /// wholesale replacement — then wiped the very rows the controller had restored. The menu bar
+    /// fell to "!" and the dropdown showed the error alone, on exactly the launch the restore is
+    /// for. One seed, in the one place both the panel and the failure path read from.
+    ///
+    /// Attributed to Claude because the saved reading is a flat `[LimitWindow]` carrying no provider
+    /// — all a one-provider app ever wrote.
+    ///
+    /// Published straight away so the panel has rows before the first poll lands. `restored: true`
+    /// is what stops that publish being mistaken for one — see `ProviderSnapshot.observed(live:)` —
+    /// and `publish` re-stamps `updatedAt` only when a live overlay is merged in, so with no live
+    /// feed the dropdown goes on saying "Showing data from" the hour it was really read.
+    private func restoreLastGoodReading() {
+        guard let restored = history.restorableSnapshot() else { return }
+        snapshots[.claude] = ProviderSnapshot(provider: .claude, windows: restored.windows,
+                                              updatedAt: restored.at, failure: nil, restored: true)
+        publish(at: Date())
+    }
+
     /// Replace one provider's repeating poll with a single delayed one after being told to slow down.
     ///
     /// This is the fix for a fifteen-day outage: the app was rate-limited, kept asking every five
@@ -184,23 +213,37 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   `Notifier` exists to prevent.
     private func publish(at updatedAt: Date, recording: Bool = true) {
         var assembled: [ProviderSnapshot] = []
+        var observed: [LimitWindow] = []
         for provider in providers {
             guard var snapshot = snapshots[provider.id] else { continue }
-            if provider.id == .claude, let live = statusline.read(), !live.isEmpty {
+            var live: [LimitWindow] = []
+            if provider.id == .claude, let reading = statusline.read(), !reading.isEmpty {
+                live = reading
                 let merged = SourceMerge.merge(polled: snapshot.windows, live: live)
                 snapshot = ProviderSnapshot(provider: .claude, windows: merged,
-                                            updatedAt: updatedAt, failure: snapshot.failure)
+                                            updatedAt: updatedAt, failure: snapshot.failure,
+                                            restored: snapshot.restored)
             }
             guard !snapshot.windows.isEmpty || snapshot.failure != nil else { continue }
-            if recording, !snapshot.windows.isEmpty {
-                history.record(snapshot.windows, provider: snapshot.provider, at: updatedAt)
-                Notifier.evaluate(snapshot.windows, provider: snapshot.provider)
+            // `observed`, not `windows`: a restored snapshot's own rows came off disk with their
+            // samples already recorded, and re-recording them once a minute would invent a flat
+            // stretch that never happened. What the live overlay just contributed is new, and still
+            // counts.
+            let fresh = snapshot.observed(live: live)
+            if recording, !fresh.isEmpty {
+                history.record(fresh, provider: snapshot.provider, at: updatedAt)
+                Notifier.evaluate(fresh, provider: snapshot.provider)
             }
+            observed.append(contentsOf: fresh)
             assembled.append(snapshot)
         }
         guard !assembled.isEmpty else { return }
-        if recording {
-            history.save(snapshot: assembled.flatMap(\.windows), at: updatedAt)
+        // Nothing observed, nothing to save. Writing here regardless would overwrite the last good
+        // reading with whatever is on screen — an empty list while a provider is failing, which
+        // destroys the file this launch was restored from, or the restored rows themselves re-dated
+        // to now, which keeps a stale reading alive past the age bound that is supposed to retire it.
+        if recording, !observed.isEmpty {
+            history.save(snapshot: observed, at: updatedAt)
         }
         menuController.update(snapshots: assembled)
     }
