@@ -326,10 +326,10 @@ import Testing
 /// `MenuController` can't be constructed in a test, so this rule — free-standing on purpose — is the
 /// only place these cases are reachable.
 @Suite struct ProviderSectionTests {
-    // Fixed, and matched to `snapshot`'s `updatedAt` below: `PanelSections.headingsNeeded` defaults
-    // `now` to the real `Date()`, and `Freshness.maxAge` is 24 hours, so calling it with the real
-    // clock against a fixture stamped at a fixed instant would filter every snapshot as stale no
-    // matter which real day the suite runs on — making these pass (or fail) for the wrong reason.
+    // Fixed, and matched to `snapshot`'s `updatedAt` below: `PanelSections.rows` defaults `now` to
+    // the real `Date()`, and `Freshness.maxAge` is 24 hours, so calling it with the real clock
+    // against a fixture stamped at a fixed instant would filter every snapshot as stale no matter
+    // which real day the suite runs on — making these pass (or fail) for the wrong reason.
     private let now = Date(timeIntervalSince1970: 1_000_000)
 
     private func snapshot(_ provider: ProviderID, _ ids: [String]) -> ProviderSnapshot {
@@ -342,23 +342,32 @@ import Testing
             updatedAt: now, failure: nil)
     }
 
+    // These three ask `rows(...)` whether a heading was planned rather than asking a predicate
+    // whether one was needed. The predicate existed, agreed with them, and was called by nothing:
+    // `rows` had come to compute the same `count > 1` inline, so all three passed no matter what
+    // the dropdown actually drew.
+
     @Test func oneProviderGetsNoHeading() {
         // Today's menu, unchanged. A "CLAUDE" heading above the only section would be a visible
         // change in a refactor that is supposed to have none.
-        #expect(PanelSections.headingsNeeded(for: [snapshot(.claude, ["session"])], now: now) == false)
+        let rows = PanelSections.rows(for: [snapshot(.claude, ["session"])], now: now)
+        #expect(!rows.contains { if case .heading = $0 { return true } else { return false } })
     }
 
     @Test func twoProvidersGetHeadings() {
-        #expect(PanelSections.headingsNeeded(for: [snapshot(.claude, ["session"]),
-                                                   snapshot(.codex, ["session"])], now: now))
+        let rows = PanelSections.rows(for: [snapshot(.claude, ["session"]),
+                                            snapshot(.codex, ["session"])], now: now)
+        #expect(rows.contains(.heading(.claude)))
+        #expect(rows.contains(.heading(.codex)))
     }
 
     @Test func aProviderWithNothingToShowIsNotASection() {
         // An empty snapshot must not count towards "more than one", or a Codex provider that is
         // present but reporting nothing would put a heading above Claude for no reason.
         let empty = ProviderSnapshot(provider: .codex, windows: [], updatedAt: nil, failure: nil)
-        #expect(PanelSections.headingsNeeded(for: [snapshot(.claude, ["session"]), empty], now: now)
-            == false)
+        let rows = PanelSections.rows(for: [snapshot(.claude, ["session"]), empty], now: now)
+        #expect(!rows.contains { if case .heading = $0 { return true } else { return false } })
+        #expect(!rows.contains(.separator))
     }
 
     @Test func headingsNameTheProvider() {
@@ -368,11 +377,20 @@ import Testing
 
     // MARK: - Row plan
 
-    /// The baseline: one provider, no failure, today's menu exactly.
+    /// The baseline: one provider, no failure, today's menu exactly — and all three of its rows.
+    ///
+    /// Three windows and not one, because one window cannot tell a missing separator from a
+    /// spurious one. `SESSION`, `WEEKLY · ALL MODELS` and `WEEKLY · FABLE` run together with
+    /// nothing between them, which is the shape this whole refactor exists to leave alone; a
+    /// separator inserted between a section's own usage rows would pass every single-window
+    /// fixture here and make three windows look like three unrelated panels stacked up.
     @Test func oneProviderWithWindowsProducesNoHeadingAndNoSeparator() {
-        let single = snapshot(.claude, ["session"])
+        let single = snapshot(.claude, ["session", "weekly", "scoped:Fable"])
         let rows = PanelSections.rows(for: [single], now: now)
-        #expect(rows == single.windows.map { .usage(.claude, $0) })
+        #expect(rows == [.usage(.claude, single.windows[0]),
+                         .usage(.claude, single.windows[1]),
+                         .usage(.claude, single.windows[2])])
+        #expect(rows.count == 3)
     }
 
     /// Pins the regression: a provider whose numbers are still on screen but whose last poll
