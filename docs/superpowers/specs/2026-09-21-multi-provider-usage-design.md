@@ -62,6 +62,36 @@ struct ProviderSnapshot {
 that operates on `[LimitWindow]` — `Forecast`, `Fmt`, `UsageRow`, `TitleSelection`,
 `Freshness.displayable` — keeps its current signature and applies per snapshot.
 
+### Two single-provider assumptions that are not obvious from the type
+
+Found by reading `AppDelegate` rather than by reasoning about the model, and both would survive a
+careless refactor as silent bugs:
+
+**`fetchGeneration` is one counter for the whole app.** Every fetch bumps it, and its completion
+drops the result unless the counter still matches:
+
+```swift
+fetchGeneration += 1
+let generation = fetchGeneration
+provider.fetch { guard generation == self.fetchGeneration else { return } … }
+```
+
+It exists so a slow poll cannot overwrite fresher numbers with older ones stamped `Date()`. With two
+providers it inverts: Codex's fetch bumps the counter and Claude's in-flight reply is discarded as
+stale. The generation must become **per provider**, or the refactor introduces a race that presents
+as "Claude intermittently stops updating" — the hardest possible thing to attribute to this change.
+
+**The statusline overlay belongs to Claude, not to the app.** Today:
+
+```swift
+let merged = SourceMerge.merge(polled: polled, live: statusline.read() ?? [])
+```
+
+`StatuslineFeed` reads what *Claude Code* hands its statusline; it is Claude's live feed and nothing
+else's. Applied to a combined list it could overwrite a Codex window that shares an unqualified id.
+The overlay therefore applies to the Claude snapshot only, before snapshots are assembled — which is
+also why qualification happens at the storage boundary and not inside the merge.
+
 The protocol gains identity, a declared host, and a presence check:
 
 ```swift
@@ -77,6 +107,13 @@ protocol UsageProvider {
 `kSecReturnAttributes` and *without* `kSecReturnData`: presence without decryption, so discovery
 cannot fire the Keychain permission prompt. A discovery check that prompts would be worse than no
 discovery at all.
+
+It must also be **injectable**, for the same reason `Credentials.token(in:)` is. The real
+implementation reads the user's actual login Keychain, so a test that called it would be reaching
+live credentials — which is why `accessToken()` and friends are already on the CI grep of things no
+test may call. `ClaudeProvider` therefore takes the presence check as a closure defaulting to the
+real lookup, so the discovery *logic* is testable with synthetic answers, and the real lookup is
+added to that CI grep as a backstop.
 
 ## Why `Kind` becomes rank rather than duration
 
