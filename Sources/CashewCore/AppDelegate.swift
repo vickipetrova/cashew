@@ -173,7 +173,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// reads what Claude Code hands its own statusline; it is Claude's live feed, not the app's, and
     /// merging it into a combined list could overwrite another provider's window that happens to
     /// share an unqualified id.
-    private func publish(at updatedAt: Date) {
+    ///
+    /// - Parameter recording: The caller's own statement that this publish carries a reading worth
+    ///   keeping, not a guess inferred from a provider's (possibly latched) failure state. A failed
+    ///   poll passes `false`: it must not record or save, because that would invent a flat stretch
+    ///   that never happened and drag every burn rate toward idle. Everything else — a real success,
+    ///   and the 60-second tick's re-merge of the live statusline onto the last good reading — must
+    ///   keep recording on the default, or the live feed stops reaching the forecast and the
+    ///   threshold alerts for as long as a failure lasts, which is exactly the silent-alert bug
+    ///   `Notifier` exists to prevent.
+    private func publish(at updatedAt: Date, recording: Bool = true) {
         var assembled: [ProviderSnapshot] = []
         for provider in providers {
             guard var snapshot = snapshots[provider.id] else { continue }
@@ -183,18 +192,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                                             updatedAt: updatedAt, failure: snapshot.failure)
             }
             guard !snapshot.windows.isEmpty || snapshot.failure != nil else { continue }
-            // Recorded and evaluated only while this provider is not currently failing: a failed
-            // poll leaves the last good numbers on screen (`ProviderSnapshot.failed` keeps them),
-            // and re-recording them here — as this function now also runs on the failure path —
-            // would invent a flat stretch that never happened and drag every rate towards idle.
-            if !snapshot.windows.isEmpty, snapshot.failure == nil {
+            if recording, !snapshot.windows.isEmpty {
                 history.record(snapshot.windows, provider: snapshot.provider, at: updatedAt)
                 Notifier.evaluate(snapshot.windows, provider: snapshot.provider)
             }
             assembled.append(snapshot)
         }
         guard !assembled.isEmpty else { return }
-        history.save(snapshot: assembled.flatMap(\.windows), at: updatedAt)
+        if recording {
+            history.save(snapshot: assembled.flatMap(\.windows), at: updatedAt)
+        }
         menuController.update(snapshots: assembled)
     }
 
@@ -222,7 +229,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     if (self.rateLimitStreak[id] ?? 0) > 0 { self.reschedulePoll(id) }
                 case .failure(let error):
                     self.snapshots[id] = existing.failed(error)
-                    self.publish(at: Date())
+                    self.publish(at: Date(), recording: false)
                     if case UsageError.rateLimited(let retryAfter) = error {
                         self.backOff(id, retryAfter: retryAfter)
                     }

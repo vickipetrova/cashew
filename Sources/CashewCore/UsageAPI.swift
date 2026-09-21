@@ -220,8 +220,8 @@ enum Backoff {
     }
 }
 
-/// Which providers to poll, and how a recovery is scoped. Pure, because the two rules it holds
-/// are the ones that silently went wrong: they live in AppDelegate, which no test can build.
+/// Which providers to poll. Pure, because this rule silently went wrong once already: it lived only
+/// in AppDelegate, which no test can build.
 enum PollPlan {
     /// The providers worth polling. When none has credentials, Claude is polled anyway so its
     /// own sign-in copy has somewhere to render — an empty menu explains nothing.
