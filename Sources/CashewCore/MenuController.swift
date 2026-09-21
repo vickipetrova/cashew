@@ -7,20 +7,82 @@ import CashewShared
 /// constructed in a test, and these are exactly the cases that are awkward to reach by hand: a
 /// scope that disappears from the response, or every chosen scope disappearing at once.
 enum TitleSelection {
-    static func windows(from windows: [LimitWindow], selection: Set<String>) -> [LimitWindow] {
-        // Filtering rather than looking each selected id up: order comes from the response, which
-        // `ClaudeProvider.windows(in:)` already fixes as session, then weekly, then scoped. A
-        // selection whose scope has vanished simply doesn't match, and the stored preference is
-        // untouched, so it renders again if the scope returns.
+    /// Which limits the menu bar title shows, given what each provider reported and what the user
+    /// picked. Sections rather than a flat list, because the stored selection is qualified by
+    /// provider and a bare `LimitWindow` does not know which provider it came from.
+    static func windows(from sections: [(provider: ProviderID, windows: [LimitWindow])],
+                        selection: Set<String>) -> [LimitWindow] {
         // Choosing nothing is a real choice, and it has to be told apart from choosing something
         // that has since gone missing — the fallback below must not fire for it, or unchecking the
         // last limit would silently put a number back.
         guard !selection.isEmpty else { return [] }
-        let shown = windows.filter { selection.contains($0.id) }
+        // Order comes from the response within a section, and from section order across them.
+        let shown = sections.flatMap { section in
+            section.windows.filter { selection.contains(section.provider.qualify($0.id)) }
+        }
         guard shown.isEmpty else { return shown }
-        // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list is
-        // no reason to show none of them.
-        return windows.first { $0.kind == .session }.map { [$0] } ?? Array(windows.prefix(1))
+        // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list
+        // is no reason to show none of them. Global, not per-section: a per-section fallback would
+        // put an unselected provider's window in the title purely because that provider happened to
+        // report something.
+        let all = sections.flatMap(\.windows)
+        return all.first { $0.kind == .primary }.map { [$0] } ?? Array(all.prefix(1))
+    }
+}
+
+/// Which provider sections the dropdown draws, and whether they need naming.
+///
+/// Pure and separate from `MenuController` for the same reason `TitleSelection` is: the controller
+/// cannot be constructed in a test, so a rule that lives inside it is a rule with no coverage.
+enum PanelSections {
+    /// A snapshot worth drawing: it has something to show, or something to say about why it doesn't.
+    static func visible(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        snapshots.filter { !$0.displayable(now: now).isEmpty || $0.failure != nil }
+    }
+
+    /// One row of the dropdown's usage section, named by *what* it is rather than *how* it's drawn
+    /// — `rebuild()` is the only place that knows an `NSMenuItem` exists.
+    enum Row: Equatable {
+        case separator
+        case heading(ProviderID)
+        case usage(ProviderID, LimitWindow)
+        case error(ProviderID)
+    }
+
+    /// The row sequence for one dropdown, as a plan rather than as side effects on an `NSMenu`.
+    ///
+    /// Pure so the ordering rule is assertable — it used to live inline in `rebuild()`, which no
+    /// test can reach, and that is exactly how the separator between a section's usage rows and its
+    /// error row went missing without a single test failing.
+    ///
+    /// `sections` and `needHeadings` are derived from one `visible(...)` call, not two independent
+    /// ones each defaulting `now` to a fresh `Date()` — two clocks a freshness boundary could fall
+    /// between would let the heading count disagree with the sections actually drawn.
+    static func rows(for snapshots: [ProviderSnapshot], now: Date = Date()) -> [Row] {
+        let sections = visible(snapshots, now: now)
+        // Headings appear only once there is more than one section to tell apart, so a single
+        // provider gets exactly the menu it had before providers were a concept — which is what
+        // makes adding the second one a change the existing user never sees until it applies to
+        // them.
+        let needHeadings = sections.count > 1
+        var rows: [Row] = []
+        for (index, section) in sections.enumerated() {
+            // A rule between providers, but never between the rows inside one: a line between every
+            // usage row made three windows look like three unrelated panels stacked up. Between
+            // providers it divides genuinely different things, which is what separators are for.
+            if index > 0 { rows.append(.separator) }
+            if needHeadings { rows.append(.heading(section.provider)) }
+            let windows = section.displayable(now: now)
+            for window in windows { rows.append(.usage(section.provider, window)) }
+            if section.failure != nil {
+                // Divides *kinds* of thing — data from an error — so it only earns its place when
+                // there is data above it to divide from. A provider with nothing but a failure has
+                // no usage rows here, and its error row is the section's entire content.
+                if !windows.isEmpty { rows.append(.separator) }
+                rows.append(.error(section.provider))
+            }
+        }
+        return rows
     }
 }
 
@@ -46,9 +108,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
 
-    private var windows: [LimitWindow] = []
-    private var lastUpdated: Date?
-    private var lastError: Error?
+    private var snapshots: [ProviderSnapshot] = []
     private var isMenuOpen = false
 
     /// Most urgent first (`SessionActivity` sorts them), so the first one decides the title.
@@ -88,19 +148,6 @@ final class MenuController: NSObject, NSMenuDelegate {
     init(history: UsageHistory = .default, statusline: StatuslineFeed = .default) {
         self.history = history
         self.statusline = statusline
-        // Start from the last good reading rather than from nothing. A launch whose first poll fails
-        // — an expired token, no network, or the endpoint rate-limiting us — otherwise shows an error
-        // over an empty panel, even though the numbers from an hour ago were both known and still
-        // roughly true. Once seeded, everything downstream already behaves: `rebuild` takes its
-        // non-empty branch, so the rows render with the error beneath them, and `message(for:)`
-        // appends "Showing data from 14:02" because `lastUpdated` is set.
-        //
-        // Nothing here is treated as a fresh poll. `Notifier.evaluate` and `history.record` run only
-        // on a real success, so restored numbers can't fire an alert or invent a sample.
-        if let restored = history.restorableSnapshot() {
-            windows = restored.windows
-            lastUpdated = restored.at
-        }
         super.init()
         menu.delegate = self
         menu.autoenablesItems = false
@@ -110,24 +157,12 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     // MARK: - Input
 
-    func update(windows: [LimitWindow], updatedAt: Date) {
-        self.windows = windows
-        self.lastUpdated = updatedAt
-        self.lastError = nil
+    func update(snapshots: [ProviderSnapshot]) {
+        self.snapshots = snapshots
         renderTitle()
         // A poll can land while the dropdown is open, and the open dropdown is not rebuilt. Without
         // this the rows keep rendering the state they were built from — most visibly a countdown
         // running down to the *previous* window's reset and pinning at "now".
-        refreshLiveRows()
-    }
-
-    /// Keeps whatever was last shown. A dead network or an expired token shouldn't blank out
-    /// numbers that were true a few minutes ago; the menu says so instead.
-    func update(error: Error) {
-        self.lastError = error
-        renderTitle()
-        // Same reason as above, and it is the footer that changes: "Updated 14:02" has to become
-        // the error line while the menu is on screen, or the menu claims a refresh that failed.
         refreshLiveRows()
     }
 
@@ -223,10 +258,10 @@ final class MenuController: NSObject, NSMenuDelegate {
 
         guard !displayWindows().isEmpty else {
             button.attributedTitle = NSAttributedString()
-            if lastError != nil { button.title = "!" }
+            if snapshots.contains(where: { $0.failure != nil }) { button.title = "!" }
             // A clean fetch that reported nothing isn't an error and isn't still loading —
             // API-key accounts have no plan quota to report.
-            else if lastUpdated != nil { button.title = "–" }
+            else if snapshots.contains(where: { $0.updatedAt != nil }) { button.title = "–" }
             else { button.title = "…" }
             return
         }
@@ -268,11 +303,26 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// be able to disagree, and a title showing percentages over a panel showing none is worse than
     /// either on its own.
     private func displayWindows() -> [LimitWindow] {
-        Freshness.displayable(windows, updatedAt: lastUpdated, now: Date())
+        let now = Date()
+        return PanelSections.visible(snapshots, now: now).flatMap { $0.displayable(now: now) }
     }
 
+    /// The windows the title shows, across every provider.
+    ///
+    /// Task 2 bridged this with a hardcoded `.claude`, because a bare `LimitWindow` does not know
+    /// its provider while the selection set is stored qualified. Now that snapshots carry the
+    /// provider, the bridge is replaced — a hardcoded `.claude` here would make every Codex window
+    /// permanently unselectable.
     private func titleWindows() -> [LimitWindow] {
-        TitleSelection.windows(from: displayWindows(), selection: Settings.titleLimitIDs)
+        let now = Date()
+        let sections = PanelSections.visible(snapshots, now: now)
+            .map { (provider: $0.provider, windows: $0.displayable(now: now)) }
+        return TitleSelection.windows(from: sections, selection: Settings.titleLimitIDs)
+    }
+
+    /// The provider a window belongs to, for keying its history and its selection entry.
+    private func provider(of window: LimitWindow) -> ProviderID {
+        snapshots.first { $0.windows.contains(where: { $0.id == window.id }) }?.provider ?? .claude
     }
 
     /// Where this window is heading, from the samples recorded so far.
@@ -280,9 +330,21 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Recomputed on each render rather than cached with the window: the live rows re-run on every
     /// 60-second tick, and a forecast pinned at build time would keep naming a hit date the newest
     /// samples had already moved — the same trap that made held-open countdowns go stale.
-    private func forecast(for window: LimitWindow) -> Forecast {
-        Forecast.project(samples: history.samples(for: window.id),
+    ///
+    /// Takes the provider directly: both providers can name a window `"session"`, and looking the
+    /// provider up by id alone would forecast a Codex row from Claude's history the moment the two
+    /// collide — the exact cross-provider mixup `ProviderID.qualify` exists to prevent.
+    private func forecast(for window: LimitWindow, provider: ProviderID) -> Forecast {
+        Forecast.project(samples: history.samples(for: window.id, provider: provider),
                          kind: window.kind, resetsAt: window.resetsAt, now: Date())
+    }
+
+    /// `renderTitle`'s call is the one caller with no provider in hand — the title flattens every
+    /// section's windows together before picking which to show, so a window's provider has to be
+    /// re-derived here. That is the only reason `provider(of:)` survives; every other caller already
+    /// has the provider from the section it came from and passes it straight to the overload above.
+    private func forecast(for window: LimitWindow) -> Forecast {
+        forecast(for: window, provider: provider(of: window))
     }
 
     private func percentage(of window: LimitWindow?, mode: Settings.ColorMode,
@@ -319,19 +381,13 @@ final class MenuController: NSObject, NSMenuDelegate {
         liveRows.removeAll()
         menu.removeAllItems()
 
-        // Not `windows`: a reading too old to describe anything is dropped here, so a long outage
-        // ends up in the message-only branch below instead of leaving stale percentages on screen.
-        let shown = displayWindows()
+        // `PanelSections.rows` is empty exactly when no provider has anything to show and none has
+        // failed either — `visible(...)`, which it's built from, always keeps a failed snapshot
+        // regardless of its windows, so an empty plan can never hide an error.
+        let rows = PanelSections.rows(for: snapshots)
 
-        if shown.isEmpty {
-            if lastError != nil {
-                // Reads current state rather than the error bound here, so a later failure while the
-                // menu is open rewrites this row instead of freezing the first one.
-                menu.addItem(textRow { [weak self] in
-                    guard let self, let error = self.lastError else { return nil }
-                    return self.message(for: error)
-                })
-            } else if lastUpdated != nil {
+        if rows.isEmpty {
+            if snapshots.contains(where: { $0.updatedAt != nil }) {
                 menu.addItem(textRow {
                     """
                     No plan limits reported for this account. Pro and Max plans have session and \
@@ -342,17 +398,13 @@ final class MenuController: NSObject, NSMenuDelegate {
                 menu.addItem(textRow { "Loading…" })
             }
         } else {
-            // No rules between the usage rows. Each row already reads as a unit — a semibold heading
-            // over a large percentage over a bar — so whitespace is enough to group them, and a line
-            // between every one made three sections look like three unrelated panels stacked up.
-            // Separators still earn their place below, where they divide *kinds* of thing: data from
-            // an error, data from the commands.
-            for window in shown {
-                menu.addItem(usageRow(for: window))
-            }
-            if lastError != nil {
-                menu.addItem(.separator())
-                menu.addItem(errorRow())
+            for row in rows {
+                switch row {
+                case .separator: menu.addItem(.separator())
+                case .heading(let provider): menu.addItem(headingRow(provider.sectionHeading))
+                case .usage(let provider, let window): menu.addItem(usageRow(for: window, provider: provider))
+                case .error(let provider): menu.addItem(errorRow(for: provider))
+                }
             }
         }
 
@@ -468,25 +520,37 @@ final class MenuController: NSObject, NSMenuDelegate {
         // Built from the windows the response actually reported, never from a hardcoded list — the
         // set of model-scoped limits is the vendor's to change, and has already changed once.
         // Omitted entirely when there is nothing to choose between yet.
-        if !windows.isEmpty {
+        let allWindows = snapshots.flatMap(\.windows)
+        if !allWindows.isEmpty {
             menu.addItem(SettingsRow.header(Copy.limitsHeader))
             let selected = Settings.titleLimitIDs
+            let sections = snapshots.map { (provider: $0.provider, windows: $0.windows) }
             // What the title is *actually* showing, which differs from the selection when a chosen
             // scope has vanished and `TitleSelection` fell back. Marking that row `.mixed` rather
             // than `.off` stops the submenu claiming a limit is hidden while its number is sitting
             // in the menu bar. Unticking everything is not that case: it renders nothing, so every
             // row is plainly `.off`.
-            let rendered = Set(TitleSelection.windows(from: windows, selection: selected).map(\.id))
-            for window in windows {
-                let item = action(window.optionLabel,
-                                  key: "", selector: #selector(toggleTitleLimit(_:)))
-                // The id goes in `representedObject`, not `tag`: tags are Int and these are strings,
-                // and a positional tag would break the moment the response reorders.
-                item.representedObject = window.id
-                if selected.contains(window.id) { item.state = .on }
-                else if rendered.contains(window.id) { item.state = .mixed }
-                else { item.state = .off }
-                menu.addItem(item)
+            //
+            // Qualified by provider, not just by id: two providers can both report a "session"
+            // window, and an unqualified set would mark the wrong one `.mixed`.
+            let shown = TitleSelection.windows(from: sections, selection: selected)
+            let rendered = Set(shown.compactMap { window in
+                sections.first { $0.windows.contains(window) }.map { $0.provider.qualify(window.id) }
+            })
+            for snapshot in snapshots {
+                for window in snapshot.windows {
+                    let item = action(window.optionLabel,
+                                      key: "", selector: #selector(toggleTitleLimit(_:)))
+                    // The id goes in `representedObject`, not `tag`: tags are Int and these are
+                    // strings, and a positional tag would break the moment the response reorders.
+                    // Qualified by provider, to match what `Settings.titleLimitIDs` actually stores.
+                    let qualifiedID = snapshot.provider.qualify(window.id)
+                    item.representedObject = qualifiedID
+                    if selected.contains(qualifiedID) { item.state = .on }
+                    else if rendered.contains(qualifiedID) { item.state = .mixed }
+                    else { item.state = .off }
+                    menu.addItem(item)
+                }
             }
             menu.addItem(.separator())
         }
@@ -672,13 +736,14 @@ final class MenuController: NSObject, NSMenuDelegate {
     ///
     /// Registered for in-place refresh, keyed on the window's stable `id` so a poll that reorders or
     /// relabels windows still finds the right one.
-    private func usageRow(for window: LimitWindow) -> NSMenuItem {
+    private func usageRow(for window: LimitWindow, provider: ProviderID) -> NSMenuItem {
         let id = window.id
-        let row = UsageRow(window, mode: Settings.colorMode, forecast: forecast(for: window))
+        let row = UsageRow(window, mode: Settings.colorMode, forecast: forecast(for: window, provider: provider))
         let hosted = HostedRow(UsageRowView(row: row), title: row.spoken)
         liveRows.append(LiveRow { [weak self] in
-            guard let self, let window = self.window(id: id) else { return }
-            let row = UsageRow(window, mode: Settings.colorMode, forecast: self.forecast(for: window))
+            guard let self, let window = self.window(id: id, provider: provider) else { return }
+            let row = UsageRow(window, mode: Settings.colorMode,
+                               forecast: self.forecast(for: window, provider: provider))
             // `update` re-measures, which this row now depends on rather than merely tolerating: the
             // pace line appears and disappears, so the row's height is no longer constant.
             hosted.update(UsageRowView(row: row), title: row.spoken)
@@ -726,10 +791,12 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Errors only. How fresh the numbers are is shown on the Refresh Now row instead, where it sits
     /// next to the thing that acts on it — and the error copy already carries its own timestamp
     /// ("Showing data from 14:02"), so a separate Updated line would have said it twice.
-    private func errorRow() -> NSMenuItem {
+    private func errorRow(for provider: ProviderID) -> NSMenuItem {
         textRow { [weak self] in
-            guard let self, let lastError = self.lastError else { return nil }
-            return self.message(for: lastError)
+            guard let self,
+                  let section = self.snapshots.first(where: { $0.provider == provider }),
+                  let error = section.failure else { return nil }
+            return self.message(for: error, in: section)
         }
     }
 
@@ -745,35 +812,37 @@ final class MenuController: NSObject, NSMenuDelegate {
     ///
     /// Registered as a live row so the age keeps counting up while the menu is held open.
     private func refreshRow() -> NSMenuItem {
-        let title = { [weak self] in "Refresh Now (\(Fmt.age(of: self?.lastUpdated)))" }
+        let title = { [weak self] in
+            "Refresh Now (\(Fmt.age(of: self?.snapshots.compactMap(\.updatedAt).max())))"
+        }
         let item = action(title(), key: "r", selector: #selector(refreshClicked))
         liveRows.append(LiveRow { item.title = title() })
         return item
     }
 
-    /// The window this row was built for, as it stands in the *latest* poll.
+    /// The window this row was built for, as it stands in the *latest* poll of its own provider.
     ///
     /// Looking it up beats closing over the `LimitWindow`: a captured value made a held-open menu go
     /// on counting down to the reset of a window the poll had already replaced, reach "now", and
     /// stay pinned there until the menu was closed and reopened.
     ///
-    /// Matched on `id`, the same key `Notifier.markerKey(for:)` uses — not on the display label,
-    /// which is free to be restyled.
-    private func window(id: String) -> LimitWindow? {
-        windows.first { $0.id == id }
+    /// Keyed on provider *and* id, because the id alone is only unique within a provider.
+    private func window(id: String, provider: ProviderID) -> LimitWindow? {
+        snapshots.first { $0.provider == provider }?.windows.first { $0.id == id }
     }
 
-    /// The plan's error copy, plus the "you're looking at old numbers" note that only makes sense
-    /// when there are numbers on screen to be old.
-    private func message(for error: Error) -> String {
-        let description = (error as? UsageError)?.errorDescription
-            ?? error.localizedDescription
-        // Keyed on what is actually *on screen*, not on what is in memory: once `Freshness` drops the
-        // rows, promising "showing data from…" would point at numbers that aren't there any more.
-        guard !displayWindows().isEmpty, let lastUpdated else { return description }
-        // `Fmt.stamp`, never `Fmt.clock` — see the note there. Clock renders a bare time for any past
-        // date, so this line claimed a fifteen-day-old reading was from "4:44 AM".
-        return "\(description) Showing data from \(Fmt.stamp(lastUpdated))."
+    /// A provider's error copy, plus the "you're looking at old numbers" note that only makes sense
+    /// when that provider still has numbers on screen to be old.
+    private func message(for error: Error, in snapshot: ProviderSnapshot) -> String {
+        let description = (error as? UsageError)?.errorDescription ?? error.localizedDescription
+        // Keyed on what is actually on screen *for this provider*: once `Freshness` drops its rows,
+        // promising "showing data from…" would point at numbers that aren't there any more.
+        guard !snapshot.displayable().isEmpty, let updatedAt = snapshot.updatedAt else {
+            return description
+        }
+        // `Fmt.stamp`, never `Fmt.clock` — clock renders a bare time for any past date, so this line
+        // once claimed a fifteen-day-old reading was from "4:44 AM".
+        return "\(description) Showing data from \(Fmt.stamp(updatedAt))."
     }
 
     // MARK: - Item builders

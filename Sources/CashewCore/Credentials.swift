@@ -175,6 +175,69 @@ enum Credentials {
         return Candidate(token: raw, expiresAtMillis: nil, isOverride: true, source: source)
     }
 
+    // MARK: - Presence
+
+    /// Whether there is a Claude Code login here at all, without reading it.
+    ///
+    /// Pure, like `resolve`, so discovery is testable without touching a real login — the impure
+    /// half is `keychainItemExists()` below, which CI keeps out of tests.
+    ///
+    /// `.accessDenied` counts as present. Something is there and macOS refused it, which is the
+    /// opposite of absent: reporting it as absent would hide the provider entirely and with it the
+    /// one message that tells the user how to fix it.
+    static func exists(file: Outcome, keychain: Outcome) -> Bool {
+        [file, keychain].contains { $0 != .absent }
+    }
+
+    /// The presence probe's query, lifted out of the call below so a test can read it.
+    ///
+    /// `kSecReturnAttributes` without `kSecReturnData` asks securityd for metadata only, which does
+    /// not evaluate the item's decrypt ACL and therefore cannot raise the permission prompt. That
+    /// matters more than it looks: discovery runs on every launch, on the main thread, for the one
+    /// item every Keychain-only user has, and a discovery check that prompted would be worse than
+    /// having no discovery at all.
+    ///
+    /// The property exists because the guarantee was unenforced: the code was right and nothing
+    /// failed if a later edit added `kSecReturnData` to it. CI keeps tests away from the probe
+    /// itself, which stops a test reaching a real login — a different promise, and not this one.
+    static var keychainPresenceQuery: [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecReturnAttributes as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+        ]
+    }
+
+    /// Does the Keychain item exist, without decrypting it? See `keychainPresenceQuery` for why the
+    /// query is shaped the way it is.
+    ///
+    /// Never called from a test — it reads the real login Keychain. CI greps for it.
+    static func keychainItemExists() -> Bool {
+        var result: CFTypeRef?
+        switch SecItemCopyMatching(keychainPresenceQuery as CFDictionary, &result) {
+        case errSecSuccess: return true
+        case errSecItemNotFound: return false
+        // Anything else — including a denial — means something is there that we could not read.
+        default: return true
+        }
+    }
+
+    /// Does the credentials file exist? Cheap, and no prompt is possible.
+    static func fileExists() -> Bool {
+        FileManager.default.fileExists(atPath: (credentialsPath as NSString).expandingTildeInPath)
+    }
+
+    /// Is there a Claude Code login on this machine at all?
+    ///
+    /// The impure composition of the two probes above, kept as one named function so
+    /// `ClaudeProvider`'s default argument stays readable and there is a single symbol for CI to
+    /// grep. Never called from a test.
+    static func loginExists() -> Bool {
+        exists(file: fileExists() ? .accessDenied : .absent,
+               keychain: keychainItemExists() ? .accessDenied : .absent)
+    }
+
     private static func millis(_ any: Any?) -> Double? {
         // Same trap as the usage parser: JSON booleans bridge to NSNumber, so `as? Double` turns
         // `true` into 1.0 — which would rank as an expiry rather than as no expiry at all.

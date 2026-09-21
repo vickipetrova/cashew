@@ -38,7 +38,8 @@ enum Notifier {
         }
     }
 
-    static func evaluate(_ windows: [LimitWindow], now: Date = Date()) {
+    static func evaluate(_ windows: [LimitWindow], provider: ProviderID,
+                         now: Date = Date()) {
         let threshold = Settings.notifyThreshold
         guard threshold > 0 else { return }
 
@@ -47,7 +48,7 @@ enum Notifier {
             // title reads "80%", and an 80% alert that stayed silent would look broken.
             guard window.utilization.rounded() >= Double(threshold) else { continue }
 
-            let key = markerKey(for: window)
+            let key = markerKey(for: window, provider: provider)
             let period = periodID(for: window, now: now)
             let previous = defaults.string(forKey: key).flatMap(Marker.init(raw:))
             let announced = previous?.period == period
@@ -67,10 +68,11 @@ enum Notifier {
 
     // MARK: - Markers
 
-    /// Keyed on `LimitWindow.id`, never on the display label. Keying on display copy meant restyling
-    /// a heading silently reset which alerts counted as already-sent.
-    private static func markerKey(for window: LimitWindow) -> String {
-        "notified.\(window.id)"
+    /// Keyed on the provider-qualified `LimitWindow.id`, never on the display label. Keying on
+    /// display copy meant restyling a heading silently reset which alerts counted as already-sent;
+    /// keying on a bare id would mean Codex's short window silencing Claude's.
+    private static func markerKey(for window: LimitWindow, provider: ProviderID) -> String {
+        "notified.\(provider.qualify(window.id))"
     }
 
     /// Identifies the reset period currently in effect.

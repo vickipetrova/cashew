@@ -3,6 +3,35 @@ import CashewShared
 
 // MARK: - Provider-neutral model
 
+/// Which product a set of usage windows came from.
+///
+/// `String`-backed and stable: these raw values are written into `UserDefaults` keys and into
+/// `history.json`, so renaming one silently orphans a user's alert markers and forecast history.
+enum ProviderID: String, Codable, CaseIterable {
+    case claude
+    case codex
+
+    /// A window id made unique across providers, for storage keys only.
+    ///
+    /// Both providers call their short window something like "session", so an unqualified id would
+    /// make Claude's and Codex's short windows share a notification marker, a history series and a
+    /// title-selection entry.
+    ///
+    /// Never parsed back apart. A scoped id already contains a colon (`scoped:Opus`), so splitting
+    /// on the separator would be wrong the moment anyone tried it — the qualified form is an opaque
+    /// key, and the provider is always known from context where it matters.
+    func qualify(_ windowID: String) -> String { "\(rawValue):\(windowID)" }
+
+    /// The dropdown's section heading. Lives here rather than in `MenuController`, which is not
+    /// allowed to hold a vendor's copy — the same rule that keeps `optionLabel` on `LimitWindow`.
+    var sectionHeading: String {
+        switch self {
+        case .claude: return "CLAUDE"
+        case .codex: return "CODEX"
+        }
+    }
+}
+
 /// One rate-limit window, described in terms no single vendor owns.
 ///
 /// `label` is whatever the provider wants shown as that window's heading, so a future provider
@@ -13,13 +42,19 @@ import CashewShared
 struct LimitWindow: Equatable, Codable {
     /// Backed by `String` rather than the default integer ordinal, so reordering these cases can't
     /// silently reinterpret an already-written snapshot.
+    ///
+    /// These name a window's **rank within its provider**, not how long it lasts. That distinction is
+    /// load-bearing: Codex reports a 30-day primary window on a free plan and a short one on a paid
+    /// plan, in the same field, so a kind derived from duration would change when a user upgrades —
+    /// taking the window's id with it, resetting the title selection, orphaning its forecast history
+    /// and re-firing its threshold alerts for a limit that did not change.
     enum Kind: String, Equatable, Codable {
-        /// The short rolling window (Claude Code: 5 hours).
-        case session
+        /// The short rolling window (Claude Code: 5 hours; Codex: whatever `primary_window` reports).
+        case primary
         /// The long window, across everything.
-        case weekly
+        case secondary
         /// The long window, narrowed to one model. A provider may report several.
-        case weeklyScoped
+        case secondaryScoped
     }
 
     static let sessionID = "session"
@@ -54,9 +89,25 @@ struct LimitWindow: Equatable, Codable {
     let resetsAt: Date?
 }
 
-/// A source of usage windows. `ClaudeProvider` is the only implementation in v0.1; the protocol
-/// exists so Cursor/Codex/Copilot providers can be added without MenuController changing.
+/// A source of usage windows.
+///
+/// The protocol exists so a second provider is a new file rather than a change to `MenuController`,
+/// which renders `[LimitWindow]` and knows nothing about where they came from.
 protocol UsageProvider {
+    /// Identity, for storage keys and for which section this provider's windows render in.
+    var id: ProviderID { get }
+
+    /// The single host this provider may contact.
+    ///
+    /// Declared rather than merely used, so the promise in `CLAUDE.md` hard rule 5 — one usage
+    /// endpoint per detected provider, and nothing else — is legible from the type instead of
+    /// having to be rediscovered by reading every URL in the file.
+    static var host: String { get }
+
+    /// Whether this provider has credentials at all. Must be cheap, must not hit the network, and
+    /// must not be able to raise a Keychain prompt: it runs on every launch, for every provider.
+    func credentialsExist() -> Bool
+
     func fetch(completion: @escaping (Result<[LimitWindow], Error>) -> Void)
 }
 
@@ -84,6 +135,81 @@ enum Freshness {
         // next poll replaces it within minutes; it is only visible when polls are failing, which is
         // exactly when it is misleading.
         return windows.filter { $0.resetsAt.map { $0 > now } ?? true }
+    }
+}
+
+/// One provider's current state: its windows, when they were read, and how its last poll failed.
+///
+/// The unit of state is the provider rather than the window because providers fail independently.
+/// A flat `[LimitWindow]` carries one `updatedAt` and one error, so with two providers it must call
+/// both stale or neither, and one provider's 429 would stall the other — the exact failure
+/// `Backoff` and `reschedulePoll` exist to prevent.
+struct ProviderSnapshot {
+    let provider: ProviderID
+    let windows: [LimitWindow]
+    /// When `windows` were read. Nil before the first successful poll.
+    let updatedAt: Date?
+    /// This provider's own last failure, kept so its section can say what went wrong while another
+    /// provider's section goes on showing numbers.
+    let failure: Error?
+
+    /// True while `windows` are the last good reading read back off disk and no poll in *this*
+    /// process has confirmed them.
+    ///
+    /// The distinction has to be carried on the snapshot because the state it describes outlives the
+    /// call that created it: a restored reading sits in `AppDelegate.snapshots` being re-published
+    /// by the 60-second tick, which publishes on the default `recording: true`. Without this flag
+    /// that tick would re-record samples that are already in `history.json` — inventing a flat
+    /// stretch that never happened and dragging every burn rate towards idle — and would hand
+    /// `Notifier.evaluate` a reading no poll produced, which can fire a threshold alert off a file.
+    ///
+    /// Cleared by the first real success. Deliberately *not* cleared by `failed`: a failed poll
+    /// confirms nothing, and it is precisely the failing launch that keeps these numbers on screen.
+    let restored: Bool
+
+    /// Spelled out rather than synthesized so `restored` can default to false — a snapshot built
+    /// from a poll is the normal case and should not have to say so at every call site.
+    init(provider: ProviderID, windows: [LimitWindow], updatedAt: Date?, failure: Error?,
+         restored: Bool = false) {
+        self.provider = provider
+        self.windows = windows
+        self.updatedAt = updatedAt
+        self.failure = failure
+        self.restored = restored
+    }
+
+    /// What is worth putting on screen for this provider, by the one `Freshness` rule.
+    func displayable(now: Date = Date()) -> [LimitWindow] {
+        Freshness.displayable(windows, updatedAt: updatedAt, now: now)
+    }
+
+    /// Which of these windows this process actually observed, and may therefore record as samples,
+    /// evaluate for alerts, and write back as the last good reading.
+    ///
+    /// For a polled snapshot that is all of them. For a restored one it is none of its own — those
+    /// rows were recorded when they were polled, by whichever run polled them — and only whatever
+    /// the live overlay just contributed. That split is what keeps the restore honest without
+    /// silencing the live feed: `StatuslineFeed` is rewritten every time Claude Code renders, so
+    /// during an outage it is the one genuinely new reading there is, and suppressing it too would
+    /// stop the forecast and the threshold alerts for as long as the failure lasts.
+    ///
+    /// - Parameter live: the overlay that was merged into `windows`, or empty if none was.
+    func observed(live: [LimitWindow] = []) -> [LimitWindow] {
+        restored ? live : windows
+    }
+
+    /// The same snapshot with a fresh reading. Failure is cleared — a success supersedes it — and so
+    /// is `restored`: a poll has now confirmed these numbers.
+    func succeeded(windows: [LimitWindow], at now: Date) -> ProviderSnapshot {
+        ProviderSnapshot(provider: provider, windows: windows, updatedAt: now, failure: nil)
+    }
+
+    /// The same snapshot with a failure recorded. Windows and `updatedAt` are deliberately kept:
+    /// a dead network should not blank numbers that were true a few minutes ago, and `Freshness`
+    /// is what eventually removes them.
+    func failed(_ error: Error) -> ProviderSnapshot {
+        ProviderSnapshot(provider: provider, windows: windows, updatedAt: updatedAt, failure: error,
+                         restored: restored)
     }
 }
 
@@ -145,9 +271,38 @@ enum Backoff {
     }
 }
 
+/// Which providers to poll. Pure, because this rule silently went wrong once already: it lived only
+/// in AppDelegate, which no test can build.
+enum PollPlan {
+    /// The providers worth polling. When none has credentials, Claude is polled anyway so its
+    /// own sign-in copy has somewhere to render — an empty menu explains nothing.
+    static func providersToPoll(active: [ProviderID], all: [ProviderID]) -> [ProviderID] {
+        active.isEmpty ? all.filter { $0 == .claude } : active
+    }
+}
+
 // MARK: - Claude
 
 struct ClaudeProvider: UsageProvider {
+    let id: ProviderID = .claude
+
+    static let host = "api.anthropic.com"
+
+    /// The endpoint's own host, so a test can hold it against `host` and catch a URL edited in
+    /// isolation. Internal rather than private purely for that check.
+    static var endpointHost: String { endpoint.host ?? "" }
+
+    /// Injected so the discovery *logic* is testable while the real probe stays out of tests — the
+    /// same seam, and the same reason, as `Credentials.token(in:)`. The default reads the real
+    /// login; a test passes its own answer.
+    private let presence: () -> Bool
+
+    init(presence: @escaping () -> Bool = Credentials.loginExists) {
+        self.presence = presence
+    }
+
+    func credentialsExist() -> Bool { presence() }
+
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     private static let redirectPolicy = RefuseRedirects()
@@ -334,13 +489,13 @@ struct ClaudeProvider: UsageProvider {
     // how they label the same window.
 
     static func sessionWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
-        LimitWindow(kind: .session, id: LimitWindow.sessionID,
+        LimitWindow(kind: .primary, id: LimitWindow.sessionID,
                     label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "Session (5h)",
                     utilization: utilization, resetsAt: resetsAt)
     }
 
     static func weeklyWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
-        LimitWindow(kind: .weekly, id: LimitWindow.weeklyID,
+        LimitWindow(kind: .secondary, id: LimitWindow.weeklyID,
                     label: "WEEKLY · ALL MODELS", shortLabel: "Weekly",
                     optionLabel: "Weekly (all models)",
                     utilization: utilization, resetsAt: resetsAt)
@@ -348,7 +503,7 @@ struct ClaudeProvider: UsageProvider {
 
     private static func scopedWindow(model: String, utilization: Double,
                                      resetsAt: Date?) -> LimitWindow {
-        LimitWindow(kind: .weeklyScoped, id: LimitWindow.scopedID(model: model),
+        LimitWindow(kind: .secondaryScoped, id: LimitWindow.scopedID(model: model),
                     label: "WEEKLY · \(model.uppercased())",
                     shortLabel: "Weekly (\(model))",
                     optionLabel: model,

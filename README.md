@@ -120,9 +120,11 @@ backup of your Claude Code settings. No caches, no logs, no other files.
 
 ## Security
 
-Cashew reads your OAuth token, holds it in memory for one request, and sends it to exactly one
-place: `api.anthropic.com`. It also asks GitHub once a day whether a newer Cashew exists (turn it
-off under Settings). Neither request follows a redirect. No telemetry, no analytics, no identifiers.
+Cashew contacts one usage endpoint per provider it detects credentials for, holding each token in
+memory for one request. Claude Code is the only provider it knows how to read today, so if that's
+the only one you have installed, it sends to exactly one place — `api.anthropic.com` — same as
+always. It also asks GitHub once a day whether a newer Cashew exists (turn it off under Settings).
+Neither request follows a redirect. No telemetry, no analytics, no identifiers.
 
 With session tracking on it also reads the tail of your Claude Code transcripts — to tell an
 interrupted turn from a finished one — and keeps nothing from them but a yes-or-no.

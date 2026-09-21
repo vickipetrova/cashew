@@ -149,8 +149,9 @@ jobs:
           # rather than a constant precisely so that stays enforceable from here.
           # HookInstaller.default edits the real ~/.claude/settings.json; SessionActivity.default and
           # SessionFiles.defaultDirectory are the running app's sessions; UpdateCheck.fetch is the
-          # network.
-          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|UsageHistory\.default|StatuslineFeed\.default|HookInstaller\.default|SessionActivity\.default|SessionFiles\.defaultDirectory|UpdateCheck\.fetch' Tests/ \
+          # network. Credentials.keychainItemExists/fileExists read the real login; loginExists
+          # calls both, so it joins them here too rather than only its two halves.
+          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|UsageHistory\.default|StatuslineFeed\.default|HookInstaller\.default|SessionActivity\.default|SessionFiles\.defaultDirectory|UpdateCheck\.fetch|Credentials\.(keychainItemExists|fileExists|loginExists)' Tests/ \
                   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|///)' || true)"
           if [ -n "$hits" ]; then
             echo "$hits"

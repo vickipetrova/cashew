@@ -19,7 +19,7 @@ import Testing
                utilization: utilization)
     }
 
-    private func project(_ samples: [Sample], kind: LimitWindow.Kind = .session,
+    private func project(_ samples: [Sample], kind: LimitWindow.Kind = .primary,
                          resetsIn: TimeInterval? = 3 * 60 * 60) -> Forecast {
         Forecast.project(samples: samples, kind: kind,
                          resetsAt: resetsIn.map { now.addingTimeInterval($0) }, now: now)
@@ -94,8 +94,8 @@ import Testing
     /// while a session limit has long since discarded them.
     @Test func aWeeklyLimitLooksBackFurtherThanASession() {
         let samples = [sample(20 * 60, 10), sample(10 * 60, 20), sample(0, 30)]
-        #expect(project(samples, kind: .session, resetsIn: 100 * 60 * 60) == .unknown)
-        #expect(project(samples, kind: .weekly, resetsIn: 100 * 60 * 60) != .unknown)
+        #expect(project(samples, kind: .primary, resetsIn: 100 * 60 * 60) == .unknown)
+        #expect(project(samples, kind: .secondary, resetsIn: 100 * 60 * 60) != .unknown)
     }
 
     // MARK: - Not extrapolating from noise
@@ -108,15 +108,15 @@ import Testing
     /// Twenty-two minutes says nothing about a 168-hour window, however many times you poll in it.
     @Test func aShortBurstDoesNotForecastAWeeklyLimit() {
         let samples = [sample(22, 1), sample(15, 1), sample(7, 2), sample(0, 2)]
-        #expect(project(samples, kind: .weekly, resetsIn: 123 * 60 * 60) == .unknown)
+        #expect(project(samples, kind: .secondary, resetsIn: 123 * 60 * 60) == .unknown)
     }
 
     /// The same span *is* enough for a session window, which is where the proportion earns its keep —
     /// this is not a flat "wait six hours before saying anything".
     @Test func theSpanRequirementScalesWithTheWindow() {
         let samples = [sample(40, 10), sample(20, 20), sample(0, 30)]
-        #expect(project(samples, kind: .session, resetsIn: 3 * 60 * 60) != .unknown)
-        #expect(project(samples, kind: .weekly, resetsIn: 3 * 60 * 60) == .unknown)
+        #expect(project(samples, kind: .primary, resetsIn: 3 * 60 * 60) != .unknown)
+        #expect(project(samples, kind: .secondary, resetsIn: 3 * 60 * 60) == .unknown)
     }
 
     /// `percent` is an integer, so a one-point delta is at the endpoint's own resolution and carries
@@ -129,14 +129,14 @@ import Testing
     /// first two fixtures written for this guard were actually being caught by the idle threshold.
     @Test func aSinglePointOfMovementIsNotARate() {
         let nearlyFull = [sample(30, 95), sample(15, 95), sample(0, 96)]
-        #expect(project(nearlyFull, kind: .session, resetsIn: 3 * 60 * 60) == .unknown)
+        #expect(project(nearlyFull, kind: .primary, resetsIn: 3 * 60 * 60) == .unknown)
     }
 
     /// Real movement at the same utilization still forecasts, so this suppresses rounding rather
     /// than suppressing bad news.
     @Test func realMovementNearTheCapStillForecasts() {
         let climbing = [sample(30, 90), sample(15, 93), sample(0, 96)]
-        #expect(project(climbing, kind: .session, resetsIn: 3 * 60 * 60) != .unknown)
+        #expect(project(climbing, kind: .primary, resetsIn: 3 * 60 * 60) != .unknown)
     }
 
     /// Movement clear of both the rounding floor and the idle threshold still forecasts — the guards
@@ -146,7 +146,7 @@ import Testing
     /// this one: 0.1 points/hour is 40 days from the cap.
     @Test func movementAboveTheRoundingFloorStillForecasts() {
         let samples = [sample(20 * 60, 1), sample(10 * 60, 5), sample(0, 9)]
-        #expect(project(samples, kind: .weekly, resetsIn: 500 * 60 * 60) != .unknown)
+        #expect(project(samples, kind: .secondary, resetsIn: 500 * 60 * 60) != .unknown)
     }
 
     /// Already there. Reporting a hit date in the future for a limit that is at 100% would be
@@ -159,15 +159,31 @@ import Testing
 
     @Test func onlyWeeklyLimitsOnPaceTintTheTitle() {
         let hit = Forecast.onPace(now)
-        #expect(Forecast.tintsTitle(kind: .weekly, forecast: hit))
-        #expect(Forecast.tintsTitle(kind: .weeklyScoped, forecast: hit))
+        #expect(Forecast.tintsTitle(kind: .secondary, forecast: hit))
+        #expect(Forecast.tintsTitle(kind: .secondaryScoped, forecast: hit))
         // A session window refills every five hours, so being on pace for one is an ordinary
         // afternoon — colouring it would make the title shout during normal work.
-        #expect(!Forecast.tintsTitle(kind: .session, forecast: hit))
+        #expect(!Forecast.tintsTitle(kind: .primary, forecast: hit))
     }
 
     @Test func nothingElseTintsTheTitle() {
-        #expect(!Forecast.tintsTitle(kind: .weekly, forecast: .underPace))
-        #expect(!Forecast.tintsTitle(kind: .weekly, forecast: .unknown))
+        #expect(!Forecast.tintsTitle(kind: .secondary, forecast: .underPace))
+        #expect(!Forecast.tintsTitle(kind: .secondary, forecast: .unknown))
+    }
+
+    @Test func kindIsRankNotDuration() {
+        // The rename's whole purpose. A provider may report a window of any length in its primary
+        // slot — Codex's free plan reports 30 days where a paid plan reports hours — and the window
+        // must keep the same kind, and therefore the same id, history and alert markers, across that
+        // change. Nothing here may infer a kind from a duration.
+        let short = LimitWindow(kind: .primary, id: "p", label: "l", shortLabel: "s",
+                                optionLabel: "o", utilization: 10,
+                                resetsAt: Date(timeIntervalSince1970: 5 * 60 * 60))
+        let long = LimitWindow(kind: .primary, id: "p", label: "l", shortLabel: "s",
+                               optionLabel: "o", utilization: 10,
+                               resetsAt: Date(timeIntervalSince1970: 30 * 24 * 60 * 60))
+        #expect(short.kind == long.kind)
+        #expect(Forecast.trailingWindow(for: short.kind)
+                == Forecast.trailingWindow(for: long.kind))
     }
 }

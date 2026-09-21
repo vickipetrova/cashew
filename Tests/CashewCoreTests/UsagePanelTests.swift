@@ -11,7 +11,7 @@ import Testing
     private let now = Date(timeIntervalSince1970: 1_785_600_000)
 
     private func window(_ utilization: Double, resetsIn seconds: TimeInterval?) -> LimitWindow {
-        LimitWindow(kind: .session, id: "session", label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "opt",
+        LimitWindow(kind: .primary, id: "session", label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "opt",
                     utilization: utilization,
                     resetsAt: seconds.map { now.addingTimeInterval($0) })
     }
@@ -65,7 +65,7 @@ import Testing
     }
 
     @Test func headingComesStraightFromTheWindowLabel() {
-        let scoped = LimitWindow(kind: .weeklyScoped, id: "scoped:Fable",
+        let scoped = LimitWindow(kind: .secondaryScoped, id: "scoped:Fable",
                                  label: "WEEKLY · FABLE", shortLabel: "Weekly (Fable)", optionLabel: "opt",
                                  utilization: 16, resetsAt: now.addingTimeInterval(3_600))
         #expect(UsageRow(scoped, now: now, mode: .alertsOnly).header == "WEEKLY · FABLE")
@@ -207,7 +207,7 @@ import Testing
     /// The usage rows go through the same path. Their height is constant today, so this asserts the
     /// path is wired rather than that anything grows — the point is that it can't silently stop being.
     @Test func usageRowsAreMeasuredToo() {
-        let window = LimitWindow(kind: .session, id: "session", label: "SESSION · 5-HOUR",
+        let window = LimitWindow(kind: .primary, id: "session", label: "SESSION · 5-HOUR",
                                  shortLabel: "Session", optionLabel: "opt", utilization: 42,
                                  resetsAt: Date(timeIntervalSince1970: 1_785_600_000))
         let view = UsageRowView(row: UsageRow(window, now: Date(timeIntervalSince1970: 1_785_500_000),
@@ -226,20 +226,27 @@ import Testing
     }
 
     private var all: [LimitWindow] {
-        [window(.session, LimitWindow.sessionID),
-         window(.weekly, LimitWindow.weeklyID),
-         window(.weeklyScoped, "scoped:Fable")]
+        [window(.primary, LimitWindow.sessionID),
+         window(.secondary, LimitWindow.weeklyID),
+         window(.secondaryScoped, "scoped:Fable")]
+    }
+
+    private func sections(_ windows: [LimitWindow]) -> [(provider: ProviderID, windows: [LimitWindow])] {
+        [(provider: .claude, windows: windows)]
     }
 
     @Test func rendersOnlyTheSelectedLimits() {
-        let shown = TitleSelection.windows(from: all, selection: [LimitWindow.sessionID])
+        let shown = TitleSelection.windows(
+            from: sections(all), selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
     /// Order comes from the response, not from the order the user ticked boxes in.
     @Test func keepsResponseOrderRegardlessOfSelection() {
         let shown = TitleSelection.windows(
-            from: all, selection: ["scoped:Fable", LimitWindow.sessionID, LimitWindow.weeklyID])
+            from: sections(all), selection: [ProviderID.claude.qualify("scoped:Fable"),
+                                             ProviderID.claude.qualify(LimitWindow.sessionID),
+                                             ProviderID.claude.qualify(LimitWindow.weeklyID)])
         #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
     }
 
@@ -247,7 +254,8 @@ import Testing
     /// no placeholder, and the stored preference is left alone elsewhere so it returns if it does.
     @Test func aVanishedScopeIsDroppedFromTheTitle() {
         let shown = TitleSelection.windows(
-            from: all, selection: [LimitWindow.sessionID, "scoped:GoneAway"])
+            from: sections(all), selection: [ProviderID.claude.qualify(LimitWindow.sessionID),
+                                             ProviderID.claude.qualify("scoped:GoneAway")])
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
@@ -256,24 +264,161 @@ import Testing
     /// is rendered literally; the fallback below exists for a selection that *was* made and can no
     /// longer be honoured. Collapsing them would make unchecking the last limit silently re-tick it.
     @Test func selectingNothingRendersNothing() {
-        #expect(TitleSelection.windows(from: all, selection: []).isEmpty)
+        #expect(TitleSelection.windows(from: sections(all), selection: []).isEmpty)
     }
 
     /// Every selection missing must not render an empty title — the user asked for numbers and a
     /// stale scope list is no reason to show none of them.
     @Test func everySelectionMissingFallsBackToSession() {
-        let shown = TitleSelection.windows(from: all, selection: ["scoped:GoneAway", "alsoGone"])
+        let shown = TitleSelection.windows(
+            from: sections(all), selection: [ProviderID.claude.qualify("scoped:GoneAway"),
+                                             ProviderID.claude.qualify("alsoGone")])
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
     /// …and if even the session window is absent, show whatever came first rather than nothing.
     @Test func withoutASessionWindowItFallsBackToTheFirstReported() {
-        let weeklyOnly = [window(.weekly, LimitWindow.weeklyID)]
-        #expect(TitleSelection.windows(from: weeklyOnly, selection: ["nothing"]).map(\.id)
+        let weeklyOnly = [window(.secondary, LimitWindow.weeklyID)]
+        #expect(TitleSelection.windows(from: sections(weeklyOnly),
+                                       selection: [ProviderID.claude.qualify("nothing")]).map(\.id)
             == [LimitWindow.weeklyID])
     }
 
     @Test func nothingReportedRendersNothing() {
-        #expect(TitleSelection.windows(from: [], selection: [LimitWindow.sessionID]).isEmpty)
+        #expect(TitleSelection.windows(
+            from: sections([]), selection: [ProviderID.claude.qualify(LimitWindow.sessionID)]).isEmpty)
+    }
+
+    @Test func theDefaultSelectionSelectsBothHeadlineWindows() {
+        // The integration nothing covered: Settings stores qualified ids, TitleSelection
+        // receives unqualified windows. When these disagree the default silently collapses to
+        // one window through the "everything chosen has gone missing" fallback, which looks
+        // like a rendering choice rather than a bug.
+        let all = [window(.primary, LimitWindow.sessionID),
+                   window(.secondary, LimitWindow.weeklyID),
+                   window(.secondaryScoped, "scoped:Fable")]
+        let shown = TitleSelection.windows(from: sections(all),
+                                           selection: Settings.defaultTitleLimitIDs)
+        #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID])
+    }
+
+    /// The per-section-fallback trap. Claude's window is selected and present, so nothing is
+    /// "missing" — Codex must contribute nothing, not its primary window. The two windows carry
+    /// distinguishable labels rather than sharing every field, so the assertion can tell *whose*
+    /// window came back rather than merely counting how many did — a count alone can't catch a
+    /// per-section fallback that swaps Claude's window for Codex's same-shaped one.
+    @Test func aSelectionFromOneProviderDoesNotPullInAnothersFallback() {
+        let claudeWindow = LimitWindow(kind: .primary, id: LimitWindow.sessionID, label: "claude",
+                                       shortLabel: "claude", optionLabel: "claude", utilization: 11,
+                                       resetsAt: nil)
+        let codexWindow = LimitWindow(kind: .primary, id: "session", label: "codex",
+                                      shortLabel: "codex", optionLabel: "codex", utilization: 22,
+                                      resetsAt: nil)
+        let sections = [(provider: ProviderID.claude, windows: [claudeWindow]),
+                        (provider: ProviderID.codex, windows: [codexWindow])]
+        let shown = TitleSelection.windows(
+            from: sections, selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
+        #expect(shown.map(\.label) == ["claude"])
+    }
+}
+
+/// Which provider sections the dropdown draws, and whether they need naming. Separate suite because
+/// `MenuController` can't be constructed in a test, so this rule — free-standing on purpose — is the
+/// only place these cases are reachable.
+@Suite struct ProviderSectionTests {
+    // Fixed, and matched to `snapshot`'s `updatedAt` below: `PanelSections.rows` defaults `now` to
+    // the real `Date()`, and `Freshness.maxAge` is 24 hours, so calling it with the real clock
+    // against a fixture stamped at a fixed instant would filter every snapshot as stale no matter
+    // which real day the suite runs on — making these pass (or fail) for the wrong reason.
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    private func snapshot(_ provider: ProviderID, _ ids: [String]) -> ProviderSnapshot {
+        ProviderSnapshot(
+            provider: provider,
+            windows: ids.map {
+                LimitWindow(kind: .primary, id: $0, label: $0.uppercased(), shortLabel: $0,
+                            optionLabel: $0, utilization: 10, resetsAt: nil)
+            },
+            updatedAt: now, failure: nil)
+    }
+
+    // These three ask `rows(...)` whether a heading was planned rather than asking a predicate
+    // whether one was needed. The predicate existed, agreed with them, and was called by nothing:
+    // `rows` had come to compute the same `count > 1` inline, so all three passed no matter what
+    // the dropdown actually drew.
+
+    @Test func oneProviderGetsNoHeading() {
+        // Today's menu, unchanged. A "CLAUDE" heading above the only section would be a visible
+        // change in a refactor that is supposed to have none.
+        let rows = PanelSections.rows(for: [snapshot(.claude, ["session"])], now: now)
+        #expect(!rows.contains { if case .heading = $0 { return true } else { return false } })
+    }
+
+    @Test func twoProvidersGetHeadings() {
+        let rows = PanelSections.rows(for: [snapshot(.claude, ["session"]),
+                                            snapshot(.codex, ["session"])], now: now)
+        #expect(rows.contains(.heading(.claude)))
+        #expect(rows.contains(.heading(.codex)))
+    }
+
+    @Test func aProviderWithNothingToShowIsNotASection() {
+        // An empty snapshot must not count towards "more than one", or a Codex provider that is
+        // present but reporting nothing would put a heading above Claude for no reason.
+        let empty = ProviderSnapshot(provider: .codex, windows: [], updatedAt: nil, failure: nil)
+        let rows = PanelSections.rows(for: [snapshot(.claude, ["session"]), empty], now: now)
+        #expect(!rows.contains { if case .heading = $0 { return true } else { return false } })
+        #expect(!rows.contains(.separator))
+    }
+
+    @Test func headingsNameTheProvider() {
+        #expect(ProviderID.claude.sectionHeading == "CLAUDE")
+        #expect(ProviderID.codex.sectionHeading == "CODEX")
+    }
+
+    // MARK: - Row plan
+
+    /// The baseline: one provider, no failure, today's menu exactly — and all three of its rows.
+    ///
+    /// Three windows and not one, because one window cannot tell a missing separator from a
+    /// spurious one. `SESSION`, `WEEKLY · ALL MODELS` and `WEEKLY · FABLE` run together with
+    /// nothing between them, which is the shape this whole refactor exists to leave alone; a
+    /// separator inserted between a section's own usage rows would pass every single-window
+    /// fixture here and make three windows look like three unrelated panels stacked up.
+    @Test func oneProviderWithWindowsProducesNoHeadingAndNoSeparator() {
+        let single = snapshot(.claude, ["session", "weekly", "scoped:Fable"])
+        let rows = PanelSections.rows(for: [single], now: now)
+        #expect(rows == [.usage(.claude, single.windows[0]),
+                         .usage(.claude, single.windows[1]),
+                         .usage(.claude, single.windows[2])])
+        #expect(rows.count == 3)
+    }
+
+    /// Pins the regression: a provider whose numbers are still on screen but whose last poll
+    /// failed gets a separator before its error row, not the error text butted straight against
+    /// the usage rows. Lost once already when the ordering rule lived inline in `rebuild()`.
+    @Test func aFailureAfterWindowsGetsASeparatorBeforeTheErrorRow() {
+        let failed = ProviderSnapshot(provider: .claude, windows: snapshot(.claude, ["session"]).windows,
+                                      updatedAt: now, failure: UsageError.badResponse)
+        let rows = PanelSections.rows(for: [failed], now: now)
+        #expect(rows == [.usage(.claude, failed.windows[0]), .separator, .error(.claude)])
+    }
+
+    @Test func twoProvidersProduceHeadingRowsSeparatorHeadingRows() {
+        let claude = snapshot(.claude, ["session"])
+        let codex = snapshot(.codex, ["session"])
+        let rows = PanelSections.rows(for: [claude, codex], now: now)
+        #expect(rows == [.heading(.claude), .usage(.claude, claude.windows[0]),
+                         .separator,
+                         .heading(.codex), .usage(.codex, codex.windows[0])])
+    }
+
+    /// A provider that has nothing but a failure — no windows ever came back, or none survived
+    /// `Freshness` — still gets its error row. There is no data above it to separate from, so no
+    /// separator precedes it.
+    @Test func aFailureWithNoDisplayableWindowsStillProducesItsErrorRow() {
+        let failedEmpty = ProviderSnapshot(provider: .codex, windows: [], updatedAt: nil,
+                                           failure: UsageError.badResponse)
+        let rows = PanelSections.rows(for: [failedEmpty], now: now)
+        #expect(rows == [.error(.codex)])
     }
 }

@@ -50,14 +50,16 @@ off, neither happens.
 
 ## Where it goes
 
-Two destinations:
+One usage endpoint per provider it detects credentials for, plus one more:
 
 ```
 GET https://api.anthropic.com/api/oauth/usage                          (with your token)
 GET https://api.github.com/repos/vickipetrova/cashew/releases/latest   (no token, at most once a day)
 ```
 
-The second is the update check. It carries no token, cookie or identifier beyond a
+Each provider declares its single host, and Cashew only contacts a provider whose credentials it
+found — so if Claude Code is the only one you have installed, this is exactly the traffic it has
+always sent, unchanged. The second line above is the update check. It carries no token, cookie or identifier beyond a
 `User-Agent: Cashew/<version>` header, never downloads anything, and can be turned off under
 Settings. No telemetry, no analytics, no crash reporting, no third-party services.
 

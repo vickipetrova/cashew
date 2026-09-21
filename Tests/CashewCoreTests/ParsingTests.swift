@@ -41,7 +41,7 @@ import Testing
     @Test func currentShapeYieldsThreeWindows() throws {
         let result = try windows(Self.current)
         #expect(result.count == 3)
-        #expect(result.map(\.kind) == [.session, .weekly, .weeklyScoped])
+        #expect(result.map(\.kind) == [.primary, .secondary, .secondaryScoped])
         #expect(result.map(\.utilization) == [42, 57.3, 61])
     }
 
@@ -147,14 +147,14 @@ import Testing
           {"kind": "session", "percent": 10}
         ]}
         """#)
-        #expect(result.map(\.kind) == [.session, .weekly, .weeklyScoped])
+        #expect(result.map(\.kind) == [.primary, .secondary, .secondaryScoped])
     }
 
     @Test func weeklyLeadsWhenSessionIsAbsent() throws {
         let result = try windows(#"""
         {"limits": [{"kind": "weekly_all", "percent": 20}]}
         """#)
-        #expect(result.map(\.kind) == [.weekly])
+        #expect(result.map(\.kind) == [.secondary])
     }
 
     // MARK: - The legacy shape
@@ -170,7 +170,7 @@ import Testing
     @Test func legacyOnlyResponseStillWorks() throws {
         let result = try windows(Self.legacy)
         #expect(result.count == 3)
-        #expect(result.map(\.kind) == [.session, .weekly, .weeklyScoped])
+        #expect(result.map(\.kind) == [.primary, .secondary, .secondaryScoped])
         #expect(result.map(\.utilization) == [42, 67.5, 91])
         #expect(result[2].id == "scoped:Opus")
     }
@@ -271,7 +271,7 @@ import Testing
           {"kind": "session", "percent": 42}
         ]}
         """#)
-        #expect(result.map(\.kind) == [.session])
+        #expect(result.map(\.kind) == [.primary])
     }
 
     /// Kinds are matched case-sensitively. Documented so the choice is deliberate.

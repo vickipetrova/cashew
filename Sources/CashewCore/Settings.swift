@@ -74,7 +74,14 @@ enum Settings {
     }
 
     /// The two headline windows — what the title showed before this was configurable.
-    static let defaultTitleLimitIDs: Set<String> = [LimitWindow.sessionID, LimitWindow.weeklyID]
+    ///
+    /// Qualified, because the stored set is shared across providers: an unqualified `"session"`
+    /// would select both Claude's and Codex's short window with one entry and give no way to
+    /// choose between them.
+    static let defaultTitleLimitIDs: Set<String> = [
+        ProviderID.claude.qualify(LimitWindow.sessionID),
+        ProviderID.claude.qualify(LimitWindow.weeklyID),
+    ]
 
     /// Pure, so the rule is testable without a menu.
     ///

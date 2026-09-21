@@ -37,4 +37,11 @@ import Testing
         #expect(ClaudeProvider.session.delegate is RefuseRedirects)
         #expect(UpdateCheck.session.delegate is RefuseRedirects)
     }
+
+    @Test func theClaudeEndpointOnlyTalksToItsDeclaredHost() {
+        // Hard rule 5 is per-provider now: each provider names the one host it may contact, and
+        // this is what keeps the declaration honest rather than decorative.
+        #expect(ClaudeProvider.host == "api.anthropic.com")
+        #expect(ClaudeProvider.endpointHost == ClaudeProvider.host)
+    }
 }
