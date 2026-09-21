@@ -348,6 +348,48 @@ import Testing
     }
 }
 
+/// What the menu bar shows in place of numbers. Separate suite for the same reason `TitleGlyphs` and
+/// `TitleSelection` get their own: `MenuController` can't be constructed in a test, so a rule left
+/// inside it is a rule with no coverage — which is exactly how this one went unfiltered by hiding
+/// for as long as it did.
+@Suite struct TitleFallbackTests {
+    private func snapshot(_ provider: ProviderID, updatedAt: Date?, failure: Error?) -> ProviderSnapshot {
+        ProviderSnapshot(provider: provider, windows: [], updatedAt: updatedAt, failure: failure)
+    }
+
+    @Test func aFailureShowsAsAnError() {
+        let failed = snapshot(.claude, updatedAt: nil, failure: UsageError.badResponse)
+        #expect(TitleFallback.chip(for: [failed]) == "!")
+    }
+
+    @Test func aCleanReadWithNothingToReportShowsAsADash() {
+        let clean = snapshot(.claude, updatedAt: Date(), failure: nil)
+        #expect(TitleFallback.chip(for: [clean]) == "–")
+    }
+
+    @Test func nothingYetShowsAsLoading() {
+        #expect(TitleFallback.chip(for: []) == "…")
+    }
+
+    /// The rule this suite exists for: a hidden provider's own failure must not make the menu bar
+    /// claim an error for a product the user switched off. Same shape as
+    /// `aHiddenProviderContributesNothingToTheTitlePathEither` in `ProviderSectionTests` — that one
+    /// pins the windows the title path receives, this one pins the fallback shown when there are
+    /// none.
+    @Test func aHiddenProvidersFailureDoesNotClaimAnErrorForEveryoneElse() {
+        let hiddenFailure = snapshot(.codex, updatedAt: nil, failure: UsageError.badResponse)
+        let cleanClaude = snapshot(.claude, updatedAt: Date(), failure: nil)
+        #expect(TitleFallback.chip(for: [hiddenFailure, cleanClaude], hidden: [.codex]) == "–")
+    }
+
+    /// And the mirror case: nothing visible should not read as "loading" just because a hidden
+    /// provider happens to have a stale successful read sitting around.
+    @Test func aHiddenProvidersOldReadingDoesNotStopAGenuinelyLoadingAccountFromSayingSo() {
+        let hiddenReading = snapshot(.codex, updatedAt: Date(), failure: nil)
+        #expect(TitleFallback.chip(for: [hiddenReading], hidden: [.codex]) == "…")
+    }
+}
+
 /// Which provider sections the dropdown draws, and whether they need naming. Separate suite because
 /// `MenuController` can't be constructed in a test, so this rule — free-standing on purpose — is the
 /// only place these cases are reachable.
