@@ -7,7 +7,8 @@ import CashewShared
 /// constructed in a test, and these are exactly the cases that are awkward to reach by hand: a
 /// scope that disappears from the response, or every chosen scope disappearing at once.
 enum TitleSelection {
-    static func windows(from windows: [LimitWindow], selection: Set<String>) -> [LimitWindow] {
+    static func windows(from windows: [LimitWindow], selection: Set<String>,
+                        provider: ProviderID) -> [LimitWindow] {
         // Filtering rather than looking each selected id up: order comes from the response, which
         // `ClaudeProvider.windows(in:)` already fixes as session, then weekly, then scoped. A
         // selection whose scope has vanished simply doesn't match, and the stored preference is
@@ -16,7 +17,9 @@ enum TitleSelection {
         // that has since gone missing — the fallback below must not fire for it, or unchecking the
         // last limit would silently put a number back.
         guard !selection.isEmpty else { return [] }
-        let shown = windows.filter { selection.contains($0.id) }
+        // The stored selection is provider-qualified (Settings.defaultTitleLimitIDs and friends),
+        // while a window's own id is not, so the two have to be reconciled here before comparing.
+        let shown = windows.filter { selection.contains(provider.qualify($0.id)) }
         guard shown.isEmpty else { return shown }
         // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list is
         // no reason to show none of them.
@@ -272,7 +275,10 @@ final class MenuController: NSObject, NSMenuDelegate {
     }
 
     private func titleWindows() -> [LimitWindow] {
-        TitleSelection.windows(from: displayWindows(), selection: Settings.titleLimitIDs)
+        // Hardcoded until Task 4/5 thread the real provider through a snapshot; every window here
+        // is Claude's today.
+        TitleSelection.windows(from: displayWindows(), selection: Settings.titleLimitIDs,
+                               provider: .claude)
     }
 
     /// Where this window is heading, from the samples recorded so far.
@@ -476,14 +482,20 @@ final class MenuController: NSObject, NSMenuDelegate {
             // than `.off` stops the submenu claiming a limit is hidden while its number is sitting
             // in the menu bar. Unticking everything is not that case: it renders nothing, so every
             // row is plainly `.off`.
-            let rendered = Set(TitleSelection.windows(from: windows, selection: selected).map(\.id))
+            //
+            // Hardcoded `.claude` until Task 4/5 thread the real provider through — every window
+            // here is Claude's today.
+            let rendered = Set(TitleSelection.windows(from: windows, selection: selected,
+                                                       provider: .claude).map(\.id))
             for window in windows {
                 let item = action(window.optionLabel,
                                   key: "", selector: #selector(toggleTitleLimit(_:)))
                 // The id goes in `representedObject`, not `tag`: tags are Int and these are strings,
-                // and a positional tag would break the moment the response reorders.
-                item.representedObject = window.id
-                if selected.contains(window.id) { item.state = .on }
+                // and a positional tag would break the moment the response reorders. Qualified, to
+                // match what `Settings.titleLimitIDs` actually stores.
+                let qualifiedID = ProviderID.claude.qualify(window.id)
+                item.representedObject = qualifiedID
+                if selected.contains(qualifiedID) { item.state = .on }
                 else if rendered.contains(window.id) { item.state = .mixed }
                 else { item.state = .off }
                 menu.addItem(item)

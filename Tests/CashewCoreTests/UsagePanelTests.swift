@@ -232,14 +232,19 @@ import Testing
     }
 
     @Test func rendersOnlyTheSelectedLimits() {
-        let shown = TitleSelection.windows(from: all, selection: [LimitWindow.sessionID])
+        let shown = TitleSelection.windows(from: all,
+                                           selection: [ProviderID.claude.qualify(LimitWindow.sessionID)],
+                                           provider: .claude)
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
     /// Order comes from the response, not from the order the user ticked boxes in.
     @Test func keepsResponseOrderRegardlessOfSelection() {
         let shown = TitleSelection.windows(
-            from: all, selection: ["scoped:Fable", LimitWindow.sessionID, LimitWindow.weeklyID])
+            from: all, selection: [ProviderID.claude.qualify("scoped:Fable"),
+                                   ProviderID.claude.qualify(LimitWindow.sessionID),
+                                   ProviderID.claude.qualify(LimitWindow.weeklyID)],
+            provider: .claude)
         #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
     }
 
@@ -247,7 +252,9 @@ import Testing
     /// no placeholder, and the stored preference is left alone elsewhere so it returns if it does.
     @Test func aVanishedScopeIsDroppedFromTheTitle() {
         let shown = TitleSelection.windows(
-            from: all, selection: [LimitWindow.sessionID, "scoped:GoneAway"])
+            from: all, selection: [ProviderID.claude.qualify(LimitWindow.sessionID),
+                                   ProviderID.claude.qualify("scoped:GoneAway")],
+            provider: .claude)
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
@@ -256,24 +263,45 @@ import Testing
     /// is rendered literally; the fallback below exists for a selection that *was* made and can no
     /// longer be honoured. Collapsing them would make unchecking the last limit silently re-tick it.
     @Test func selectingNothingRendersNothing() {
-        #expect(TitleSelection.windows(from: all, selection: []).isEmpty)
+        #expect(TitleSelection.windows(from: all, selection: [], provider: .claude).isEmpty)
     }
 
     /// Every selection missing must not render an empty title — the user asked for numbers and a
     /// stale scope list is no reason to show none of them.
     @Test func everySelectionMissingFallsBackToSession() {
-        let shown = TitleSelection.windows(from: all, selection: ["scoped:GoneAway", "alsoGone"])
+        let shown = TitleSelection.windows(
+            from: all, selection: [ProviderID.claude.qualify("scoped:GoneAway"),
+                                   ProviderID.claude.qualify("alsoGone")],
+            provider: .claude)
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
     /// …and if even the session window is absent, show whatever came first rather than nothing.
     @Test func withoutASessionWindowItFallsBackToTheFirstReported() {
         let weeklyOnly = [window(.secondary, LimitWindow.weeklyID)]
-        #expect(TitleSelection.windows(from: weeklyOnly, selection: ["nothing"]).map(\.id)
+        #expect(TitleSelection.windows(from: weeklyOnly,
+                                       selection: [ProviderID.claude.qualify("nothing")],
+                                       provider: .claude).map(\.id)
             == [LimitWindow.weeklyID])
     }
 
     @Test func nothingReportedRendersNothing() {
-        #expect(TitleSelection.windows(from: [], selection: [LimitWindow.sessionID]).isEmpty)
+        #expect(TitleSelection.windows(from: [],
+                                       selection: [ProviderID.claude.qualify(LimitWindow.sessionID)],
+                                       provider: .claude).isEmpty)
+    }
+
+    @Test func theDefaultSelectionSelectsBothHeadlineWindows() {
+        // The integration nothing covered: Settings stores qualified ids, TitleSelection
+        // receives unqualified windows. When these disagree the default silently collapses to
+        // one window through the "everything chosen has gone missing" fallback, which looks
+        // like a rendering choice rather than a bug.
+        let all = [window(.primary, LimitWindow.sessionID),
+                   window(.secondary, LimitWindow.weeklyID),
+                   window(.secondaryScoped, "scoped:Fable")]
+        let shown = TitleSelection.windows(from: all,
+                                           selection: Settings.defaultTitleLimitIDs,
+                                           provider: .claude)
+        #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID])
     }
 }
