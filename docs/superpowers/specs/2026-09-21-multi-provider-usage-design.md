@@ -149,7 +149,7 @@ and not marginally:
 
 > A paid plan reports a short rolling window in the *same* `primary_window` field. A kind derived
 > from duration therefore changes when the user upgrades their plan. The id changes with it, which
-> resets the title selection, orphans the window's forecast history, and re-fires its 80% and 95%
+> resets the title selection, orphans the window's forecast history, and re-fires its threshold
 > notifications as though it were a new limit.
 
 Duration is a property of the plan. Identity must not depend on it.

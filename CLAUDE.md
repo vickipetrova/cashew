@@ -34,11 +34,11 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/Cashew/main.swift` | Six lines of top-level code for the menu bar app. Top-level code can't live in a library target, so this and `cashew-hook`'s `main.swift` are the only two files outside a library |
 | `Sources/cashew-hook/main.swift` | The Claude Code hook helper. Top-level code only; reads the hook payload, writes one session file, exits 0. Bundled at `Contents/Helpers/` |
 | `Sources/CashewShared/` | Foundation-only code shared by the app and the helper: `SessionRecord` and its files, `HookEvent` (the hook → state machine), `SessionOwner`, `isJSONBoolean`. Must never import AppKit — the helper runs on every tool call |
-| `Sources/CashewCore/AppDelegate.swift` | Wires provider → menu, owns the poll timer and the 60s countdown tick, refreshes on wake. The **only** public symbol in the module |
+| `Sources/CashewCore/AppDelegate.swift` | Wires provider → menu, owns one poll timer, backoff streak and fetch-generation counter **per provider**, plus the 60s countdown tick, refreshes on wake. The **only** public symbol in the module |
 | `Sources/CashewCore/MenuController.swift` | The status item: menu bar title, dropdown, and the three-level Settings tree. Knows nothing about where usage comes from |
 | `Sources/CashewCore/MenuToggle.swift` | The Settings switch and the rows built from it. `MenuToggle` is the pure metrics and colour rule; `MenuToggleView` is the layer-hosted control; `SettingsRow` builds the headers, notes and toggle rows the Settings submenus are made of |
 | `Sources/CashewCore/UsagePanel.swift` | The dropdown's SwiftUI rows, and the pure `UsageRow` view model behind them. Which limits reach the *menu bar title* is `TitleSelection`, in MenuController.swift |
-| `Sources/CashewCore/UsageAPI.swift` | `LimitWindow` model, `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
+| `Sources/CashewCore/UsageAPI.swift` | `LimitWindow` model, `ProviderID` (identity, storage-key qualification, dropdown section heading) and `ProviderSnapshot` (one provider's windows, its own `updatedAt` and failure), `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
 | `Sources/CashewCore/RefuseRedirects.swift` | The redirect policy both sessions install. Its own file so the two can't drift — the update check spent its whole life following redirects while the usage session refused them |
 | `Sources/CashewCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
 | `Sources/CashewCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
@@ -67,8 +67,8 @@ looking forward, so a past date always came out as a bare time. "Showing data fr
 future and use `clock`; anything describing when data was fetched is past and uses `stamp`.
 
 Everything lives in `CashewCore` so the test target can reach it with `@testable`, keeping the
-public API to `AppDelegate` alone. `MenuController` renders `[LimitWindow]` and nothing else — that's
-what makes adding a second provider one new file, so don't put Claude-specific strings in it.
+public API to `AppDelegate` alone. `MenuController` renders `[ProviderSnapshot]` and nothing else —
+that's what makes adding a second provider one new file, so don't put Claude-specific strings in it.
 
 `Package.swift` pins `swiftLanguageModes: [.v5]`. Swift 6 mode rejects the static mutable state in
 `Notifier`; moving to `.v6` means annotating those, not just flipping the line. `platforms:
@@ -90,8 +90,11 @@ what makes adding a second provider one new file, so don't put Claude-specific s
    Keychain — but it must never contain or handle a certificate, an app-specific password, or
    anything notarization needs. Releasing stays a manual maintainer step (`docs/RELEASING.md`), and
    CI signs ad-hoc and drafts the release for a signed build to replace.
-5. **Two network destinations:** `api.anthropic.com` for usage, and `api.github.com` for a
-   once-a-day update check the user can turn off. No analytics, no identifiers, no downloads.
+5. **One usage endpoint per detected provider, plus `api.github.com`** for a once-a-day update check
+   the user can turn off. Each provider declares its single host as `UsageProvider.host`, and a
+   provider is only contacted when its credentials are present — so a user with only Claude Code
+   installed produces exactly the traffic Cashew produced when Claude was the only provider. No
+   analytics, no identifiers, no downloads.
 6. **Cashew edits `~/.claude/settings.json` only to add or remove its own hooks** — entries whose
    command runs the bundled `Contents/Helpers/cashew-hook`. Never another key, never another tool's hook, never
    `statusLine`. It never writes a file it could not parse, never replaces a symlink, writes only
@@ -108,7 +111,7 @@ The endpoint returns two overlapping shapes, and `ClaudeProvider.windows(in:)` r
 - **Legacy:** top-level `five_hour`, `seven_day`, `seven_day_opus` with `utilization` / `resets_at`.
   Used to fill in anything the array didn't provide, **per field**.
 
-Four traps, each with a regression test — don't "simplify" any of them:
+Five traps, each with a regression test — don't "simplify" any of them:
 
 - **`resets_at` is re-stamped on every request.** Three polls twenty seconds apart came back with
   fractional seconds `.516073`, `.880178`, `.202674` for the same reset. `Notifier.periodID`
@@ -126,6 +129,12 @@ Four traps, each with a regression test — don't "simplify" any of them:
 - **Two ISO8601 formatters are required.** Timestamps arrive as
   `2026-08-02T16:39:59.408408+00:00`; `ISO8601DateFormatter` needs `.withFractionalSeconds` for
   those and returns nil without it, and returns nil *with* it for timestamps that lack them.
+- **`LimitWindow.Kind` names rank, not duration**, and that is load-bearing rather than cosmetic. A
+  provider may report a window of any length in its primary slot — Codex sends a 30-day primary
+  window on a free plan and a short one on paid, in the same field. A kind derived from duration
+  would therefore change when a user upgrades their plan, taking the window's id with it: the title
+  selection resets, the forecast history is orphaned, and the notification thresholds fire again for
+  a limit that did not change. Nothing may infer a kind from a duration.
 
 **`percent` is an integer, and that is a trap for anything that fits a rate to it.** One point is the
 smallest change the endpoint can express, so it carries about half a point of rounding. `Forecast`
@@ -492,6 +501,13 @@ osascript -e 'tell application "System Events" to tell process "Cashew" \
 For error states that the unit tests can't reach (the real 401 path, a dead network with stale data
 on screen), copy `Sources/` to a scratch directory, patch the copy, and build a throwaway bundle from
 it.
+
+**That scratch build still points `UsageHistory.default` and `StatuslineFeed.default` at the real**
+`~/Library/Application Support/com.vickipetrova.cashew/` unless you also inject a scratch directory
+for them, not only patch the provider. During this refactor a scratch build wrote a fake sample into
+the real `history.json` and overwrote the real `snapshot.json` — the running app's actual usage
+history, not test data. Patch the location the same way the tests do: a temp directory passed in,
+never the default.
 
 **A dev bundle doesn't install hooks** — `build/Cashew.app` isn't in an Applications folder, so
 session tracking reports "Move Cashew to Applications" — unless you opt in with

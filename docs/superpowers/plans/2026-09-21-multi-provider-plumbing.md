@@ -1442,7 +1442,7 @@ Under the response-shape traps:
 provider may report a window of any length in its primary slot — Codex sends a 30-day primary window
 on a free plan and a short one on paid, in the same field. A kind derived from duration would
 therefore change when a user upgrades their plan, taking the window's id with it: the title
-selection resets, the forecast history is orphaned, and the 80%/95% alerts fire again for a limit
+selection resets, the forecast history is orphaned, and its threshold alerts fire again for a limit
 that did not change. Nothing may infer a kind from a duration.
 ```
 
