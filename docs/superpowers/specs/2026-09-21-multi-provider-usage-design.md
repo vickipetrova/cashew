@@ -23,7 +23,7 @@ Six decisions were settled before writing this, and the rest follows from them:
 | Menu bar title | Existing picker over namespaced ids, glyph only when >1 provider shown | Single-provider users see today's title, unchanged |
 | Discovery | Auto-detect; a provider with no credentials does not appear | Matches "needs no setup of its own" |
 | Network rule | Per provider, contacted only when detected | A Claude-only user's traffic is unchanged |
-| Sequencing | Two PRs: plumbing, then Codex | The refactor is behaviour-preserving and the 391 tests prove it |
+| Sequencing | Plumbing, then Codex on the free plan, then paid verification | The refactor is behaviour-preserving and the 391 tests prove it; the paid shape has no live response to design against yet |
 
 Migration is deliberately absent: the project has effectively no installed base at 0.1.0, so
 namespaced ids are written fresh rather than migrated. The one visible consequence is that a
@@ -308,8 +308,11 @@ have to arrive as the `NSNumber`s a real response produces, or the boolean and i
 go untested. Fixtures:
 
 - the free-plan response above, verbatim, including `secondary_window: null`
-- a two-window response built from the observed field names, so the paid shape has coverage even
-  though it is unverified against a live paid account
+- a two-window response **constructed** from the observed field names. This fixture is a guess about
+  values, not about shape: it proves the parser maps a present `secondary_window` and does not prove
+  that a paid plan sends one that looks like this. It is named so in the test, so nobody later reads
+  a green suite as evidence the paid path works. Replacing it with a captured response is the whole
+  of phase 3.
 - `used_percent` as `true` — must drop the row, not read as 1%
 - `reset_at` absent, with `reset_after_seconds` present — must fall back
 - `reset_at` at a plausible epoch-seconds value — must not land in 1970
@@ -330,6 +333,31 @@ it reaches the real network with a real token.
 ## Sequencing
 
 1. PR 1, plumbing, behaviour-preserving, green on the existing suite.
-2. PR 2, the Codex provider and its docs.
+2. PR 2, the Codex provider and its docs, built and verified against a **free** plan.
+3. Later, once a paid account exists: verify the two-window shape against a live response.
 
-Both through pull requests; `main` is protected and the `build` check gates the merge.
+Both PRs through pull requests; `main` is protected and the `build` check gates the merge.
+
+### What phase 3 is, and what it is not
+
+Phase 3 is a **verification** step, not a second implementation. The parser written in PR 2 already
+handles a present `secondary_window` — mapping one and dropping a null one is the same code path,
+and special-casing free would mean writing *more* code, not less. What is missing is not the
+handling but the evidence: nobody has seen a real paid response.
+
+So phase 3 should be cheap. The expected work is to replace the constructed two-window fixture with
+a real captured one, confirm the field names and units match, and correct the parser if they do not.
+If the paid response differs in shape rather than in values — a differently named field, a nested
+object, an array of windows — that is a new spec, not a patch to this one.
+
+Two things this design already handles, and which phase 3 should confirm rather than build:
+
+- **The upgrade itself needs no migration.** When the account goes paid, `secondary_window` starts
+  arriving non-null. A new window appears with id `codex:secondary`, gets its own notification key
+  and its own history, and lands on the next menu open. The `primary` window keeps its id, its
+  history and its notification state throughout — which is the entire reason `Kind` describes rank
+  rather than duration.
+- **The deferred forecast limitation resolves itself.** The 90-minute `.primary` lookback is wrong
+  for a 30-day window and right for a short rolling one. If a paid plan's primary window is measured
+  in hours, forecasts begin working with no change. That is a reason to wait for real data before
+  deriving the lookback from `limit_window_seconds`, not a reason to guess now.
