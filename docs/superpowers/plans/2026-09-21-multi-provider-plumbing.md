@@ -1181,7 +1181,54 @@ Lines 113-134:
 
 - [ ] **Step 8: Make the flat accessors span snapshots**
 
-Lines 265-297:
+First, widen `TitleSelection.windows` from Task 2's single-provider bridge to sections. **The
+fallback must stay global.** Evaluating it per section would mean that a user who selected only
+Claude's windows still got Codex's primary window in the title, because Codex's section would find
+nothing selected and "helpfully" fall back — surfacing a window the user never picked:
+
+```swift
+enum TitleSelection {
+    /// Which limits the menu bar title shows, given what each provider reported and what the user
+    /// picked. Sections rather than a flat list, because the stored selection is qualified by
+    /// provider and a bare `LimitWindow` does not know which provider it came from.
+    static func windows(from sections: [(provider: ProviderID, windows: [LimitWindow])],
+                        selection: Set<String>) -> [LimitWindow] {
+        // Choosing nothing is a real choice, and it has to be told apart from choosing something
+        // that has since gone missing — the fallback below must not fire for it, or unchecking the
+        // last limit would silently put a number back.
+        guard !selection.isEmpty else { return [] }
+        // Order comes from the response within a section, and from section order across them.
+        let shown = sections.flatMap { section in
+            section.windows.filter { selection.contains(section.provider.qualify($0.id)) }
+        }
+        guard shown.isEmpty else { return shown }
+        // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list
+        // is no reason to show none of them. Global, not per-section: a per-section fallback would
+        // put an unselected provider's window in the title purely because that provider happened to
+        // report something.
+        let all = sections.flatMap(\.windows)
+        return all.first { $0.kind == .primary }.map { [$0] } ?? Array(all.prefix(1))
+    }
+}
+```
+
+Add a test for exactly that hazard in `Tests/CashewCoreTests/UsagePanelTests.swift`:
+
+```swift
+    @Test func aSelectionFromOneProviderDoesNotPullInAnothersFallback() {
+        // The per-section-fallback trap. Claude's window is selected and present, so nothing is
+        // "missing" — Codex must contribute nothing, not its primary window.
+        let sections = [(provider: ProviderID.claude,
+                         windows: [window(.primary, LimitWindow.sessionID)]),
+                        (provider: ProviderID.codex,
+                         windows: [window(.primary, "session")])]
+        let shown = TitleSelection.windows(
+            from: sections, selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
+        #expect(shown.count == 1)
+    }
+```
+
+Then the accessors. Lines 265-297:
 
 ```swift
     /// Every window worth putting on screen, across every provider, in section order.
@@ -1190,8 +1237,17 @@ Lines 265-297:
         return PanelSections.visible(snapshots, now: now).flatMap { $0.displayable(now: now) }
     }
 
+    /// The windows the title shows, across every provider.
+    ///
+    /// Task 2 bridged this with a hardcoded `.claude`, because a bare `LimitWindow` does not know
+    /// its provider while the selection set is stored qualified. Now that snapshots carry the
+    /// provider, the bridge is replaced — a hardcoded `.claude` here would make every Codex window
+    /// permanently unselectable.
     private func titleWindows() -> [LimitWindow] {
-        TitleSelection.windows(from: displayWindows(), selection: Settings.titleLimitIDs)
+        let now = Date()
+        let sections = PanelSections.visible(snapshots, now: now)
+            .map { (provider: $0.provider, windows: $0.displayable(now: now)) }
+        return TitleSelection.windows(from: sections, selection: Settings.titleLimitIDs)
     }
 
     /// The provider a window belongs to, for keying its history and its selection entry.
