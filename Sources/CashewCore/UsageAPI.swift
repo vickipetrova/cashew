@@ -3,6 +3,26 @@ import CashewShared
 
 // MARK: - Provider-neutral model
 
+/// Which product a set of usage windows came from.
+///
+/// `String`-backed and stable: these raw values are written into `UserDefaults` keys and into
+/// `history.json`, so renaming one silently orphans a user's alert markers and forecast history.
+enum ProviderID: String, Codable, CaseIterable {
+    case claude
+    case codex
+
+    /// A window id made unique across providers, for storage keys only.
+    ///
+    /// Both providers call their short window something like "session", so an unqualified id would
+    /// make Claude's and Codex's short windows share a notification marker, a history series and a
+    /// title-selection entry.
+    ///
+    /// Never parsed back apart. A scoped id already contains a colon (`scoped:Opus`), so splitting
+    /// on the separator would be wrong the moment anyone tried it — the qualified form is an opaque
+    /// key, and the provider is always known from context where it matters.
+    func qualify(_ windowID: String) -> String { "\(rawValue):\(windowID)" }
+}
+
 /// One rate-limit window, described in terms no single vendor owns.
 ///
 /// `label` is whatever the provider wants shown as that window's heading, so a future provider

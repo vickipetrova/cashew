@@ -40,8 +40,9 @@ final class UsageHistory {
     }
 
     /// Every sample recorded for one limit, oldest first.
-    func samples(for limitID: String) -> [Sample] {
-        samples.filter { $0.limitID == limitID }
+    func samples(for limitID: String, provider: ProviderID) -> [Sample] {
+        let qualified = provider.qualify(limitID)
+        return samples.filter { $0.limitID == qualified }
     }
 
     /// One sample per window, then prune, then write.
@@ -49,12 +50,13 @@ final class UsageHistory {
     /// Called from the success branch of a poll only. A failed poll must not record anything: the
     /// numbers on screen are deliberately kept from the last good fetch, and re-recording them would
     /// invent a flat stretch that never happened and drag every rate towards zero.
-    func record(_ windows: [LimitWindow], at now: Date = Date()) {
+    func record(_ windows: [LimitWindow], provider: ProviderID, at now: Date = Date()) {
         samples.append(contentsOf: windows.compactMap { window in
             // A window whose utilization couldn't be read is not a zero — it is nothing. Writing it
             // as 0 would look like a reset and throw the trailing window away.
             guard window.utilization.isFinite else { return nil }
-            return Sample(at: now, limitID: window.id, utilization: window.utilization)
+            return Sample(at: now, limitID: provider.qualify(window.id),
+                          utilization: window.utilization)
         })
         samples.removeAll { now.timeIntervalSince($0.at) > Self.retention }
         write()

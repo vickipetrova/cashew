@@ -125,10 +125,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func publishMergingLiveReadings(at updatedAt: Date) {
         let merged = SourceMerge.merge(polled: polled, live: statusline.read() ?? [])
         guard !merged.isEmpty else { return }
-        history.record(merged, at: updatedAt)
+        history.record(merged, provider: .claude, at: updatedAt)
         history.save(snapshot: merged, at: updatedAt)
         menuController.update(windows: merged, updatedAt: updatedAt)
-        Notifier.evaluate(merged)
+        Notifier.evaluate(merged, provider: .claude)
     }
 
     private func refresh() {

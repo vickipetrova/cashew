@@ -281,7 +281,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// 60-second tick, and a forecast pinned at build time would keep naming a hit date the newest
     /// samples had already moved — the same trap that made held-open countdowns go stale.
     private func forecast(for window: LimitWindow) -> Forecast {
-        Forecast.project(samples: history.samples(for: window.id),
+        Forecast.project(samples: history.samples(for: window.id, provider: .claude),
                          kind: window.kind, resetsAt: window.resetsAt, now: Date())
     }
 

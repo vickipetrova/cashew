@@ -68,7 +68,7 @@ struct DefaultsBacked {
         private let now = Date(timeIntervalSince1970: 1_785_600_000)
         // Keyed on the window's stable id, not its display label — restyling a heading must not
         // reset which alerts count as already-sent.
-        private let sessionKey = "notified.session"
+        private let sessionKey = "notified.claude:session"
 
         private func window(_ utilization: Double, id: String = "session",
                             resetsAt: Date?) -> LimitWindow {
@@ -78,7 +78,7 @@ struct DefaultsBacked {
 
         @Test func crossingTheThresholdAlertsOnce() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             #expect(recorder.count == 1)
             #expect(recorder.alerts.first?.threshold == 80)
             #expect(defaults.string(forKey: sessionKey) != nil)
@@ -87,47 +87,47 @@ struct DefaultsBacked {
         @Test func pollingAgainWithTheSameDataStaysQuiet() {
             Settings.notifyThreshold = 80
             let windows = [window(85, resetsAt: reset)]
-            Notifier.evaluate(windows, now: now)
-            Notifier.evaluate(windows, now: now)
-            Notifier.evaluate(windows, now: now)
+            Notifier.evaluate(windows, provider: .claude, now: now)
+            Notifier.evaluate(windows, provider: .claude, now: now)
+            Notifier.evaluate(windows, provider: .claude, now: now)
             #expect(recorder.count == 1)
         }
 
         /// The entire reason the marker is persisted rather than held in memory.
         @Test func markerSurvivesARelaunch() throws {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             recorder.reset()
 
             // A fresh process reading what the previous one stored.
             Notifier.defaults = try DefaultsBacked.scratchDefaults(clearing: false)
-            Notifier.evaluate([window(87, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(87, resetsAt: reset)], provider: .claude, now: now)
             #expect(recorder.count == 0)
         }
 
         @Test func aNewResetPeriodAlertsAgain() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
-            Notifier.evaluate([window(85, resetsAt: reset.addingTimeInterval(18_000))], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
+            Notifier.evaluate([window(85, resetsAt: reset.addingTimeInterval(18_000))], provider: .claude, now: now)
             #expect(recorder.count == 2)
         }
 
         @Test func belowThresholdSaysNothingAndRecordsNothing() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(42, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(42, resetsAt: reset)], provider: .claude, now: now)
             #expect(recorder.count == 0)
             #expect(defaults.string(forKey: sessionKey) == nil)
         }
 
         @Test func thresholdOffSaysNothing() {
             Settings.notifyThreshold = 0
-            Notifier.evaluate([window(99, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(99, resetsAt: reset)], provider: .claude, now: now)
             #expect(recorder.count == 0)
         }
 
         @Test func exactlyAtTheThresholdAlerts() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(80, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(80, resetsAt: reset)], provider: .claude, now: now)
             #expect(recorder.count == 1)
         }
 
@@ -135,7 +135,7 @@ struct DefaultsBacked {
         /// silent while the title read 80% looks broken.
         @Test func alertMatchesTheDisplayedPercentage() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(79.6, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(79.6, resetsAt: reset)], provider: .claude, now: now)
             #expect(Fmt.pct(79.6) == "80%")
             #expect(recorder.count == 1)
         }
@@ -146,31 +146,31 @@ struct DefaultsBacked {
                 window(85, id: "session", resetsAt: reset),
                 window(90, id: "weekly", resetsAt: reset),
                 window(10, id: "scoped:Opus", resetsAt: reset),
-            ], now: now)
+            ], provider: .claude, now: now)
             #expect(recorder.count == 2)
-            #expect(defaults.string(forKey: "notified.session") != nil)
-            #expect(defaults.string(forKey: "notified.weekly") != nil)
-            #expect(defaults.string(forKey: "notified.scoped:Opus") == nil)
+            #expect(defaults.string(forKey: "notified.claude:session") != nil)
+            #expect(defaults.string(forKey: "notified.claude:weekly") != nil)
+            #expect(defaults.string(forKey: "notified.claude:scoped:Opus") == nil)
         }
 
         /// Restyling a heading must not look like a new window and re-announce a crossing already
         /// sent — the reason identity moved off the display label.
         @Test func relabellingAWindowDoesNotReAlert() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             let restyled = LimitWindow(kind: .primary, id: "session",
                                        label: "COMPLETELY DIFFERENT HEADING", shortLabel: "Session", optionLabel: "opt",
                                        utilization: 85, resetsAt: reset)
-            Notifier.evaluate([restyled], now: now)
+            Notifier.evaluate([restyled], provider: .claude, now: now)
             #expect(recorder.count == 1)
         }
 
         /// Lowering the threshold is a crossing the user just asked to hear about.
         @Test func loweringTheThresholdAlertsAgain() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             Settings.notifyThreshold = 50
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             #expect(recorder.count == 2)
         }
 
@@ -179,15 +179,15 @@ struct DefaultsBacked {
         /// submenu produced a fresh alert every time.
         @Test func raisingTheThresholdBackDoesNotAlertAgain() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             Settings.notifyThreshold = 50
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             recorder.reset()
 
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
             Settings.notifyThreshold = 90
-            Notifier.evaluate([window(95, resetsAt: reset)], now: now)
+            Notifier.evaluate([window(95, resetsAt: reset)], provider: .claude, now: now)
             #expect(recorder.count == 0)
         }
 
@@ -203,7 +203,7 @@ struct DefaultsBacked {
             Settings.notifyThreshold = 80
             for fraction in [0.516073, 0.880178, 0.202674] {
                 let restamped = Date(timeIntervalSince1970: 1_785_688_800 + fraction)
-                Notifier.evaluate([window(85, resetsAt: restamped)], now: now)
+                Notifier.evaluate([window(85, resetsAt: restamped)], provider: .claude, now: now)
             }
             #expect(recorder.count == 1)
         }
@@ -212,8 +212,8 @@ struct DefaultsBacked {
         /// five hours apart, so quantizing the period can never merge two real ones.
         @Test func quantizingDoesNotSwallowARealNewPeriod() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: reset)], now: now)
-            Notifier.evaluate([window(85, resetsAt: reset.addingTimeInterval(300))], now: now)
+            Notifier.evaluate([window(85, resetsAt: reset)], provider: .claude, now: now)
+            Notifier.evaluate([window(85, resetsAt: reset.addingTimeInterval(300))], provider: .claude, now: now)
             #expect(recorder.count == 2)
         }
 
@@ -222,12 +222,27 @@ struct DefaultsBacked {
         /// per period — falling back to the day when the endpoint won't say.
         @Test func windowWithNoResetTimeAlertsOncePerDay() {
             Settings.notifyThreshold = 80
-            Notifier.evaluate([window(85, resetsAt: nil)], now: now)
-            Notifier.evaluate([window(85, resetsAt: nil)], now: now)
+            Notifier.evaluate([window(85, resetsAt: nil)], provider: .claude, now: now)
+            Notifier.evaluate([window(85, resetsAt: nil)], provider: .claude, now: now)
             #expect(recorder.count == 1)
 
-            Notifier.evaluate([window(85, resetsAt: nil)], now: now.addingTimeInterval(86_400 * 2))
+            Notifier.evaluate([window(85, resetsAt: nil)], provider: .claude, now: now.addingTimeInterval(86_400 * 2))
             #expect(recorder.count == 2)
+        }
+
+        @Test func twoProvidersAlertIndependentlyForTheSameWindowID() throws {
+            Settings.notifyThreshold = 80
+            let window = LimitWindow(kind: .primary, id: "session", label: "SESSION",
+                                     shortLabel: "Session", optionLabel: "opt",
+                                     utilization: 85, resetsAt: Date(timeIntervalSince1970: 9_000_000))
+
+            Notifier.evaluate([window], provider: .claude)
+            Notifier.evaluate([window], provider: .codex)
+
+            // Two alerts, not one swallowed by the other's marker.
+            #expect(recorder.count == 2)
+            #expect(defaults.string(forKey: "notified.claude:session") != nil)
+            #expect(defaults.string(forKey: "notified.codex:session") != nil)
         }
     }
 
@@ -245,6 +260,20 @@ struct DefaultsBacked {
             #expect(Settings.refreshMinutes == 5)
             #expect(Settings.notifyThreshold == 80)
             #expect(Settings.refreshInterval == 300)
+        }
+
+        @Test func qualifiedIDsAreDistinctAcrossProviders() {
+            // Both providers name their short window the same thing. Unqualified, they would share a
+            // notification marker, a history series and a title-selection entry.
+            #expect(ProviderID.claude.qualify("session") == "claude:session")
+            #expect(ProviderID.codex.qualify("session") == "codex:session")
+            #expect(ProviderID.claude.qualify("session") != ProviderID.codex.qualify("session"))
+        }
+
+        @Test func qualificationSurvivesAnIDContainingAColon() {
+            // Scoped ids already contain a colon ("scoped:Opus"), so the qualifier must not be parsed
+            // back out by splitting — nothing does, and this records why nothing may start.
+            #expect(ProviderID.claude.qualify("scoped:Opus") == "claude:scoped:Opus")
         }
 
         /// A hand-edited plist must not be able to leave the app polling every zero seconds.
@@ -304,12 +333,13 @@ struct DefaultsBacked {
         // MARK: - Which limits show in the menu bar
 
         @Test func titleShowsSessionAndWeeklyByDefault() {
-            #expect(Settings.titleLimitIDs == [LimitWindow.sessionID, LimitWindow.weeklyID])
+            #expect(Settings.titleLimitIDs == [ProviderID.claude.qualify(LimitWindow.sessionID),
+                                               ProviderID.claude.qualify(LimitWindow.weeklyID)])
         }
 
         @Test func titleSelectionRoundTrips() {
-            Settings.titleLimitIDs = [LimitWindow.sessionID, "scoped:Fable"]
-            #expect(Settings.titleLimitIDs == [LimitWindow.sessionID, "scoped:Fable"])
+            Settings.titleLimitIDs = [ProviderID.claude.qualify(LimitWindow.sessionID), "scoped:Fable"]
+            #expect(Settings.titleLimitIDs == [ProviderID.claude.qualify(LimitWindow.sessionID), "scoped:Fable"])
         }
 
         /// Keyed by identifier, not display name — a heading restyle must not silently deselect a
@@ -322,22 +352,26 @@ struct DefaultsBacked {
         }
 
         @Test func togglingAddsAndRemoves() {
-            let base: Set<String> = [LimitWindow.sessionID, LimitWindow.weeklyID]
+            let base: Set<String> = [ProviderID.claude.qualify(LimitWindow.sessionID),
+                                     ProviderID.claude.qualify(LimitWindow.weeklyID)]
             #expect(Settings.titleLimitIDs(toggling: "scoped:Fable", in: base)
-                == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
-            #expect(Settings.titleLimitIDs(toggling: LimitWindow.weeklyID, in: base)
-                == [LimitWindow.sessionID])
+                == [ProviderID.claude.qualify(LimitWindow.sessionID),
+                   ProviderID.claude.qualify(LimitWindow.weeklyID), "scoped:Fable"])
+            #expect(Settings.titleLimitIDs(toggling: ProviderID.claude.qualify(LimitWindow.weeklyID), in: base)
+                == [ProviderID.claude.qualify(LimitWindow.sessionID)])
         }
 
         /// Unchecking everything is allowed, and means what it says: no numbers in the menu bar.
         /// The item still draws its spark, so it stays clickable and this setting stays two hovers
         /// away — which is why the old "always keep one" fallback was protecting nothing.
         @Test func unCheckingTheLastOneLeavesNothingSelected() {
-            #expect(Settings.titleLimitIDs(toggling: LimitWindow.weeklyID, in: [LimitWindow.weeklyID])
+            #expect(Settings.titleLimitIDs(toggling: ProviderID.claude.qualify(LimitWindow.weeklyID),
+                                           in: [ProviderID.claude.qualify(LimitWindow.weeklyID)])
                 == [])
             #expect(Settings.titleLimitIDs(toggling: "scoped:Fable", in: ["scoped:Fable"]) == [])
             // Including unchecking session itself.
-            #expect(Settings.titleLimitIDs(toggling: LimitWindow.sessionID, in: [LimitWindow.sessionID])
+            #expect(Settings.titleLimitIDs(toggling: ProviderID.claude.qualify(LimitWindow.sessionID),
+                                           in: [ProviderID.claude.qualify(LimitWindow.sessionID)])
                 == [])
         }
 

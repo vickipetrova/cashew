@@ -23,27 +23,27 @@ import Testing
 
     @Test func recordsOneSamplePerWindow() {
         let history = UsageHistory(directory: scratch())
-        history.record([window("session", 10), window("weekly", 60)], at: now)
+        history.record([window("session", 10), window("weekly", 60)], provider: .claude, at: now)
 
-        #expect(history.samples(for: "session").map(\.utilization) == [10])
-        #expect(history.samples(for: "weekly").map(\.utilization) == [60])
+        #expect(history.samples(for: "session", provider: .claude).map(\.utilization) == [10])
+        #expect(history.samples(for: "weekly", provider: .claude).map(\.utilization) == [60])
         // Keyed by id, so one limit's history never leaks into another's rate.
-        #expect(history.samples(for: "scoped:Fable").isEmpty)
+        #expect(history.samples(for: "scoped:Fable", provider: .claude).isEmpty)
     }
 
     @Test func accumulatesAcrossPolls() {
         let history = UsageHistory(directory: scratch())
-        history.record([window("session", 10)], at: now.addingTimeInterval(-600))
-        history.record([window("session", 20)], at: now)
-        #expect(history.samples(for: "session").map(\.utilization) == [10, 20])
+        history.record([window("session", 10)], provider: .claude, at: now.addingTimeInterval(-600))
+        history.record([window("session", 20)], provider: .claude, at: now)
+        #expect(history.samples(for: "session", provider: .claude).map(\.utilization) == [10, 20])
     }
 
     /// Survives a relaunch, which is the entire reason this is on disk rather than in memory — a
     /// menu bar app that forgot its history on every restart could never forecast a weekly window.
     @Test func samplesOutliveTheProcess() {
         let directory = scratch()
-        UsageHistory(directory: directory).record([window("session", 42)], at: now)
-        #expect(UsageHistory(directory: directory).samples(for: "session").map(\.utilization) == [42])
+        UsageHistory(directory: directory).record([window("session", 42)], provider: .claude, at: now)
+        #expect(UsageHistory(directory: directory).samples(for: "session", provider: .claude).map(\.utilization) == [42])
     }
 
     @Test func prunesSamplesPastTheRetentionWindow() {
@@ -51,21 +51,21 @@ import Testing
         let old = now.addingTimeInterval(-UsageHistory.retention - 60)
         let justInside = now.addingTimeInterval(-UsageHistory.retention + 60)
 
-        history.record([window("session", 1)], at: old)
-        history.record([window("session", 2)], at: justInside)
-        history.record([window("session", 3)], at: now)
+        history.record([window("session", 1)], provider: .claude, at: old)
+        history.record([window("session", 2)], provider: .claude, at: justInside)
+        history.record([window("session", 3)], provider: .claude, at: now)
 
         // Pruning happens on write, against the timestamp of the write being made.
-        #expect(history.samples(for: "session").map(\.utilization) == [2, 3])
+        #expect(history.samples(for: "session", provider: .claude).map(\.utilization) == [2, 3])
     }
 
     /// A window whose utilization the endpoint didn't give is nothing, not zero. Recording it as 0
     /// would look like a reset to `Forecast` and throw the trailing window away.
     @Test func aNonFiniteReadingIsNotRecorded() {
         let history = UsageHistory(directory: scratch())
-        history.record([window("session", .nan), window("weekly", 30)], at: now)
-        #expect(history.samples(for: "session").isEmpty)
-        #expect(history.samples(for: "weekly").count == 1)
+        history.record([window("session", .nan), window("weekly", 30)], provider: .claude, at: now)
+        #expect(history.samples(for: "session", provider: .claude).isEmpty)
+        #expect(history.samples(for: "weekly", provider: .claude).count == 1)
     }
 
     /// Reading is best-effort by design: a forecast sits on top of the number the user actually came
@@ -77,14 +77,14 @@ import Testing
             .write(to: directory.appendingPathComponent("history.json"))
 
         let history = UsageHistory(directory: directory)
-        #expect(history.samples(for: "session").isEmpty)
+        #expect(history.samples(for: "session", provider: .claude).isEmpty)
         // And it recovers: the next write replaces the unreadable file.
-        history.record([window("session", 5)], at: now)
-        #expect(UsageHistory(directory: directory).samples(for: "session").count == 1)
+        history.record([window("session", 5)], provider: .claude, at: now)
+        #expect(UsageHistory(directory: directory).samples(for: "session", provider: .claude).count == 1)
     }
 
     @Test func anAbsentFileIsSimplyAnEmptyHistory() {
-        #expect(UsageHistory(directory: scratch()).samples(for: "session").isEmpty)
+        #expect(UsageHistory(directory: scratch()).samples(for: "session", provider: .claude).isEmpty)
     }
 
     // MARK: - The last good reading
@@ -163,19 +163,36 @@ import Testing
         try Data("not json".utf8).write(to: directory.appendingPathComponent("history.json"))
 
         let history = UsageHistory(directory: directory)
-        #expect(history.samples(for: "session").isEmpty)
+        #expect(history.samples(for: "session", provider: .claude).isEmpty)
         #expect(history.restorableSnapshot(now: now) != nil)
     }
 
     /// End to end: what the store hands back is what the projection can actually use.
     @Test func recordedSamplesFeedAForecast() {
         let history = UsageHistory(directory: scratch())
-        history.record([window("session", 10)], at: now.addingTimeInterval(-60 * 60))
-        history.record([window("session", 25)], at: now.addingTimeInterval(-30 * 60))
-        history.record([window("session", 40)], at: now)
+        history.record([window("session", 10)], provider: .claude, at: now.addingTimeInterval(-60 * 60))
+        history.record([window("session", 25)], provider: .claude, at: now.addingTimeInterval(-30 * 60))
+        history.record([window("session", 40)], provider: .claude, at: now)
 
-        let forecast = Forecast.project(samples: history.samples(for: "session"), kind: .primary,
+        let forecast = Forecast.project(samples: history.samples(for: "session", provider: .claude), kind: .primary,
                                         resetsAt: now.addingTimeInterval(3 * 60 * 60), now: now)
         #expect(forecast == .onPace(now.addingTimeInterval(120 * 60)))
+    }
+
+    @Test func twoProvidersRecordTheSameWindowIDSeparately() throws {
+        let directory = scratch()
+        let history = UsageHistory(directory: directory)
+        let at = Date(timeIntervalSince1970: 1_000_000)
+        let window = LimitWindow(kind: .primary, id: "session", label: "l", shortLabel: "s",
+                                 optionLabel: "o", utilization: 10, resetsAt: nil)
+
+        history.record([window], provider: .claude, at: at)
+        history.record([LimitWindow(kind: .primary, id: "session", label: "l", shortLabel: "s",
+                                    optionLabel: "o", utilization: 90, resetsAt: nil)],
+                       provider: .codex, at: at)
+
+        // Same window id, different providers: one series each, not one series of two.
+        #expect(history.samples(for: "session", provider: .claude).map(\.utilization) == [10])
+        #expect(history.samples(for: "session", provider: .codex).map(\.utilization) == [90])
     }
 }
