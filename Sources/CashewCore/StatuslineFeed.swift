@@ -188,9 +188,9 @@ struct StatuslineFeed {
     private static func window(_ any: Any?,
                                _ build: (Double, Date?) -> LimitWindow) -> LimitWindow? {
         guard let entry = any as? [String: Any],
-              let utilization = ClaudeProvider.number(entry["used_percentage"]) else { return nil }
+              let utilization = UsageJSON.number(entry["used_percentage"]) else { return nil }
         // `resets_at` is a unix timestamp here, where the API sends an ISO string. `date` reads both.
-        return build(utilization, ClaudeProvider.date(entry["resets_at"]))
+        return build(utilization, UsageJSON.date(entry["resets_at"]))
     }
 }
 

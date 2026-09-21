@@ -153,7 +153,7 @@ jobs:
           # calls both, so it joins them here too rather than only its two halves.
           # CodexCredentials.read/fileExists read the real ~/.codex/auth.json — Codex's analogue to
           # Credentials' file reads, with no Keychain half because Codex keeps nothing there.
-          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|UsageHistory\.default|StatuslineFeed\.default|HookInstaller\.default|SessionActivity\.default|SessionFiles\.defaultDirectory|UpdateCheck\.fetch|Credentials\.(keychainItemExists|fileExists|loginExists)|CodexCredentials\.(read|fileExists)' Tests/ \
+          hits="$(grep -rnE 'MenuController\(|AppDelegate\(|accessToken\(|launchAtLogin|UNUserNotificationCenter|ClaudeProvider\(\)\.fetch|CodexProvider\(\)\.fetch|UsageHistory\.default|StatuslineFeed\.default|HookInstaller\.default|SessionActivity\.default|SessionFiles\.defaultDirectory|UpdateCheck\.fetch|Credentials\.(keychainItemExists|fileExists|loginExists)|CodexCredentials\.(read|fileExists)' Tests/ \
                   | grep -vE '^[^:]+:[0-9]+:[[:space:]]*(//|\*|///)' || true)"
           if [ -n "$hits" ]; then
             echo "$hits"
