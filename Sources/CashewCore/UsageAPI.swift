@@ -13,13 +13,19 @@ import CashewShared
 struct LimitWindow: Equatable, Codable {
     /// Backed by `String` rather than the default integer ordinal, so reordering these cases can't
     /// silently reinterpret an already-written snapshot.
+    ///
+    /// These name a window's **rank within its provider**, not how long it lasts. That distinction is
+    /// load-bearing: Codex reports a 30-day primary window on a free plan and a short one on a paid
+    /// plan, in the same field, so a kind derived from duration would change when a user upgrades —
+    /// taking the window's id with it, resetting the title selection, orphaning its forecast history
+    /// and re-firing its threshold alerts for a limit that did not change.
     enum Kind: String, Equatable, Codable {
-        /// The short rolling window (Claude Code: 5 hours).
-        case session
+        /// The short rolling window (Claude Code: 5 hours; Codex: whatever `primary_window` reports).
+        case primary
         /// The long window, across everything.
-        case weekly
+        case secondary
         /// The long window, narrowed to one model. A provider may report several.
-        case weeklyScoped
+        case secondaryScoped
     }
 
     static let sessionID = "session"
@@ -334,13 +340,13 @@ struct ClaudeProvider: UsageProvider {
     // how they label the same window.
 
     static func sessionWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
-        LimitWindow(kind: .session, id: LimitWindow.sessionID,
+        LimitWindow(kind: .primary, id: LimitWindow.sessionID,
                     label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "Session (5h)",
                     utilization: utilization, resetsAt: resetsAt)
     }
 
     static func weeklyWindow(utilization: Double, resetsAt: Date?) -> LimitWindow {
-        LimitWindow(kind: .weekly, id: LimitWindow.weeklyID,
+        LimitWindow(kind: .secondary, id: LimitWindow.weeklyID,
                     label: "WEEKLY · ALL MODELS", shortLabel: "Weekly",
                     optionLabel: "Weekly (all models)",
                     utilization: utilization, resetsAt: resetsAt)
@@ -348,7 +354,7 @@ struct ClaudeProvider: UsageProvider {
 
     private static func scopedWindow(model: String, utilization: Double,
                                      resetsAt: Date?) -> LimitWindow {
-        LimitWindow(kind: .weeklyScoped, id: LimitWindow.scopedID(model: model),
+        LimitWindow(kind: .secondaryScoped, id: LimitWindow.scopedID(model: model),
                     label: "WEEKLY · \(model.uppercased())",
                     shortLabel: "Weekly (\(model))",
                     optionLabel: model,

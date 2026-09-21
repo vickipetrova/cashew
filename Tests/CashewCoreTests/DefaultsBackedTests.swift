@@ -72,7 +72,7 @@ struct DefaultsBacked {
 
         private func window(_ utilization: Double, id: String = "session",
                             resetsAt: Date?) -> LimitWindow {
-            LimitWindow(kind: .session, id: id, label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "opt",
+            LimitWindow(kind: .primary, id: id, label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "opt",
                         utilization: utilization, resetsAt: resetsAt)
         }
 
@@ -158,7 +158,7 @@ struct DefaultsBacked {
         @Test func relabellingAWindowDoesNotReAlert() {
             Settings.notifyThreshold = 80
             Notifier.evaluate([window(85, resetsAt: reset)], now: now)
-            let restyled = LimitWindow(kind: .session, id: "session",
+            let restyled = LimitWindow(kind: .primary, id: "session",
                                        label: "COMPLETELY DIFFERENT HEADING", shortLabel: "Session", optionLabel: "opt",
                                        utilization: 85, resetsAt: reset)
             Notifier.evaluate([restyled], now: now)

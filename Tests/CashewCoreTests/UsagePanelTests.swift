@@ -11,7 +11,7 @@ import Testing
     private let now = Date(timeIntervalSince1970: 1_785_600_000)
 
     private func window(_ utilization: Double, resetsIn seconds: TimeInterval?) -> LimitWindow {
-        LimitWindow(kind: .session, id: "session", label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "opt",
+        LimitWindow(kind: .primary, id: "session", label: "SESSION · 5-HOUR", shortLabel: "Session", optionLabel: "opt",
                     utilization: utilization,
                     resetsAt: seconds.map { now.addingTimeInterval($0) })
     }
@@ -65,7 +65,7 @@ import Testing
     }
 
     @Test func headingComesStraightFromTheWindowLabel() {
-        let scoped = LimitWindow(kind: .weeklyScoped, id: "scoped:Fable",
+        let scoped = LimitWindow(kind: .secondaryScoped, id: "scoped:Fable",
                                  label: "WEEKLY · FABLE", shortLabel: "Weekly (Fable)", optionLabel: "opt",
                                  utilization: 16, resetsAt: now.addingTimeInterval(3_600))
         #expect(UsageRow(scoped, now: now, mode: .alertsOnly).header == "WEEKLY · FABLE")
@@ -207,7 +207,7 @@ import Testing
     /// The usage rows go through the same path. Their height is constant today, so this asserts the
     /// path is wired rather than that anything grows — the point is that it can't silently stop being.
     @Test func usageRowsAreMeasuredToo() {
-        let window = LimitWindow(kind: .session, id: "session", label: "SESSION · 5-HOUR",
+        let window = LimitWindow(kind: .primary, id: "session", label: "SESSION · 5-HOUR",
                                  shortLabel: "Session", optionLabel: "opt", utilization: 42,
                                  resetsAt: Date(timeIntervalSince1970: 1_785_600_000))
         let view = UsageRowView(row: UsageRow(window, now: Date(timeIntervalSince1970: 1_785_500_000),
@@ -226,9 +226,9 @@ import Testing
     }
 
     private var all: [LimitWindow] {
-        [window(.session, LimitWindow.sessionID),
-         window(.weekly, LimitWindow.weeklyID),
-         window(.weeklyScoped, "scoped:Fable")]
+        [window(.primary, LimitWindow.sessionID),
+         window(.secondary, LimitWindow.weeklyID),
+         window(.secondaryScoped, "scoped:Fable")]
     }
 
     @Test func rendersOnlyTheSelectedLimits() {
@@ -268,7 +268,7 @@ import Testing
 
     /// …and if even the session window is absent, show whatever came first rather than nothing.
     @Test func withoutASessionWindowItFallsBackToTheFirstReported() {
-        let weeklyOnly = [window(.weekly, LimitWindow.weeklyID)]
+        let weeklyOnly = [window(.secondary, LimitWindow.weeklyID)]
         #expect(TitleSelection.windows(from: weeklyOnly, selection: ["nothing"]).map(\.id)
             == [LimitWindow.weeklyID])
     }

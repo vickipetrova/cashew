@@ -74,7 +74,7 @@ import Testing
     private let now = Date(timeIntervalSince1970: 1_785_600_000)
 
     private func window(_ id: String, resetsIn: TimeInterval?) -> LimitWindow {
-        LimitWindow(kind: .session, id: id, label: id, shortLabel: id, optionLabel: id,
+        LimitWindow(kind: .primary, id: id, label: id, shortLabel: id, optionLabel: id,
                     utilization: 42, resetsAt: resetsIn.map { now.addingTimeInterval($0) })
     }
 

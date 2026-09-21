@@ -49,7 +49,7 @@ import Testing
                             "seven_day": ["used_percentage": 17]],
         ])
         #expect(fromStatusline.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID])
-        #expect(fromStatusline.map(\.kind) == [.session, .weekly])
+        #expect(fromStatusline.map(\.kind) == [.primary, .secondary])
         #expect(fromStatusline.map(\.label) == ["SESSION · 5-HOUR", "WEEKLY · ALL MODELS"])
         #expect(fromStatusline.map(\.optionLabel) == ["Session (5h)", "Weekly (all models)"])
     }
@@ -223,9 +223,9 @@ import Testing
     }
 
     private var polled: [LimitWindow] {
-        [window(.session, LimitWindow.sessionID, 10),
-         window(.weekly, LimitWindow.weeklyID, 20),
-         window(.weeklyScoped, "scoped:Fable", 30)]
+        [window(.primary, LimitWindow.sessionID, 10),
+         window(.secondary, LimitWindow.weeklyID, 20),
+         window(.secondaryScoped, "scoped:Fable", 30)]
     }
 
     /// The whole point: fresher numbers where the live source has them, and the per-model row it
@@ -233,8 +233,8 @@ import Testing
     @Test func liveReadingsReplaceTheirCounterpartsAndNothingElse() {
         let merged = SourceMerge.merge(
             polled: polled,
-            live: [window(.session, LimitWindow.sessionID, 16),
-                   window(.weekly, LimitWindow.weeklyID, 18)])
+            live: [window(.primary, LimitWindow.sessionID, 16),
+                   window(.secondary, LimitWindow.weeklyID, 18)])
 
         #expect(merged.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
         #expect(merged.map(\.utilization) == [16, 18, 30])
@@ -245,8 +245,8 @@ import Testing
     @Test func orderComesFromThePollNotTheLiveSource() {
         let merged = SourceMerge.merge(
             polled: polled,
-            live: [window(.weekly, LimitWindow.weeklyID, 18),
-                   window(.session, LimitWindow.sessionID, 16)])
+            live: [window(.secondary, LimitWindow.weeklyID, 18),
+                   window(.primary, LimitWindow.sessionID, 16)])
         #expect(merged.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
     }
 
@@ -257,15 +257,15 @@ import Testing
     /// Before the first successful poll the live reading is all there is — which is what lets a cold
     /// start with no network show real numbers instead of "Loading…".
     @Test func withoutAPollTheLiveReadingStandsAlone() {
-        let live = [window(.session, LimitWindow.sessionID, 16)]
+        let live = [window(.primary, LimitWindow.sessionID, 16)]
         #expect(SourceMerge.merge(polled: [], live: live) == live)
     }
 
     /// A limit the poll has never reported still appears rather than being silently dropped.
     @Test func aLiveOnlyWindowIsAppendedRatherThanDiscarded() {
         let merged = SourceMerge.merge(
-            polled: [window(.session, LimitWindow.sessionID, 10)],
-            live: [window(.weekly, LimitWindow.weeklyID, 18)])
+            polled: [window(.primary, LimitWindow.sessionID, 10)],
+            live: [window(.secondary, LimitWindow.weeklyID, 18)])
         #expect(merged.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID])
     }
 
@@ -274,7 +274,7 @@ import Testing
     @Test func substitutionIsByIdentifierNotPosition() {
         let merged = SourceMerge.merge(
             polled: polled,
-            live: [window(.weeklyScoped, "scoped:Fable", 99)])
+            live: [window(.secondaryScoped, "scoped:Fable", 99)])
         #expect(merged.map(\.utilization) == [10, 20, 99])
     }
 }

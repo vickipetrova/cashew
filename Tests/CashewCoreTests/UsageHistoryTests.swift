@@ -17,7 +17,7 @@ import Testing
     }
 
     private func window(_ id: String, _ utilization: Double) -> LimitWindow {
-        LimitWindow(kind: .session, id: id, label: id, shortLabel: id, optionLabel: id,
+        LimitWindow(kind: .primary, id: id, label: id, shortLabel: id, optionLabel: id,
                     utilization: utilization, resetsAt: nil)
     }
 
@@ -90,7 +90,7 @@ import Testing
     // MARK: - The last good reading
 
     private func window(_ id: String, _ utilization: Double, resetsIn: TimeInterval?) -> LimitWindow {
-        LimitWindow(kind: .session, id: id, label: "SESSION · 5-HOUR", shortLabel: "Session",
+        LimitWindow(kind: .primary, id: id, label: "SESSION · 5-HOUR", shortLabel: "Session",
                     optionLabel: "Session (5h)", utilization: utilization,
                     resetsAt: resetsIn.map { now.addingTimeInterval($0) })
     }
@@ -174,7 +174,7 @@ import Testing
         history.record([window("session", 25)], at: now.addingTimeInterval(-30 * 60))
         history.record([window("session", 40)], at: now)
 
-        let forecast = Forecast.project(samples: history.samples(for: "session"), kind: .session,
+        let forecast = Forecast.project(samples: history.samples(for: "session"), kind: .primary,
                                         resetsAt: now.addingTimeInterval(3 * 60 * 60), now: now)
         #expect(forecast == .onPace(now.addingTimeInterval(120 * 60)))
     }

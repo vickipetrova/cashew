@@ -27,15 +27,20 @@ enum Forecast: Equatable {
 }
 
 extension Forecast {
-    /// How far back to look, by kind.
+    /// How far back to look, by rank.
     ///
-    /// A session window is five hours, so 90 minutes is long enough to smooth out a single burst and
-    /// short enough that a burst an hour ago still counts. A weekly window is 168 hours, where the
-    /// same reasoning lands on a day.
+    /// Claude's primary window is five hours, so 90 minutes is long enough to smooth out a single
+    /// burst and short enough that a burst an hour ago still counts. Its secondary window is 168
+    /// hours, where the same reasoning lands on a day.
+    ///
+    /// Keyed on rank rather than on a reported duration, which is a known approximation: a provider
+    /// whose primary window is much longer than five hours gets a lookback far too short to see
+    /// movement, and the `minimumMovementPoints` floor turns that into `.unknown` — quiet, not wrong.
+    /// Deriving this from a reported duration needs a real long-window response to fit against.
     static func trailingWindow(for kind: LimitWindow.Kind) -> TimeInterval {
         switch kind {
-        case .session: return 90 * 60
-        case .weekly, .weeklyScoped: return 24 * 60 * 60
+        case .primary: return 90 * 60
+        case .secondary, .secondaryScoped: return 24 * 60 * 60
         }
     }
 
@@ -121,17 +126,17 @@ extension Forecast {
 
     /// Whether this forecast should colour the menu bar percentage.
     ///
-    /// Weekly only, and on purpose: a session window refills every five hours, so being on pace for
-    /// one is normal and colouring it would make the title shout during ordinary work. A weekly
-    /// window is the one you cannot wait out.
+    /// Secondary windows only, and on purpose: a primary window refills quickly, so being on pace
+    /// for one is normal and colouring it would make the title shout during ordinary work. The
+    /// secondary window is the one you cannot wait out.
     ///
     /// Here rather than in `MenuController` because the controller can't be built in a test, and a
     /// rule that lives there is a rule with no coverage.
     static func tintsTitle(kind: LimitWindow.Kind, forecast: Forecast) -> Bool {
         guard case .onPace = forecast else { return false }
         switch kind {
-        case .weekly, .weeklyScoped: return true
-        case .session: return false
+        case .secondary, .secondaryScoped: return true
+        case .primary: return false
         }
     }
 }

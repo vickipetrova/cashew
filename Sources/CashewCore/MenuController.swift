@@ -20,7 +20,7 @@ enum TitleSelection {
         guard shown.isEmpty else { return shown }
         // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list is
         // no reason to show none of them.
-        return windows.first { $0.kind == .session }.map { [$0] } ?? Array(windows.prefix(1))
+        return windows.first { $0.kind == .primary }.map { [$0] } ?? Array(windows.prefix(1))
     }
 }
 
