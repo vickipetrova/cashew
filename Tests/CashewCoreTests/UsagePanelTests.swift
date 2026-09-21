@@ -447,4 +447,12 @@ import Testing
         let rows = PanelSections.rows(for: [failedEmpty], now: now)
         #expect(rows == [.error(.codex)])
     }
+
+    @Test func aHiddenProviderProducesNoRows() {
+        // Hiding removes the section, not just the heading — and with the other provider left
+        // alone, no heading either, because there is again only one section to tell apart.
+        let both = [snapshot(.claude, ["session"]), snapshot(.codex, ["primary"])]
+        let rows = PanelSections.rows(for: both, now: now, hidden: [.codex])
+        #expect(rows == [.usage(.claude, both[0].windows[0])])
+    }
 }

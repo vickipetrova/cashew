@@ -286,10 +286,25 @@ enum Backoff {
 /// Which providers to poll. Pure, because this rule silently went wrong once already: it lived only
 /// in AppDelegate, which no test can build.
 enum PollPlan {
-    /// The providers worth polling. When none has credentials, Claude is polled anyway so its
-    /// own sign-in copy has somewhere to render — an empty menu explains nothing.
-    static func providersToPoll(active: [ProviderID], all: [ProviderID]) -> [ProviderID] {
-        active.isEmpty ? all.filter { $0 == .claude } : active
+    /// The providers worth polling: detected, and not switched off.
+    ///
+    /// When that leaves nothing, Claude is polled anyway so its own sign-in copy has somewhere to
+    /// render — an empty menu explains nothing, which is the same reason the no-credentials
+    /// fallback exists.
+    static func providersToPoll(active: [ProviderID], all: [ProviderID],
+                                hidden: Set<ProviderID> = []) -> [ProviderID] {
+        let shown = active.filter { !hidden.contains($0) }
+        return shown.isEmpty ? all.filter { $0 == .claude } : shown
+    }
+
+    /// Which providers Settings offers a switch for: everything with credentials, full stop.
+    ///
+    /// Deliberately takes no `hidden` parameter — that omission is the point. `providersToPoll`
+    /// above excludes a hidden provider from what gets polled; feeding *that* output into the
+    /// Settings list instead of `active` would make the switch that turns a provider back on
+    /// disappear the moment it's turned off, with no way back short of a hand-edited plist.
+    static func detectedProviders(active: [ProviderID]) -> Set<ProviderID> {
+        Set(active)
     }
 }
 

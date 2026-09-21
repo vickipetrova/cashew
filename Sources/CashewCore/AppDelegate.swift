@@ -37,6 +37,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         Notifier.requestAuthorizationIfNeeded()
 
         restoreLastGoodReading()
+        pushDetectedProviders()
         refresh()
         reschedulePoll()
         startSessionTracking()
@@ -71,6 +72,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// alert threshold should be evaluated against current usage rather than at the next tick.
     private func settingsChanged() {
         Notifier.requestAuthorizationIfNeeded()
+        pushDetectedProviders()
         reschedulePoll()
         refresh()
     }
@@ -110,8 +112,20 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private func providersToPoll() -> [UsageProvider] {
         let activeIDs = activeProviders.map(\.id)
         let allIDs = providers.map(\.id)
-        let ids = PollPlan.providersToPoll(active: activeIDs, all: allIDs)
+        let ids = PollPlan.providersToPoll(active: activeIDs, all: allIDs,
+                                           hidden: Settings.hiddenProviders)
         return ids.compactMap { id in providers.first(where: { $0.id == id }) }
+    }
+
+    /// Tells the menu which providers are worth a Settings switch — credential presence alone,
+    /// never filtered by `hiddenProviders`. Hiding a provider stops it being polled, which would
+    /// otherwise make it vanish from `providersToPoll()`'s output; if the Settings list were built
+    /// from that instead of this, the switch that turns a hidden provider back on would disappear
+    /// along with it. Pushed wherever discovery could have changed, not on every poll — it costs a
+    /// credentials check per provider (a file read for Codex, a non-decrypting Keychain probe for
+    /// Claude), and nothing here needs it done more often than that.
+    private func pushDetectedProviders() {
+        menuController.update(detected: PollPlan.detectedProviders(active: activeProviders.map(\.id)))
     }
 
     /// Consecutive rate-limited replies, **per provider**. Reset by that provider's next success,

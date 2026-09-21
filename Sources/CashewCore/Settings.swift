@@ -46,6 +46,7 @@ enum Settings {
         static let allowHooksOutsideApplications = "allowHooksOutsideApplications"
         static let lastUpdateCheck = "lastUpdateCheck"
         static let knownRelease = "knownRelease"
+        static let hiddenProviders = "hiddenProviders"
     }
 
     /// Which limits appear in the menu bar title, by `LimitWindow.id`.
@@ -91,6 +92,30 @@ enum Settings {
     /// this setting stays two hovers away. The fallback was guarding a state that was never
     /// unreachable, at the cost of making a deliberate choice impossible to express.
     static func titleLimitIDs(toggling id: String, in current: Set<String>) -> Set<String> {
+        var next = current
+        if next.contains(id) { next.remove(id) } else { next.insert(id) }
+        return next
+    }
+
+    /// Providers the user has switched off, by `ProviderID.rawValue`.
+    ///
+    /// Stored as the hidden set rather than the shown set so that a provider added in a later
+    /// version appears by default — an allow-list would silently hide every future provider until
+    /// the user went looking for it.
+    ///
+    /// Unrecognised entries are dropped rather than trusted: a hand-edited plist, or a provider
+    /// removed in a later version, must not be able to take the app down.
+    static var hiddenProviders: Set<ProviderID> {
+        get {
+            let stored = defaults.array(forKey: Key.hiddenProviders) as? [String] ?? []
+            return Set(stored.compactMap(ProviderID.init(rawValue:)))
+        }
+        set { defaults.set(newValue.map(\.rawValue), forKey: Key.hiddenProviders) }
+    }
+
+    /// Pure, so the rule is testable without a menu.
+    static func hiddenProviders(toggling id: ProviderID,
+                                in current: Set<ProviderID>) -> Set<ProviderID> {
         var next = current
         if next.contains(id) { next.remove(id) } else { next.insert(id) }
         return next

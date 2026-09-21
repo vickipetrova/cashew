@@ -47,9 +47,14 @@ enum TitleGlyphs {
 /// Pure and separate from `MenuController` for the same reason `TitleSelection` is: the controller
 /// cannot be constructed in a test, so a rule that lives inside it is a rule with no coverage.
 enum PanelSections {
-    /// A snapshot worth drawing: it has something to show, or something to say about why it doesn't.
-    static func visible(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
-        snapshots.filter { !$0.displayable(now: now).isEmpty || $0.failure != nil }
+    /// A snapshot worth drawing: it has something to show, or something to say about why it
+    /// doesn't — and its provider hasn't been switched off in Settings.
+    static func visible(_ snapshots: [ProviderSnapshot], now: Date = Date(),
+                        hidden: Set<ProviderID> = []) -> [ProviderSnapshot] {
+        snapshots.filter {
+            !hidden.contains($0.provider)
+                && (!$0.displayable(now: now).isEmpty || $0.failure != nil)
+        }
     }
 
     /// One row of the dropdown's usage section, named by *what* it is rather than *how* it's drawn
@@ -70,8 +75,9 @@ enum PanelSections {
     /// `sections` and `needHeadings` are derived from one `visible(...)` call, not two independent
     /// ones each defaulting `now` to a fresh `Date()` — two clocks a freshness boundary could fall
     /// between would let the heading count disagree with the sections actually drawn.
-    static func rows(for snapshots: [ProviderSnapshot], now: Date = Date()) -> [Row] {
-        let sections = visible(snapshots, now: now)
+    static func rows(for snapshots: [ProviderSnapshot], now: Date = Date(),
+                     hidden: Set<ProviderID> = []) -> [Row] {
+        let sections = visible(snapshots, now: now, hidden: hidden)
         // Headings appear only once there is more than one section to tell apart, so a single
         // provider gets exactly the menu it had before providers were a concept — which is what
         // makes adding the second one a change the existing user never sees until it applies to
@@ -121,6 +127,11 @@ final class MenuController: NSObject, NSMenuDelegate {
     private let menu = NSMenu()
 
     private var snapshots: [ProviderSnapshot] = []
+    /// Which providers have credentials, independent of `snapshots` — which only ever holds what's
+    /// currently polled, and hiding a provider stops it being polled. Deriving the Settings list
+    /// from `snapshots` would make a hidden provider's own switch disappear the moment it's used,
+    /// with no way back short of a hand-edited plist. See `AppDelegate.pushDetectedProviders()`.
+    private var detected: Set<ProviderID> = []
     private var isMenuOpen = false
 
     /// Most urgent first (`SessionActivity` sorts them), so the first one decides the title.
@@ -190,6 +201,12 @@ final class MenuController: NSObject, NSMenuDelegate {
     func update(release: Release?) {
         availableRelease = release
         // Shape change (an item appears), so it shows on the next open, like any new row.
+    }
+
+    func update(detected: Set<ProviderID>) {
+        self.detected = detected
+        // Shape change (a Providers section, or a row in it, appears or disappears), so it shows
+        // on the next open, like `update(release:)` above.
     }
 
     /// One step of the working spark. Driven by `AppDelegate`'s fast timer, which only runs while a
@@ -397,7 +414,7 @@ final class MenuController: NSObject, NSMenuDelegate {
         // `PanelSections.rows` is empty exactly when no provider has anything to show and none has
         // failed either — `visible(...)`, which it's built from, always keeps a failed snapshot
         // regardless of its windows, so an empty plan can never hide an error.
-        let rows = PanelSections.rows(for: snapshots)
+        let rows = PanelSections.rows(for: snapshots, hidden: Settings.hiddenProviders)
 
         if rows.isEmpty {
             if snapshots.contains(where: { $0.updatedAt != nil }) {
@@ -465,6 +482,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     // so it stays put. That is the whole reason the switches are custom views — see `MenuToggle`.
 
     private enum Copy {
+        static let providersSection = "Providers"
         static let menuBarSection = "Menu Bar"
         static let alertsSection = "Alerts & Refresh"
         static let limitsHeader = "LIMITS SHOWN"
@@ -483,6 +501,9 @@ final class MenuController: NSObject, NSMenuDelegate {
         let submenu = NSMenu()
         submenu.autoenablesItems = false
 
+        if let providers = providerSettings() {
+            submenu.addItem(section(Copy.providersSection, providers))
+        }
         submenu.addItem(section(Copy.menuBarSection, menuBarSettings()))
         submenu.addItem(section(Copy.alertsSection, alertSettings()))
         submenu.addItem(section(SessionActivity.settingsHeading, claudeCodeSettings()))
@@ -524,6 +545,32 @@ final class MenuController: NSObject, NSMenuDelegate {
         item.isEnabled = true
         item.submenu = contents
         return item
+    }
+
+    /// One switch per *detected* provider, or nothing at all.
+    ///
+    /// Returns nil when fewer than two providers are detected: a section offering a single switch
+    /// that turns off the only thing the app can show is a way to break Cashew, not a preference.
+    /// A provider with no credentials is not listed — there is nothing to switch.
+    ///
+    /// Reads `detected`, not `snapshots` — see the note on `detected`'s declaration for why that
+    /// distinction is load-bearing rather than cosmetic.
+    private func providerSettings() -> NSMenu? {
+        guard detected.count > 1 else { return nil }
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        let hidden = Settings.hiddenProviders
+        for provider in ProviderID.allCases where detected.contains(provider) {
+            menu.addItem(SettingsRow.toggle(
+                "\(provider.sectionHeading.capitalized) (\(hidden.contains(provider) ? "off" : "on"))",
+                isOn: !hidden.contains(provider),
+                onToggle: { [weak self] _ in
+                    Settings.hiddenProviders = Settings.hiddenProviders(toggling: provider,
+                                                                        in: Settings.hiddenProviders)
+                    self?.onSettingsChanged?()
+                }))
+        }
+        return menu
     }
 
     /// What the menu bar item itself shows: which numbers, whether it talks, and how it looks.

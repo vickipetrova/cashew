@@ -77,6 +77,40 @@ import Testing
     @Test func withCredentialsOnlyTheDetectedProvidersArePolled() {
         #expect(PollPlan.providersToPoll(active: [.codex], all: [.claude, .codex]) == [.codex])
     }
+
+    @Test func aHiddenProviderIsNotPolled() {
+        // Hiding is not just a display choice: it stops the network call, so hiding Codex returns a
+        // Claude-only user to exactly the traffic they had before this feature existed.
+        #expect(PollPlan.providersToPoll(active: [.claude, .codex], all: [.claude, .codex],
+                                         hidden: [.codex]) == [.claude])
+    }
+
+    @Test func hidingEveryProviderStillPollsClaudeSoItsCopyRenders() {
+        // The same reason the no-credentials fallback exists: a blank menu explains nothing.
+        #expect(PollPlan.providersToPoll(active: [.claude], all: [.claude, .codex],
+                                         hidden: [.claude]) == [.claude])
+    }
+
+    /// The trap door this task's correction exists to close: `MenuController`'s Settings list has
+    /// to be built from credential *presence*, never from what's currently polled — because hiding
+    /// a provider removes it from the polled set, and a Settings list built from that would make
+    /// the very switch that could turn it back on disappear the moment it's used.
+    ///
+    /// `MenuController` can't be constructed in a test, so this asserts the rule where it actually
+    /// lives: `PollPlan.detectedProviders` takes no `hidden` parameter at all — it structurally
+    /// cannot filter by it — while `PollPlan.providersToPoll` does, and the two diverge on exactly
+    /// the input that matters: a detected-but-hidden provider.
+    @Test func detectedProvidersDoNotShrinkWhenAProviderIsHiddenUnlikePolledProviders() {
+        let active: [ProviderID] = [.claude, .codex]
+        let hidden: Set<ProviderID> = [.codex]
+
+        let detected = PollPlan.detectedProviders(active: active)
+        let polled = PollPlan.providersToPoll(active: active, all: active, hidden: hidden)
+
+        #expect(detected == [.claude, .codex])
+        #expect(polled == [.claude])
+        #expect(!detected.subtracting(polled).isEmpty)
+    }
 }
 
 /// Which readings are still worth putting on screen.
