@@ -1,5 +1,4 @@
 import Foundation
-import CashewShared
 
 /// Finds the token `codex login` already wrote, so Cashew needs no setup of its own.
 ///
@@ -17,6 +16,10 @@ enum CodexCredentials {
         let accountID: String
     }
 
+    /// This changes when `CODEX_HOME` is set — the whole Codex state directory moves, `auth.json`
+    /// with it — so those users will see "no Codex login found". Not chased: an app launched from
+    /// Finder can't see the CLI's environment anyway. It is called out in
+    /// `docs/TROUBLESHOOTING.md`.
     private static let path = "~/.codex/auth.json"
 
     private static var expandedPath: String { (path as NSString).expandingTildeInPath }
