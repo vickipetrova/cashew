@@ -12,3 +12,7 @@ claude-usage-bar.zip
 
 # Master screen recording behind assets/cashew.gif; see assets/README.md
 cashew-demo.mp4
+
+# Subagent-driven-development scratch: ledgers, briefs, review packages.
+# Per-plan working state, not a record — git history is the record.
+.superpowers/
