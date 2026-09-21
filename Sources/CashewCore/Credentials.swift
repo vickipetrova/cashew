@@ -189,23 +189,33 @@ enum Credentials {
         [file, keychain].contains { $0 != .absent }
     }
 
-    /// Does the Keychain item exist, without decrypting it?
+    /// The presence probe's query, lifted out of the call below so a test can read it.
     ///
     /// `kSecReturnAttributes` without `kSecReturnData` asks securityd for metadata only, which does
     /// not evaluate the item's decrypt ACL and therefore cannot raise the permission prompt. That
-    /// matters more than it looks: discovery runs on every launch, and a discovery check that
-    /// prompted would be worse than having no discovery at all.
+    /// matters more than it looks: discovery runs on every launch, on the main thread, for the one
+    /// item every Keychain-only user has, and a discovery check that prompted would be worse than
+    /// having no discovery at all.
     ///
-    /// Never called from a test — it reads the real login Keychain. CI greps for it.
-    static func keychainItemExists() -> Bool {
-        let query: [String: Any] = [
+    /// The property exists because the guarantee was unenforced: the code was right and nothing
+    /// failed if a later edit added `kSecReturnData` to it. CI keeps tests away from the probe
+    /// itself, which stops a test reaching a real login — a different promise, and not this one.
+    static var keychainPresenceQuery: [String: Any] {
+        [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecReturnAttributes as String: true,
             kSecMatchLimit as String: kSecMatchLimitOne,
         ]
+    }
+
+    /// Does the Keychain item exist, without decrypting it? See `keychainPresenceQuery` for why the
+    /// query is shaped the way it is.
+    ///
+    /// Never called from a test — it reads the real login Keychain. CI greps for it.
+    static func keychainItemExists() -> Bool {
         var result: CFTypeRef?
-        switch SecItemCopyMatching(query as CFDictionary, &result) {
+        switch SecItemCopyMatching(keychainPresenceQuery as CFDictionary, &result) {
         case errSecSuccess: return true
         case errSecItemNotFound: return false
         // Anything else — including a denial — means something is there that we could not read.

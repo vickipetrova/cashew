@@ -1,4 +1,5 @@
 import Foundation
+import Security
 import Testing
 
 @testable import CashewCore
@@ -163,5 +164,25 @@ import Testing
         // Treating it as absent would hide the provider and with it the one error message that
         // tells the user how to fix it.
         #expect(Credentials.exists(file: .absent, keychain: .accessDenied))
+    }
+
+    /// The probe's query, read rather than run: asking for the item's *data* would evaluate its
+    /// decrypt ACL, and Claude Code creates its item without `-A`/`-T`, so securityd would put a
+    /// modal permission prompt on screen — on the main thread, at every launch, for the one item
+    /// every Keychain-only user has. A discovery check that prompts is worse than no discovery at
+    /// all, and until this test the rule was only ever a comment.
+    ///
+    /// Reading the dictionary is not calling the probe: nothing here reaches `SecItemCopyMatching`
+    /// or any real login.
+    @Test func thePresenceProbeAsksForAttributesAndNeverForData() {
+        let query = Credentials.keychainPresenceQuery
+        #expect(query[kSecReturnData as String] == nil)
+        #expect(query[kSecReturnAttributes as String] as? Bool == true)
+        // The rest of the shape, so a query that stopped being a presence check — asking for every
+        // match, or for the wrong class — is caught by the same test.
+        #expect(query[kSecClass as String] as? String == kSecClassGenericPassword as String)
+        #expect(query[kSecMatchLimit as String] as? String == kSecMatchLimitOne as String)
+        #expect(query[kSecReturnRef as String] == nil)
+        #expect(query[kSecReturnPersistentRef as String] == nil)
     }
 }
