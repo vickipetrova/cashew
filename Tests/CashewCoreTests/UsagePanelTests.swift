@@ -303,15 +303,22 @@ import Testing
     }
 
     /// The per-section-fallback trap. Claude's window is selected and present, so nothing is
-    /// "missing" — Codex must contribute nothing, not its primary window.
+    /// "missing" — Codex must contribute nothing, not its primary window. The two windows carry
+    /// distinguishable labels rather than sharing every field, so the assertion can tell *whose*
+    /// window came back rather than merely counting how many did — a count alone can't catch a
+    /// per-section fallback that swaps Claude's window for Codex's same-shaped one.
     @Test func aSelectionFromOneProviderDoesNotPullInAnothersFallback() {
-        let sections = [(provider: ProviderID.claude,
-                         windows: [window(.primary, LimitWindow.sessionID)]),
-                        (provider: ProviderID.codex,
-                         windows: [window(.primary, "session")])]
+        let claudeWindow = LimitWindow(kind: .primary, id: LimitWindow.sessionID, label: "claude",
+                                       shortLabel: "claude", optionLabel: "claude", utilization: 11,
+                                       resetsAt: nil)
+        let codexWindow = LimitWindow(kind: .primary, id: "session", label: "codex",
+                                      shortLabel: "codex", optionLabel: "codex", utilization: 22,
+                                      resetsAt: nil)
+        let sections = [(provider: ProviderID.claude, windows: [claudeWindow]),
+                        (provider: ProviderID.codex, windows: [codexWindow])]
         let shown = TitleSelection.windows(
             from: sections, selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
-        #expect(shown.count == 1)
+        #expect(shown.map(\.label) == ["claude"])
     }
 }
 
@@ -332,7 +339,7 @@ import Testing
                 LimitWindow(kind: .primary, id: $0, label: $0.uppercased(), shortLabel: $0,
                             optionLabel: $0, utilization: 10, resetsAt: nil)
             },
-            updatedAt: Date(timeIntervalSince1970: 1_000_000), failure: nil)
+            updatedAt: now, failure: nil)
     }
 
     @Test func oneProviderGetsNoHeading() {
@@ -357,5 +364,43 @@ import Testing
     @Test func headingsNameTheProvider() {
         #expect(ProviderID.claude.sectionHeading == "CLAUDE")
         #expect(ProviderID.codex.sectionHeading == "CODEX")
+    }
+
+    // MARK: - Row plan
+
+    /// The baseline: one provider, no failure, today's menu exactly.
+    @Test func oneProviderWithWindowsProducesNoHeadingAndNoSeparator() {
+        let single = snapshot(.claude, ["session"])
+        let rows = PanelSections.rows(for: [single], now: now)
+        #expect(rows == single.windows.map { .usage(.claude, $0) })
+    }
+
+    /// Pins the regression: a provider whose numbers are still on screen but whose last poll
+    /// failed gets a separator before its error row, not the error text butted straight against
+    /// the usage rows. Lost once already when the ordering rule lived inline in `rebuild()`.
+    @Test func aFailureAfterWindowsGetsASeparatorBeforeTheErrorRow() {
+        let failed = ProviderSnapshot(provider: .claude, windows: snapshot(.claude, ["session"]).windows,
+                                      updatedAt: now, failure: UsageError.badResponse)
+        let rows = PanelSections.rows(for: [failed], now: now)
+        #expect(rows == [.usage(.claude, failed.windows[0]), .separator, .error(.claude)])
+    }
+
+    @Test func twoProvidersProduceHeadingRowsSeparatorHeadingRows() {
+        let claude = snapshot(.claude, ["session"])
+        let codex = snapshot(.codex, ["session"])
+        let rows = PanelSections.rows(for: [claude, codex], now: now)
+        #expect(rows == [.heading(.claude), .usage(.claude, claude.windows[0]),
+                         .separator,
+                         .heading(.codex), .usage(.codex, codex.windows[0])])
+    }
+
+    /// A provider that has nothing but a failure — no windows ever came back, or none survived
+    /// `Freshness` — still gets its error row. There is no data above it to separate from, so no
+    /// separator precedes it.
+    @Test func aFailureWithNoDisplayableWindowsStillProducesItsErrorRow() {
+        let failedEmpty = ProviderSnapshot(provider: .codex, windows: [], updatedAt: nil,
+                                           failure: UsageError.badResponse)
+        let rows = PanelSections.rows(for: [failedEmpty], now: now)
+        #expect(rows == [.error(.codex)])
     }
 }

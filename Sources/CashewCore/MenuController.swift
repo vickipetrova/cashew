@@ -48,6 +48,47 @@ enum PanelSections {
     static func headingsNeeded(for snapshots: [ProviderSnapshot], now: Date = Date()) -> Bool {
         visible(snapshots, now: now).count > 1
     }
+
+    /// One row of the dropdown's usage section, named by *what* it is rather than *how* it's drawn
+    /// — `rebuild()` is the only place that knows an `NSMenuItem` exists.
+    enum Row: Equatable {
+        case separator
+        case heading(ProviderID)
+        case usage(ProviderID, LimitWindow)
+        case error(ProviderID)
+    }
+
+    /// The row sequence for one dropdown, as a plan rather than as side effects on an `NSMenu`.
+    ///
+    /// Pure so the ordering rule is assertable — it used to live inline in `rebuild()`, which no
+    /// test can reach, and that is exactly how the separator between a section's usage rows and its
+    /// error row went missing without a single test failing.
+    ///
+    /// `sections` and `needHeadings` are derived from one `visible(...)` call, not two independent
+    /// ones each defaulting `now` to a fresh `Date()` — two clocks a freshness boundary could fall
+    /// between would let the heading count disagree with the sections actually drawn.
+    static func rows(for snapshots: [ProviderSnapshot], now: Date = Date()) -> [Row] {
+        let sections = visible(snapshots, now: now)
+        let needHeadings = sections.count > 1
+        var rows: [Row] = []
+        for (index, section) in sections.enumerated() {
+            // A rule between providers, but never between the rows inside one: a line between every
+            // usage row made three windows look like three unrelated panels stacked up. Between
+            // providers it divides genuinely different things, which is what separators are for.
+            if index > 0 { rows.append(.separator) }
+            if needHeadings { rows.append(.heading(section.provider)) }
+            let windows = section.displayable(now: now)
+            for window in windows { rows.append(.usage(section.provider, window)) }
+            if section.failure != nil {
+                // Divides *kinds* of thing — data from an error — so it only earns its place when
+                // there is data above it to divide from. A provider with nothing but a failure has
+                // no usage rows here, and its error row is the section's entire content.
+                if !windows.isEmpty { rows.append(.separator) }
+                rows.append(.error(section.provider))
+            }
+        }
+        return rows
+    }
 }
 
 /// Owns the status item: the title in the menu bar and the dropdown behind it.
@@ -307,9 +348,21 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Recomputed on each render rather than cached with the window: the live rows re-run on every
     /// 60-second tick, and a forecast pinned at build time would keep naming a hit date the newest
     /// samples had already moved — the same trap that made held-open countdowns go stale.
-    private func forecast(for window: LimitWindow) -> Forecast {
-        Forecast.project(samples: history.samples(for: window.id, provider: provider(of: window)),
+    ///
+    /// Takes the provider directly: both providers can name a window `"session"`, and looking the
+    /// provider up by id alone would forecast a Codex row from Claude's history the moment the two
+    /// collide — the exact cross-provider mixup `ProviderID.qualify` exists to prevent.
+    private func forecast(for window: LimitWindow, provider: ProviderID) -> Forecast {
+        Forecast.project(samples: history.samples(for: window.id, provider: provider),
                          kind: window.kind, resetsAt: window.resetsAt, now: Date())
+    }
+
+    /// `renderTitle`'s call is the one caller with no provider in hand — the title flattens every
+    /// section's windows together before picking which to show, so a window's provider has to be
+    /// re-derived here. That is the only reason `provider(of:)` survives; every other caller already
+    /// has the provider from the section it came from and passes it straight to the overload above.
+    private func forecast(for window: LimitWindow) -> Forecast {
+        forecast(for: window, provider: provider(of: window))
     }
 
     private func percentage(of window: LimitWindow?, mode: Settings.ColorMode,
@@ -346,18 +399,13 @@ final class MenuController: NSObject, NSMenuDelegate {
         liveRows.removeAll()
         menu.removeAllItems()
 
-        let sections = PanelSections.visible(snapshots)
-        let needHeadings = PanelSections.headingsNeeded(for: snapshots)
+        // `PanelSections.rows` is empty exactly when no provider has anything to show and none has
+        // failed either — `visible(...)`, which it's built from, always keeps a failed snapshot
+        // regardless of its windows, so an empty plan can never hide an error.
+        let rows = PanelSections.rows(for: snapshots)
 
-        if sections.isEmpty {
-            if snapshots.contains(where: { $0.failure != nil }) {
-                menu.addItem(textRow { [weak self] in
-                    guard let self,
-                          let failed = self.snapshots.first(where: { $0.failure != nil }),
-                          let error = failed.failure else { return nil }
-                    return self.message(for: error, in: failed)
-                })
-            } else if snapshots.contains(where: { $0.updatedAt != nil }) {
+        if rows.isEmpty {
+            if snapshots.contains(where: { $0.updatedAt != nil }) {
                 menu.addItem(textRow {
                     """
                     No plan limits reported for this account. Pro and Max plans have session and \
@@ -368,18 +416,12 @@ final class MenuController: NSObject, NSMenuDelegate {
                 menu.addItem(textRow { "Loading…" })
             }
         } else {
-            for (index, section) in sections.enumerated() {
-                // A rule between providers, but never between the rows inside one: a line between
-                // every usage row made three windows look like three unrelated panels stacked up.
-                // Between providers it divides genuinely different things, which is what separators
-                // are for here.
-                if index > 0 { menu.addItem(.separator()) }
-                if needHeadings { menu.addItem(headingRow(section.provider.sectionHeading)) }
-                for window in section.displayable() {
-                    menu.addItem(usageRow(for: window, provider: section.provider))
-                }
-                if section.failure != nil {
-                    menu.addItem(errorRow(for: section.provider))
+            for row in rows {
+                switch row {
+                case .separator: menu.addItem(.separator())
+                case .heading(let provider): menu.addItem(headingRow(provider.sectionHeading))
+                case .usage(let provider, let window): menu.addItem(usageRow(for: window, provider: provider))
+                case .error(let provider): menu.addItem(errorRow(for: provider))
                 }
             }
         }
@@ -513,14 +555,14 @@ final class MenuController: NSObject, NSMenuDelegate {
             let rendered = Set(shown.compactMap { window in
                 sections.first { $0.windows.contains(window) }.map { $0.provider.qualify(window.id) }
             })
-            for section in snapshots {
-                for window in section.windows {
+            for snapshot in snapshots {
+                for window in snapshot.windows {
                     let item = action(window.optionLabel,
                                       key: "", selector: #selector(toggleTitleLimit(_:)))
                     // The id goes in `representedObject`, not `tag`: tags are Int and these are
                     // strings, and a positional tag would break the moment the response reorders.
                     // Qualified by provider, to match what `Settings.titleLimitIDs` actually stores.
-                    let qualifiedID = section.provider.qualify(window.id)
+                    let qualifiedID = snapshot.provider.qualify(window.id)
                     item.representedObject = qualifiedID
                     if selected.contains(qualifiedID) { item.state = .on }
                     else if rendered.contains(qualifiedID) { item.state = .mixed }
@@ -714,11 +756,12 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// relabels windows still finds the right one.
     private func usageRow(for window: LimitWindow, provider: ProviderID) -> NSMenuItem {
         let id = window.id
-        let row = UsageRow(window, mode: Settings.colorMode, forecast: forecast(for: window))
+        let row = UsageRow(window, mode: Settings.colorMode, forecast: forecast(for: window, provider: provider))
         let hosted = HostedRow(UsageRowView(row: row), title: row.spoken)
         liveRows.append(LiveRow { [weak self] in
             guard let self, let window = self.window(id: id, provider: provider) else { return }
-            let row = UsageRow(window, mode: Settings.colorMode, forecast: self.forecast(for: window))
+            let row = UsageRow(window, mode: Settings.colorMode,
+                               forecast: self.forecast(for: window, provider: provider))
             // `update` re-measures, which this row now depends on rather than merely tolerating: the
             // pace line appears and disappears, so the row's height is no longer constant.
             hosted.update(UsageRowView(row: row), title: row.spoken)
