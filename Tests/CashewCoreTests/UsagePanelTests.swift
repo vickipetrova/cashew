@@ -238,7 +238,7 @@ import Testing
     @Test func rendersOnlyTheSelectedLimits() {
         let shown = TitleSelection.windows(
             from: sections(all), selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
-        #expect(shown.map(\.id) == [LimitWindow.sessionID])
+        #expect(shown.map(\.window.id) == [LimitWindow.sessionID])
     }
 
     /// Order comes from the response, not from the order the user ticked boxes in.
@@ -247,7 +247,7 @@ import Testing
             from: sections(all), selection: [ProviderID.claude.qualify("scoped:Fable"),
                                              ProviderID.claude.qualify(LimitWindow.sessionID),
                                              ProviderID.claude.qualify(LimitWindow.weeklyID)])
-        #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
+        #expect(shown.map(\.window.id) == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
     }
 
     /// A scope the user picked that the response no longer reports is simply not rendered — no gap,
@@ -256,7 +256,7 @@ import Testing
         let shown = TitleSelection.windows(
             from: sections(all), selection: [ProviderID.claude.qualify(LimitWindow.sessionID),
                                              ProviderID.claude.qualify("scoped:GoneAway")])
-        #expect(shown.map(\.id) == [LimitWindow.sessionID])
+        #expect(shown.map(\.window.id) == [LimitWindow.sessionID])
     }
 
     /// Choosing nothing is not the same as choosing something that went missing, and this is the
@@ -273,14 +273,14 @@ import Testing
         let shown = TitleSelection.windows(
             from: sections(all), selection: [ProviderID.claude.qualify("scoped:GoneAway"),
                                              ProviderID.claude.qualify("alsoGone")])
-        #expect(shown.map(\.id) == [LimitWindow.sessionID])
+        #expect(shown.map(\.window.id) == [LimitWindow.sessionID])
     }
 
     /// …and if even the session window is absent, show whatever came first rather than nothing.
     @Test func withoutASessionWindowItFallsBackToTheFirstReported() {
         let weeklyOnly = [window(.secondary, LimitWindow.weeklyID)]
         #expect(TitleSelection.windows(from: sections(weeklyOnly),
-                                       selection: [ProviderID.claude.qualify("nothing")]).map(\.id)
+                                       selection: [ProviderID.claude.qualify("nothing")]).map(\.window.id)
             == [LimitWindow.weeklyID])
     }
 
@@ -299,7 +299,7 @@ import Testing
                    window(.secondaryScoped, "scoped:Fable")]
         let shown = TitleSelection.windows(from: sections(all),
                                            selection: Settings.defaultTitleLimitIDs)
-        #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID])
+        #expect(shown.map(\.window.id) == [LimitWindow.sessionID, LimitWindow.weeklyID])
     }
 
     /// The per-section-fallback trap. Claude's window is selected and present, so nothing is
@@ -318,7 +318,33 @@ import Testing
                         (provider: ProviderID.codex, windows: [codexWindow])]
         let shown = TitleSelection.windows(
             from: sections, selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
-        #expect(shown.map(\.label) == ["claude"])
+        #expect(shown.map(\.window.label) == ["claude"])
+    }
+
+    @Test func selectionCarriesEachWindowsProvider() {
+        // A bare LimitWindow cannot say which product it came from, so the title could not mark it
+        // and LIMITS SHOWN had to guess by value equality.
+        let sections = [(provider: ProviderID.claude, windows: [window(.primary, "session")]),
+                        (provider: ProviderID.codex, windows: [window(.primary, "primary")])]
+        let shown = TitleSelection.windows(
+            from: sections,
+            selection: [ProviderID.claude.qualify("session"), ProviderID.codex.qualify("primary")])
+        #expect(shown.map(\.provider) == [.claude, .codex])
+        #expect(shown.map(\.window.id) == ["session", "primary"])
+    }
+
+    @Test func theGlyphAppearsOnlyWhenMoreThanOneProviderIsShown() {
+        // The rule the user picked: a single-provider title is exactly today's title.
+        #expect(TitleGlyphs.needed(for: [.claude]) == false)
+        #expect(TitleGlyphs.needed(for: [.claude, .claude]) == false)
+        #expect(TitleGlyphs.needed(for: [.claude, .codex]))
+    }
+
+    @Test func everyProviderHasADistinctGlyph() {
+        // Two providers sharing a glyph would be worse than none — it would look like one product.
+        let glyphs = ProviderID.allCases.map(\.titleGlyph)
+        #expect(Set(glyphs).count == glyphs.count)
+        #expect(glyphs.allSatisfy { !$0.isEmpty })
     }
 }
 

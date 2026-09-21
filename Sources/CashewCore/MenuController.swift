@@ -11,22 +11,34 @@ enum TitleSelection {
     /// picked. Sections rather than a flat list, because the stored selection is qualified by
     /// provider and a bare `LimitWindow` does not know which provider it came from.
     static func windows(from sections: [(provider: ProviderID, windows: [LimitWindow])],
-                        selection: Set<String>) -> [LimitWindow] {
+                        selection: Set<String>)
+        -> [(provider: ProviderID, window: LimitWindow)] {
         // Choosing nothing is a real choice, and it has to be told apart from choosing something
         // that has since gone missing — the fallback below must not fire for it, or unchecking the
         // last limit would silently put a number back.
         guard !selection.isEmpty else { return [] }
         // Order comes from the response within a section, and from section order across them.
         let shown = sections.flatMap { section in
-            section.windows.filter { selection.contains(section.provider.qualify($0.id)) }
+            section.windows
+                .filter { selection.contains(section.provider.qualify($0.id)) }
+                .map { (provider: section.provider, window: $0) }
         }
         guard shown.isEmpty else { return shown }
-        // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list
-        // is no reason to show none of them. Global, not per-section: a per-section fallback would
+        // Everything chosen has gone missing. Global, not per-section: a per-section fallback would
         // put an unselected provider's window in the title purely because that provider happened to
         // report something.
-        let all = sections.flatMap(\.windows)
-        return all.first { $0.kind == .primary }.map { [$0] } ?? Array(all.prefix(1))
+        let all = sections.flatMap { s in s.windows.map { (provider: s.provider, window: $0) } }
+        return all.first { $0.window.kind == .primary }.map { [$0] } ?? Array(all.prefix(1))
+    }
+}
+
+/// Whether the menu bar needs to say which provider a percentage belongs to.
+///
+/// Pure and separate for the same reason `TitleSelection` is: `MenuController` cannot be built in a
+/// test, and a rule that lives there is a rule with no coverage.
+enum TitleGlyphs {
+    static func needed(for providers: [ProviderID]) -> Bool {
+        Set(providers).count > 1
     }
 }
 
@@ -285,14 +297,28 @@ final class MenuController: NSObject, NSMenuDelegate {
                 .foregroundColor: NSColor.labelColor,
             ]))
         }
-        for (index, window) in titleWindows().enumerated() {
+        let shown = titleWindows()
+        let glyphed = TitleGlyphs.needed(for: shown.map(\.provider))
+        var lastProvider: ProviderID?
+        for (index, entry) in shown.enumerated() {
             if index > 0 {
-                title.append(NSAttributedString(string: " · ", attributes: [
+                // A wider gap between providers than between one provider's own windows, so the
+                // grouping reads without a second separator character doing the work.
+                let gap = entry.provider == lastProvider ? " · " : "  "
+                title.append(NSAttributedString(string: gap, attributes: [
                     .foregroundColor: NSColor.secondaryLabelColor,
                 ]))
             }
-            let tinted = Forecast.tintsTitle(kind: window.kind, forecast: forecast(for: window))
-            title.append(percentage(of: window, mode: mode, onPace: tinted))
+            if glyphed, entry.provider != lastProvider {
+                title.append(NSAttributedString(string: "\(entry.provider.titleGlyph) ", attributes: [
+                    .foregroundColor: NSColor.secondaryLabelColor,
+                ]))
+            }
+            let tinted = Forecast.tintsTitle(kind: entry.window.kind,
+                                             forecast: forecast(for: entry.window,
+                                                                provider: entry.provider))
+            title.append(percentage(of: entry.window, mode: mode, onPace: tinted))
+            lastProvider = entry.provider
         }
         button.attributedTitle = title
     }
@@ -313,16 +339,11 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// its provider while the selection set is stored qualified. Now that snapshots carry the
     /// provider, the bridge is replaced — a hardcoded `.claude` here would make every Codex window
     /// permanently unselectable.
-    private func titleWindows() -> [LimitWindow] {
+    private func titleWindows() -> [(provider: ProviderID, window: LimitWindow)] {
         let now = Date()
         let sections = PanelSections.visible(snapshots, now: now)
             .map { (provider: $0.provider, windows: $0.displayable(now: now)) }
         return TitleSelection.windows(from: sections, selection: Settings.titleLimitIDs)
-    }
-
-    /// The provider a window belongs to, for keying its history and its selection entry.
-    private func provider(of window: LimitWindow) -> ProviderID {
-        snapshots.first { $0.windows.contains(where: { $0.id == window.id }) }?.provider ?? .claude
     }
 
     /// Where this window is heading, from the samples recorded so far.
@@ -337,14 +358,6 @@ final class MenuController: NSObject, NSMenuDelegate {
     private func forecast(for window: LimitWindow, provider: ProviderID) -> Forecast {
         Forecast.project(samples: history.samples(for: window.id, provider: provider),
                          kind: window.kind, resetsAt: window.resetsAt, now: Date())
-    }
-
-    /// `renderTitle`'s call is the one caller with no provider in hand — the title flattens every
-    /// section's windows together before picking which to show, so a window's provider has to be
-    /// re-derived here. That is the only reason `provider(of:)` survives; every other caller already
-    /// has the provider from the section it came from and passes it straight to the overload above.
-    private func forecast(for window: LimitWindow) -> Forecast {
-        forecast(for: window, provider: provider(of: window))
     }
 
     private func percentage(of window: LimitWindow?, mode: Settings.ColorMode,
@@ -533,10 +546,8 @@ final class MenuController: NSObject, NSMenuDelegate {
             //
             // Qualified by provider, not just by id: two providers can both report a "session"
             // window, and an unqualified set would mark the wrong one `.mixed`.
-            let shown = TitleSelection.windows(from: sections, selection: selected)
-            let rendered = Set(shown.compactMap { window in
-                sections.first { $0.windows.contains(window) }.map { $0.provider.qualify(window.id) }
-            })
+            let rendered = Set(TitleSelection.windows(from: sections, selection: selected)
+                .map { $0.provider.qualify($0.window.id) })
             for snapshot in snapshots {
                 for window in snapshot.windows {
                     let item = action(window.optionLabel,

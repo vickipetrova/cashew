@@ -30,6 +30,18 @@ enum ProviderID: String, Codable, CaseIterable {
         case .codex: return "CODEX"
         }
     }
+
+    /// The mark that tells two providers' percentages apart in the menu bar.
+    ///
+    /// Only drawn when more than one provider's limits are selected — see `TitleGlyphs.needed`.
+    /// With one provider the title is exactly what it was before providers were a concept, which is
+    /// the whole reason the rule is conditional rather than always-on.
+    var titleGlyph: String {
+        switch self {
+        case .claude: return "✻"
+        case .codex: return "◆"
+        }
+    }
 }
 
 /// One rate-limit window, described in terms no single vendor owns.
