@@ -41,6 +41,8 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/UsageAPI.swift` | `LimitWindow` model, `ProviderID` (identity, storage-key qualification, dropdown section heading) and `ProviderSnapshot` (one provider's windows, its own `updatedAt` and failure), `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
 | `Sources/CashewCore/RefuseRedirects.swift` | The redirect policy both sessions install. Its own file so the two can't drift — the update check spent its whole life following redirects while the usage session refused them |
 | `Sources/CashewCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
+| `Sources/CashewCore/CodexCredentials.swift` | Finds the token `codex login` already wrote, at `~/.codex/auth.json`. One store, so none of `Credentials`' ranking applies — read-only, never written, never cached |
+| `Sources/CashewCore/CodexProvider.swift` | Codex usage, read from `chatgpt.com/backend-api/codex/usage`. Same defensive-parsing contract as `ClaudeProvider`, plus two hazards of its own — see the response shape section below |
 | `Sources/CashewCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
 | `Sources/CashewCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/CashewCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
@@ -164,6 +166,35 @@ Values are also clamped to 0–100 and checked for finiteness, because `Fmt.pct`
 that traps on infinity or anything past `Int`'s range. `scope.model.display_name` is server-controlled
 and lands in a menu label, a notification title *and* a `UserDefaults` key, so it is trimmed,
 flattened, length-capped, and rejected when empty.
+
+### Codex's response shape
+
+`CodexProvider.windows(in:)` reads `rate_limit.primary_window` and `rate_limit.secondary_window` —
+the same undocumented-and-drifting contract as Claude's, so hard rule 3 applies in full and
+`secondary_window: null` is read as "this plan doesn't have one" rather than a fault; it is every
+free plan's response. Two hazards specific to Codex:
+
+- **`reset_at` is epoch *seconds*, and Claude's `expiresAt` two files over in `Credentials.swift` is
+  epoch *milliseconds*.** Both are bare numbers that parse without complaint at the wrong scale, and
+  now that the two coexist in one codebase, a helper written against one and reused against the
+  other would be silently off by 1000x. `UsageJSON.date` accepts Codex's raw-number seconds or
+  Claude's ISO8601 string, never assumes which, and bounds the result to roughly 1970±200 years so a
+  value read at the wrong scale drops the field instead of landing on a nonsense date.
+- **The section label is derived from `limit_window_seconds`, not hardcoded, because the cadence is
+  plan-dependent.** Claude gets away with a literal `"WEEKLY"` because its window is fixed; Codex's
+  primary window is 30 days on a free plan and a matter of hours on paid, in the same field, so
+  `CodexProvider.windowLabel` turns the reported duration into `"30-DAY"`, `"5-HOUR"`, or `"WEEKLY"`
+  for the one case that lands on exactly seven days — never a label chosen ahead of time.
+
+`Settings.hiddenProviders` stores which detected providers the user switched off in **Settings ›
+Providers**, as a `Set<ProviderID>` in `UserDefaults`. It exists because detection and display are
+different questions: a provider with credentials on disk is still *detected* even after the user
+hides it — the switch that turns it back on has to keep appearing — but hidden means excluded from
+polling (`PollPlan.providersToPoll`), from the dropdown (`PanelSections.visible`), from the menu bar
+title and its fallback chip, and from the "how old is this" age `MenuController.refreshRow()` reads.
+Every one of those reads `MenuController.unhiddenSnapshots`, not raw `snapshots`, for the same reason:
+a hidden provider's own failed or stale poll must never be what shows up on screen for a product the
+user turned off.
 
 ## Why the dropdown's rows are custom views
 

@@ -916,7 +916,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Registered as a live row so the age keeps counting up while the menu is held open.
     private func refreshRow() -> NSMenuItem {
         let title = { [weak self] in
-            "Refresh Now (\(Fmt.age(of: self?.snapshots.compactMap(\.updatedAt).max())))"
+            "Refresh Now (\(Fmt.age(of: self?.unhiddenSnapshots.compactMap(\.updatedAt).max())))"
         }
         let item = action(title(), key: "r", selector: #selector(refreshClicked))
         liveRows.append(LiveRow { item.title = title() })

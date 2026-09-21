@@ -23,7 +23,12 @@ The Keychain read goes through `Security.framework` in-process (`SecItemCopyMatc
 shelling out to `/usr/bin/security` — so the token never crosses a pipe or appears in any
 subprocess's output.
 
-Cashew reads the token fresh for each request and drops it. It never caches it, writes it to
+If you have Codex installed and signed in, Cashew also reads the access token `codex login` already
+wrote, from `~/.codex/auth.json`. One file, no Keychain entry, no ranking to do — Codex keeps
+nothing else Cashew could shadow or prefer. **Cashew never writes this file**, never runs `codex`,
+and never touches the refresh token or id token sitting next to the access token in it.
+
+Cashew reads each token fresh for each request and drops it. It never caches it, writes it to
 disk, or copies it anywhere. Nothing in the source prints or logs it, and CI fails the build if a
 `print`/`NSLog` mentioning a token appears in `Sources/`.
 
@@ -54,14 +59,18 @@ One usage endpoint per provider it detects credentials for, plus one more:
 
 ```
 GET https://api.anthropic.com/api/oauth/usage                          (with your token)
+GET https://chatgpt.com/backend-api/codex/usage                        (with your token, if ~/.codex/auth.json exists)
 GET https://api.github.com/repos/vickipetrova/cashew/releases/latest   (no token, at most once a day)
 ```
 
 Each provider declares its single host, and Cashew only contacts a provider whose credentials it
 found — so if Claude Code is the only one you have installed, this is exactly the traffic it has
-always sent, unchanged. The second line above is the update check. It carries no token, cookie or identifier beyond a
-`User-Agent: Cashew/<version>` header, never downloads anything, and can be turned off under
-Settings. No telemetry, no analytics, no crash reporting, no third-party services.
+always sent, unchanged, and `chatgpt.com` is never contacted at all unless `~/.codex/auth.json` is
+there to read. Switching a detected provider off in **Settings › Providers** stops its traffic too,
+not just its rows: a hidden provider is excluded from what gets polled, the same as one with no
+credentials at all. The second-to-last line above is the update check. It carries no token, cookie
+or identifier beyond a `User-Agent: Cashew/<version>` header, never downloads anything, and can be
+turned off under Settings. No telemetry, no analytics, no crash reporting, no third-party services.
 
 Both sessions are ephemeral, so no response is cached to disk and no cookie outlives the process.
 **Neither follows a redirect.** For the usage request that is what makes the destination above a

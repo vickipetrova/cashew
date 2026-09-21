@@ -12,7 +12,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // `AppDelegate()` to compile from the executable target.
     public override init() { super.init() }
 
-    private let providers: [UsageProvider] = [ClaudeProvider()]
+    private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider()]
     private let history = UsageHistory.default
     private let statusline = StatuslineFeed.default
     private lazy var menuController = MenuController(history: history, statusline: statusline)

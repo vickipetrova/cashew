@@ -414,25 +414,40 @@ Two things this design already handles, and which phase 3 should confirm rather 
 Found during PR 1's implementation and deliberately deferred. Recorded here because PR 1's working
 notes are scratch and the reasoning is worth more than the list.
 
+PR 2 (this one, `feat/codex-provider`) landed Codex as the second provider and turned it on. It
+closed two of the items below outright, partially addressed a third, and reached none of the rest —
+they are unchanged from PR 1 and still open. New deferrals PR 2 itself created are recorded after
+this list, not folded into it.
+
 **Latent once a second provider exists — these are correct today and wrong the moment Codex lands:**
 
 - **`history.save(snapshot:)` writes a flat, provider-blind `[LimitWindow]`, and
   `restoreLastGoodReading()` attributes all of it to `.claude`.** With one provider that is exactly
   right. With two, a save concatenating across providers and a restore assuming Claude will
-  mis-attribute rows — and the restore feeds the cold-start panel, so the mistake is visible.
+  mis-attribute rows — and the restore feeds the cold-start panel, so the mistake is visible. **Not
+  reached by PR 2** — `restoreLastGoodReading()` still hardcodes `.claude` for exactly this reason,
+  by its own comment.
 - **`recording` in `publish(at:recording:)` is per call, not per snapshot.** A failure on one
   provider suppresses recording of another's good snapshot for that call. Harmless today (the 60s
   tick re-records within a minute) and *not* fixable by reverting to a per-snapshot check — that was
   the latching bug fixed in PR 1. The correct condition is "this snapshot carries a fresh reading".
-- **LIMITS SHOWN re-associates a window to its section by `Equatable` containment**
-  (`sections.first { $0.windows.contains(window) }`), so two providers reporting value-equal windows
-  resolve to the first. Works today because `label`/`optionLabel` differ per provider. The clean fix
-  is `TitleSelection.windows` returning qualified ids or `(provider, window)` pairs.
-- **`PollPlan.providersToPoll` hardcodes `.claude`** as the no-credentials fallback, inside a type
-  whose purpose is provider-agnosticism. A `fallback:` parameter is the obvious shape.
+  **Not reached by PR 2** — `publish(at:recording:)`'s signature is unchanged.
+- **Closed by PR 2.** LIMITS SHOWN no longer re-associates a window to its section by `Equatable`
+  containment. `TitleSelection.windows` now takes `[(provider, [LimitWindow])]` and returns
+  `[(provider, LimitWindow)]` pairs, and `MenuController` stores and compares the qualified id
+  (`provider.qualify(window.id)`) throughout — `menuBarSettings()`, `Settings.titleLimitIDs`, and the
+  `.mixed` state all key on it. Two providers reporting value-equal windows can no longer resolve to
+  the first.
+- **Partially addressed by PR 2.** `PollPlan.providersToPoll` now takes a `hidden: Set<ProviderID>`
+  parameter, so a provider switched off in Settings is excluded from polling the same as one with no
+  credentials — that part of the shape landed. The `.claude` fallback itself is unchanged: when
+  nothing is active and unhidden, it still hardcodes `all.filter { $0 == .claude }` rather than
+  taking a `fallback:` parameter. Still correct today (Claude is still the only provider every
+  install has), still the wrong shape for a third provider that isn't Claude.
 - **A provider whose credentials appear between launches is polled on wake and Refresh Now but never
-  gets a timer** — `refresh()` re-evaluates `providersToPoll()` without re-arming. Unreachable while
-  `PollPlan` always yields Claude.
+  gets a timer** — `refresh()` re-evaluates `providersToPoll()` without re-arming. **Not reached by
+  PR 2**, and no longer unreachable: with Codex installed after Cashew launches, this is now a real
+  path rather than a theoretical one, since `PollPlan` no longer always yields Claude alone.
 
 **The coverage gap worth closing first:**
 
@@ -445,9 +460,31 @@ notes are scratch and the reasoning is worth more than the list.
   rule did not follow it. A pure `PollSchedule` holding `[ProviderID: (interval, streak)]` with
   `backOff`, `recovered` and `rescheduleAll` as transitions — leaving `AppDelegate` to turn a plan
   into `Timer`s — would make "Codex backs off, Claude's entry is byte-identical" an assertion
-  instead of a careful read.
+  instead of a careful read. **Not reached by PR 2**, and this is the item most worth doing first in
+  whatever comes next: a second real provider now exists to write that assertion against, which it
+  did not when this was first recorded — PR 1 had only Claude, so "another provider's schedule" was
+  necessarily hypothetical. It no longer is.
 
 **Smaller, and genuinely optional:** `Credentials.swift` states one rationale twice; no test
 exercises `ClaudeProvider(presence:)`'s one-line delegation; `"scoped:Fable"` is unqualified in some
 fixture-style tests; a redundant `#require` in `UsagePanelTests`; two over-long lines in
-`MenuController.swift`; `AppDelegate` is now the module's largest untestable surface.
+`MenuController.swift`; `AppDelegate` is now the module's largest untestable surface. Not reached by
+PR 2.
+
+## Carried into PR 3
+
+Found during PR 2's implementation and deliberately deferred, the same way the section above was
+carried from PR 1.
+
+- **`menuBarSettings()`'s LIMITS SHOWN picker lists a hidden provider's windows.** It builds its rows
+  from raw `snapshots`, not `MenuController.unhiddenSnapshots` — unlike every other reader in the
+  file, which was made to go through `unhiddenSnapshots` specifically so a hidden provider's own
+  state could never surface. Ticking one of that provider's rows is inert: `titleWindows()` builds
+  the actual title selection from `unhiddenSnapshots` and filters the hidden provider's window back
+  out, so the picker offers a choice that silently does nothing. The fix is the one-line change every
+  other call site already got: read `unhiddenSnapshots` here too.
+- **The `Retry-After` coverage gap above is no longer the spec's only mention of itself.** It was
+  already carried from PR 1 as the weakest-coverage item in the codebase; PR 2 didn't touch it, but
+  it is worth restating here because PR 2 is what makes it tractable — a `PollSchedule` extraction
+  can now be tested against two real, differently-shaped providers (Claude's Keychain-backed
+  discovery, Codex's file-backed one) instead of one provider and a hypothetical second.
