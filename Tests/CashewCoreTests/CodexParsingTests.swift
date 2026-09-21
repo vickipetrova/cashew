@@ -61,6 +61,16 @@ import Testing
         """).isEmpty)
     }
 
+    @Test func aWrongTypedOrImpossibleWindowLengthDropsTheRow() {
+        // The guard `duration` shares with `number` — a JSON boolean bridges to NSNumber, so an
+        // unguarded `as? Double` on `true` yields 1.0 and would render a "0-HOUR" window.
+        for bad in ["true", "\"18000\"", "-1", "0"] {
+            #expect(parse("""
+            {"rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":\(bad)}}}
+            """).isEmpty)
+        }
+    }
+
     @Test func aMissingResetTimeFallsBackToResetAfterSeconds() {
         let windows = parse("""
         {"rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":18000,

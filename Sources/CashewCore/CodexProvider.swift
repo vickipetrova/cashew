@@ -1,4 +1,3 @@
-import CashewShared
 import Foundation
 
 /// Codex usage, read from the endpoint the Codex CLI itself uses.
@@ -93,6 +92,12 @@ struct CodexProvider: UsageProvider {
 
     private static func window(_ any: Any?, kind: LimitWindow.Kind, id: String) -> LimitWindow? {
         // `secondary_window: null` is the free plan's every response, not a fault.
+        //
+        // A missing or unreadable `limit_window_seconds` drops the whole row here, where a missing
+        // *reset* (below, in `resetDate`) keeps it and reports "reset time unknown" instead. That
+        // asymmetry is deliberate, not an oversight: a window with no length isn't a window — there
+        // is nothing to label or to measure the percentage against — while a window with a real
+        // percentage and no reset time is still a genuine reading worth showing.
         guard let entry = any as? [String: Any],
               let utilization = UsageJSON.number(entry["used_percent"]),
               let seconds = duration(entry["limit_window_seconds"])
@@ -122,14 +127,10 @@ struct CodexProvider: UsageProvider {
     /// `limit_window_seconds` and `reset_after_seconds` are durations, not percentages —
     /// `UsageJSON.number`'s 0–100 clamp exists for `used_percent` alone, and reusing it here would
     /// silently turn a real window length (18,000, 604,800, 2,592,000) or countdown into noise.
-    /// Same boolean and finiteness guards as `UsageJSON.number`, no clamp.
+    /// Built on `UsageJSON.rawNumber`, which carries the same boolean and finiteness guards without
+    /// the clamp, so there is exactly one place that could forget the boolean bridge.
     private static func duration(_ any: Any?) -> Double? {
-        guard let any, !isJSONBoolean(any) else { return nil }
-        let value: Double
-        if let double = any as? Double { value = double }
-        else if let int = any as? Int { value = Double(int) }
-        else { return nil }
-        guard value.isFinite, value > 0 else { return nil }
+        guard let value = UsageJSON.rawNumber(any), value > 0 else { return nil }
         return value
     }
 

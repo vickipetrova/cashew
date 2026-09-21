@@ -281,22 +281,25 @@ enum PollPlan {
     }
 }
 
-// MARK: - Claude
+// MARK: - Shared JSON guards
 
 /// The JSON guards every provider needs, in one place.
+///
+/// Provider-neutral — `CodexProvider` and `StatuslineFeed` use this as much as `ClaudeProvider`
+/// does — which is why it is filed under its own heading rather than Claude's.
 ///
 /// Shared rather than duplicated because each one exists for a bug that has already happened, and a
 /// second copy is a second place to forget one: `{"percent": true}` reading as 1% because JSON
 /// booleans bridge to `NSNumber`; `Fmt.pct` trapping on a non-finite value it converts with `Int`;
 /// and a wild timestamp overflowing the `Int` conversion in `Fmt.countdown`.
 enum UsageJSON {
-    /// `percent` and `utilization` have both been seen as Int and as Double.
+    /// The raw number, with the guards but no range opinion.
     ///
-    /// The finite check and the clamp are not paranoia: `Fmt.pct` does `Int(value.rounded())`, and
-    /// converting a Double to Int traps on NaN, infinity, or anything past Int's range. A single
-    /// `{"percent": 1e30}` — or `1e999`, which JSON parses to +infinity — would crash the menu bar
-    /// rather than dropping a row.
-    static func number(_ any: Any?) -> Double? {
+    /// Split out because the two callers disagree about range and about nothing else: a percentage
+    /// is clamped to 0–100, a duration in seconds must not be — 2,592,000 clamped to 100 renders a
+    /// 30-day window as "0-HOUR". Sharing the guards rather than the clamp keeps one place to
+    /// forget the boolean bridge in, which is the whole reason this type exists.
+    static func rawNumber(_ any: Any?) -> Double? {
         // See `isJSONBoolean`: without this, `{"percent": true}` reads as 1%.
         guard let any, !isJSONBoolean(any) else { return nil }
         let value: Double
@@ -304,6 +307,17 @@ enum UsageJSON {
         else if let int = any as? Int { value = Double(int) }
         else { return nil }
         guard value.isFinite else { return nil }
+        return value
+    }
+
+    /// `percent` and `utilization` have both been seen as Int and as Double.
+    ///
+    /// The finite check and the clamp are not paranoia: `Fmt.pct` does `Int(value.rounded())`, and
+    /// converting a Double to Int traps on NaN, infinity, or anything past Int's range. A single
+    /// `{"percent": 1e30}` — or `1e999`, which JSON parses to +infinity — would crash the menu bar
+    /// rather than dropping a row.
+    static func number(_ any: Any?) -> Double? {
+        guard let value = rawNumber(any) else { return nil }
         // Clamped rather than rejected: a plan reporting 105% is over its limit, and saying "100%"
         // is far more useful than dropping the row exactly when it matters most.
         return min(max(value, 0), 100)
@@ -340,6 +354,8 @@ enum UsageJSON {
         return formatter
     }()
 }
+
+// MARK: - Claude
 
 struct ClaudeProvider: UsageProvider {
     let id: ProviderID = .claude
