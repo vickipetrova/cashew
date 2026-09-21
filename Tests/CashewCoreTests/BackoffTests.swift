@@ -122,3 +122,36 @@ import Testing
         #expect(Freshness.displayable(windows, updatedAt: justOutside, now: now).isEmpty)
     }
 }
+
+@Suite struct ProviderSnapshotTests {
+    private func window(_ id: String, resetsIn: TimeInterval, from now: Date) -> LimitWindow {
+        LimitWindow(kind: .primary, id: id, label: id, shortLabel: id, optionLabel: id,
+                    utilization: 10, resetsAt: now.addingTimeInterval(resetsIn))
+    }
+
+    @Test func oneProviderGoingStaleDoesNotAffectTheOther() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let fresh = ProviderSnapshot(provider: .claude,
+                                     windows: [window("session", resetsIn: 3600, from: now)],
+                                     updatedAt: now.addingTimeInterval(-60), failure: nil)
+        // Past Freshness.maxAge (24h), so this provider has nothing honest left to show.
+        let stale = ProviderSnapshot(provider: .codex,
+                                     windows: [window("session", resetsIn: 3600, from: now)],
+                                     updatedAt: now.addingTimeInterval(-48 * 3600), failure: nil)
+
+        #expect(fresh.displayable(now: now).count == 1)
+        #expect(stale.displayable(now: now).isEmpty)
+    }
+
+    @Test func aFailureOnOneProviderLeavesTheOthersWindowsIntact() {
+        let now = Date(timeIntervalSince1970: 2_000_000)
+        let failed = ProviderSnapshot(provider: .codex, windows: [],
+                                      updatedAt: nil, failure: UsageError.unauthorized)
+        let ok = ProviderSnapshot(provider: .claude,
+                                  windows: [window("session", resetsIn: 3600, from: now)],
+                                  updatedAt: now, failure: nil)
+        #expect(failed.displayable(now: now).isEmpty)
+        #expect(ok.displayable(now: now).count == 1)
+        #expect(ok.failure == nil)
+    }
+}

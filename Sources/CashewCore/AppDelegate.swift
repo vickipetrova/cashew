@@ -12,7 +12,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // `AppDelegate()` to compile from the executable target.
     public override init() { super.init() }
 
-    private let provider: UsageProvider = ClaudeProvider()
+    private let providers: [UsageProvider] = [ClaudeProvider()]
     private let history = UsageHistory.default
     private let statusline = StatuslineFeed.default
     private lazy var menuController = MenuController(history: history, statusline: statusline)
@@ -25,7 +25,6 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     private var animationTicks = 0
     private var updateTimer: Timer?
 
-    private var pollTimer: Timer?
     private var tickTimer: Timer?
 
     public func applicationDidFinishLaunching(_ notification: Notification) {
@@ -46,8 +45,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // The countdown tick is also where a live reading gets picked up: the statusline file is
             // rewritten every time Claude Code renders, which is far more often than the poll, so
             // this is what makes the numbers live rather than up to fifteen minutes stale.
-            if !self.polled.isEmpty || self.statusline.read() != nil {
-                self.publishMergingLiveReadings(at: Date())
+            if !self.snapshots.isEmpty || self.statusline.read() != nil {
+                self.publish(at: Date())
             }
             // Catches a killed terminal even when nothing is writing session files.
             self.refreshSessions()
@@ -76,87 +75,124 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func reschedulePoll() {
-        rateLimitStreak = 0
-        pollTimer?.invalidate()
-        pollTimer = schedule(every: Settings.refreshInterval) { [weak self] in self?.refresh() }
+        rateLimitStreak.removeAll()
+        for provider in activeProviders {
+            pollTimers[provider.id]?.invalidate()
+            pollTimers[provider.id] = schedule(every: Settings.refreshInterval) { [weak self] in
+                self?.refresh(provider)
+            }
+        }
     }
 
-    /// Consecutive rate-limited replies. Reset by any success, and by any settings change, since that
-    /// is the user explicitly asking for a different cadence.
-    private var rateLimitStreak = 0
+    /// Consecutive rate-limited replies, **per provider**. Reset by that provider's next success,
+    /// and by any settings change, since that is the user explicitly asking for a different cadence.
+    private var rateLimitStreak: [ProviderID: Int] = [:]
 
-    /// Replace the repeating poll with a single delayed one after being told to slow down.
+    /// One poll timer per provider, so a provider being told to slow down cannot slow the others.
+    private var pollTimers: [ProviderID: Timer] = [:]
+
+    /// Bumped for every fetch and compared when it lands, **per provider**.
+    ///
+    /// Per provider and not global, which is the whole point: a single counter meant any provider's
+    /// fetch invalidated every other provider's in-flight reply, so a second provider would silently
+    /// drop the first one's results. Within one provider it still does its original job — stopping a
+    /// slow poll from overwriting fresher numbers stamped `updatedAt: Date()`.
+    private var fetchGeneration: [ProviderID: Int] = [:]
+
+    /// The last full reading from each provider, before any live overlay.
+    private var snapshots: [ProviderID: ProviderSnapshot] = [:]
+
+    /// Replace one provider's repeating poll with a single delayed one after being told to slow down.
     ///
     /// This is the fix for a fifteen-day outage: the app was rate-limited, kept asking every five
-    /// minutes regardless, and had no way back except being noticed and restarted. `Retry-After` was
-    /// parsed by nobody and discarded with the rest of the response.
+    /// minutes regardless, and had no way back except being noticed and restarted.
     ///
-    /// One-shot rather than repeating, so each further refusal gets its own longer wait and the first
-    /// success restores the normal interval through `reschedulePoll`.
-    private func backOff(retryAfter: TimeInterval?) {
-        rateLimitStreak += 1
-        let delay = Backoff.delay(attempt: rateLimitStreak, retryAfter: retryAfter,
+    /// Scoped to the provider that was refused. A shared timer would mean Codex being throttled also
+    /// throttling Claude, which is the original bug wearing a different hat.
+    private func backOff(_ provider: ProviderID, retryAfter: TimeInterval?) {
+        let streak = (rateLimitStreak[provider] ?? 0) + 1
+        rateLimitStreak[provider] = streak
+        let delay = Backoff.delay(attempt: streak, retryAfter: retryAfter,
                                   base: Settings.refreshInterval)
-        pollTimer?.invalidate()
-        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in self?.refresh() }
+        pollTimers[provider]?.invalidate()
+        let timer = Timer(timeInterval: delay, repeats: false) { [weak self] _ in
+            self?.refresh(provider)
+        }
         RunLoop.main.add(timer, forMode: .common)
-        pollTimer = timer
+        pollTimers[provider] = timer
     }
 
-    /// Bumped for every fetch, captured by that fetch's completion, and compared when it lands.
-    ///
-    /// Without it a slow poll can finish *after* a later one and overwrite fresh numbers with older
-    /// ones — stamped `updatedAt: Date()`, so they'd claim to be current. Mashing Refresh Now stacks
-    /// requests the same way.
-    private var fetchGeneration = 0
-
-    /// The last full reading from the API, before any live overlay.
-    ///
-    /// Kept apart from what's on screen because the two sources report different things: the API is
-    /// the only one that knows about per-model limits, so its answer has to survive being partly
-    /// overwritten by a fresher one.
-    private var polled: [LimitWindow] = []
-
-    /// Overlay whatever Claude Code currently reports onto the last poll, and publish the result.
-    ///
-    /// The statusline is a *supplement*, not a replacement. Using it alone was tried and was worse
-    /// than either source on its own: its payload has no per-model limits, so a `WEEKLY · FABLE` row
-    /// blinked in and out depending on whether a Claude Code session happened to be open.
-    private func publishMergingLiveReadings(at updatedAt: Date) {
-        let merged = SourceMerge.merge(polled: polled, live: statusline.read() ?? [])
-        guard !merged.isEmpty else { return }
-        history.record(merged, provider: .claude, at: updatedAt)
-        history.save(snapshot: merged, at: updatedAt)
-        menuController.update(windows: merged, updatedAt: updatedAt)
-        Notifier.evaluate(merged, provider: .claude)
+    /// Only providers the user actually has. A provider with no credentials is not polled, does not
+    /// appear, and costs no network — see the discovery rule in the design.
+    private var activeProviders: [UsageProvider] {
+        providers.filter { $0.credentialsExist() }
     }
 
+    private func refresh(_ id: ProviderID) {
+        guard let provider = providers.first(where: { $0.id == id }) else { return }
+        refresh(provider)
+    }
+
+    /// Poll every active provider. Called at launch, on wake, and from Refresh Now.
     private func refresh() {
-        fetchGeneration += 1
-        let generation = fetchGeneration
+        let active = activeProviders
+        // Nothing detected at all: keep Claude so its own copy explains how to sign in, rather than
+        // rendering an empty menu with no account of why.
+        let toPoll = active.isEmpty ? providers.filter { $0.id == .claude } : active
+        for provider in toPoll { refresh(provider) }
+    }
+
+    /// Assemble every provider's snapshot and publish them.
+    ///
+    /// The statusline overlay is applied to **Claude's** snapshot and nothing else. `StatuslineFeed`
+    /// reads what Claude Code hands its own statusline; it is Claude's live feed, not the app's, and
+    /// merging it into a combined list could overwrite another provider's window that happens to
+    /// share an unqualified id.
+    private func publish(at updatedAt: Date) {
+        var assembled: [ProviderSnapshot] = []
+        for provider in providers {
+            guard var snapshot = snapshots[provider.id] else { continue }
+            if provider.id == .claude, let live = statusline.read(), !live.isEmpty {
+                let merged = SourceMerge.merge(polled: snapshot.windows, live: live)
+                snapshot = ProviderSnapshot(provider: .claude, windows: merged,
+                                            updatedAt: updatedAt, failure: snapshot.failure)
+            }
+            guard !snapshot.windows.isEmpty || snapshot.failure != nil else { continue }
+            if !snapshot.windows.isEmpty {
+                history.record(snapshot.windows, provider: snapshot.provider, at: updatedAt)
+                Notifier.evaluate(snapshot.windows, provider: snapshot.provider)
+            }
+            assembled.append(snapshot)
+        }
+        guard !assembled.isEmpty else { return }
+        history.save(snapshot: assembled.flatMap(\.windows), at: updatedAt)
+        menuController.update(snapshots: assembled)
+    }
+
+    private func refresh(_ provider: UsageProvider) {
+        let id = provider.id
+        let generation = (fetchGeneration[id] ?? 0) + 1
+        fetchGeneration[id] = generation
         provider.fetch { [weak self] result in
             DispatchQueue.main.async {
-                guard let self, generation == self.fetchGeneration else { return }
+                guard let self, generation == self.fetchGeneration[id] else { return }
+                let existing = self.snapshots[id]
+                    ?? ProviderSnapshot(provider: id, windows: [], updatedAt: nil, failure: nil)
                 switch result {
                 case .success(let windows):
                     // Recorded before the menu renders, so the row being built can already see this
                     // poll's sample. Only on success: a failed poll leaves the last good numbers on
-                    // screen, and re-recording them would invent a flat stretch that never happened
-                    // and drag every rate towards idle.
-                    //
-                    // Published through the merge so a poll can't undo a fresher statusline reading
-                    // — the API answer can be up to fifteen minutes older than what Claude Code
-                    // reported thirty seconds ago.
-                    self.polled = windows
-                    self.publishMergingLiveReadings(at: Date())
-                    // Back to the normal cadence. Only a success clears a backoff — a manual Refresh
-                    // Now that also gets refused must not reset the streak, or mashing it defeats the
-                    // whole mechanism.
-                    if self.rateLimitStreak > 0 { self.reschedulePoll() }
+                    // screen, and re-recording them would invent a flat stretch that never happened.
+                    self.snapshots[id] = existing.succeeded(windows: windows, at: Date())
+                    self.publish(at: Date())
+                    // Back to the normal cadence, for this provider only. A manual Refresh Now that
+                    // is also refused must not reset the streak, or mashing it defeats the mechanism.
+                    if (self.rateLimitStreak[id] ?? 0) > 0 { self.reschedulePoll() }
                 case .failure(let error):
-                    self.menuController.update(error: error)
+                    self.snapshots[id] = existing.failed(error)
+                    self.publish(at: Date())
                     if case UsageError.rateLimited(let retryAfter) = error {
-                        self.backOff(retryAfter: retryAfter)
+                        self.backOff(id, retryAfter: retryAfter)
                     }
                 }
             }

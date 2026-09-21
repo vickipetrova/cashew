@@ -129,6 +129,39 @@ enum Freshness {
     }
 }
 
+/// One provider's current state: its windows, when they were read, and how its last poll failed.
+///
+/// The unit of state is the provider rather than the window because providers fail independently.
+/// A flat `[LimitWindow]` carries one `updatedAt` and one error, so with two providers it must call
+/// both stale or neither, and one provider's 429 would stall the other — the exact failure
+/// `Backoff` and `reschedulePoll` exist to prevent.
+struct ProviderSnapshot {
+    let provider: ProviderID
+    let windows: [LimitWindow]
+    /// When `windows` were read. Nil before the first successful poll.
+    let updatedAt: Date?
+    /// This provider's own last failure, kept so its section can say what went wrong while another
+    /// provider's section goes on showing numbers.
+    let failure: Error?
+
+    /// What is worth putting on screen for this provider, by the one `Freshness` rule.
+    func displayable(now: Date = Date()) -> [LimitWindow] {
+        Freshness.displayable(windows, updatedAt: updatedAt, now: now)
+    }
+
+    /// The same snapshot with a fresh reading. Failure is cleared — a success supersedes it.
+    func succeeded(windows: [LimitWindow], at now: Date) -> ProviderSnapshot {
+        ProviderSnapshot(provider: provider, windows: windows, updatedAt: now, failure: nil)
+    }
+
+    /// The same snapshot with a failure recorded. Windows and `updatedAt` are deliberately kept:
+    /// a dead network should not blank numbers that were true a few minutes ago, and `Freshness`
+    /// is what eventually removes them.
+    func failed(_ error: Error) -> ProviderSnapshot {
+        ProviderSnapshot(provider: provider, windows: windows, updatedAt: updatedAt, failure: error)
+    }
+}
+
 enum UsageError: LocalizedError {
     case noCredentials
     case credentialsAccessDenied

@@ -124,6 +124,17 @@ final class MenuController: NSObject, NSMenuDelegate {
         refreshLiveRows()
     }
 
+    // TEMPORARY (Task 4 -> Task 5): flattens snapshots onto the old single-list API so this task
+    // builds and its tests run. Task 5 replaces this with real per-provider sections.
+    func update(snapshots: [ProviderSnapshot]) {
+        let windows = snapshots.flatMap(\.windows)
+        if let newest = snapshots.compactMap(\.updatedAt).max() {
+            update(windows: windows, updatedAt: newest)
+        } else if let failure = snapshots.compactMap(\.failure).first {
+            update(error: failure)
+        }
+    }
+
     /// Keeps whatever was last shown. A dead network or an expired token shouldn't blank out
     /// numbers that were true a few minutes ago; the menu says so instead.
     func update(error: Error) {
