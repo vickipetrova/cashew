@@ -9,6 +9,9 @@ import Testing
 /// those paths reach the developer's real login, and `#expect` prints compared values into CI logs
 /// on failure, so a test that touched a live token would print it there.
 @Suite struct CredentialsTests {
+    private let sample = Credentials.Candidate(token: "t", expiresAtMillis: nil,
+                                               isOverride: false, source: .file)
+
     private func candidate(_ string: String,
                            _ source: Credentials.Source = .file) throws -> Credentials.Candidate? {
         Credentials.candidate(in: try #require(string.data(using: .utf8)), source: source)
@@ -145,5 +148,20 @@ import Testing
     @Test func aUsableCredentialOutranksADenial() throws {
         let usable = try found("usable", expires: nil, .file)
         #expect(try Credentials.resolve(file: usable, keychain: .accessDenied).get() == "usable")
+    }
+
+    // MARK: - Presence, without reading either store
+
+    @Test func presenceIsTrueWhenEitherStoreHasSomething() {
+        #expect(Credentials.exists(file: .absent, keychain: .absent) == false)
+        #expect(Credentials.exists(file: .found(sample), keychain: .absent))
+        #expect(Credentials.exists(file: .absent, keychain: .found(sample)))
+    }
+
+    @Test func aDeniedKeychainStillCountsAsPresent() {
+        // Denial means there is something there we were refused, which is the opposite of absent.
+        // Treating it as absent would hide the provider and with it the one error message that
+        // tells the user how to fix it.
+        #expect(Credentials.exists(file: .absent, keychain: .accessDenied))
     }
 }

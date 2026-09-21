@@ -80,9 +80,25 @@ struct LimitWindow: Equatable, Codable {
     let resetsAt: Date?
 }
 
-/// A source of usage windows. `ClaudeProvider` is the only implementation in v0.1; the protocol
-/// exists so Cursor/Codex/Copilot providers can be added without MenuController changing.
+/// A source of usage windows.
+///
+/// The protocol exists so a second provider is a new file rather than a change to `MenuController`,
+/// which renders `[LimitWindow]` and knows nothing about where they came from.
 protocol UsageProvider {
+    /// Identity, for storage keys and for which section this provider's windows render in.
+    var id: ProviderID { get }
+
+    /// The single host this provider may contact.
+    ///
+    /// Declared rather than merely used, so the promise in `CLAUDE.md` hard rule 5 — one usage
+    /// endpoint per detected provider, and nothing else — is legible from the type instead of
+    /// having to be rediscovered by reading every URL in the file.
+    static var host: String { get }
+
+    /// Whether this provider has credentials at all. Must be cheap, must not hit the network, and
+    /// must not be able to raise a Keychain prompt: it runs on every launch, for every provider.
+    func credentialsExist() -> Bool
+
     func fetch(completion: @escaping (Result<[LimitWindow], Error>) -> Void)
 }
 
@@ -174,6 +190,25 @@ enum Backoff {
 // MARK: - Claude
 
 struct ClaudeProvider: UsageProvider {
+    let id: ProviderID = .claude
+
+    static let host = "api.anthropic.com"
+
+    /// The endpoint's own host, so a test can hold it against `host` and catch a URL edited in
+    /// isolation. Internal rather than private purely for that check.
+    static var endpointHost: String { endpoint.host ?? "" }
+
+    /// Injected so the discovery *logic* is testable while the real probe stays out of tests — the
+    /// same seam, and the same reason, as `Credentials.token(in:)`. The default reads the real
+    /// login; a test passes its own answer.
+    private let presence: () -> Bool
+
+    init(presence: @escaping () -> Bool = Credentials.loginExists) {
+        self.presence = presence
+    }
+
+    func credentialsExist() -> Bool { presence() }
+
     private static let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
     private static let redirectPolicy = RefuseRedirects()
