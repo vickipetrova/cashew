@@ -21,6 +21,15 @@ enum ProviderID: String, Codable, CaseIterable {
     /// on the separator would be wrong the moment anyone tried it — the qualified form is an opaque
     /// key, and the provider is always known from context where it matters.
     func qualify(_ windowID: String) -> String { "\(rawValue):\(windowID)" }
+
+    /// The dropdown's section heading. Lives here rather than in `MenuController`, which is not
+    /// allowed to hold a vendor's copy — the same rule that keeps `optionLabel` on `LimitWindow`.
+    var sectionHeading: String {
+        switch self {
+        case .claude: return "CLAUDE"
+        case .codex: return "CODEX"
+        }
+    }
 }
 
 /// One rate-limit window, described in terms no single vendor owns.

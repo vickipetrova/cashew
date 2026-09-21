@@ -231,20 +231,22 @@ import Testing
          window(.secondaryScoped, "scoped:Fable")]
     }
 
+    private func sections(_ windows: [LimitWindow]) -> [(provider: ProviderID, windows: [LimitWindow])] {
+        [(provider: .claude, windows: windows)]
+    }
+
     @Test func rendersOnlyTheSelectedLimits() {
-        let shown = TitleSelection.windows(from: all,
-                                           selection: [ProviderID.claude.qualify(LimitWindow.sessionID)],
-                                           provider: .claude)
+        let shown = TitleSelection.windows(
+            from: sections(all), selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
     /// Order comes from the response, not from the order the user ticked boxes in.
     @Test func keepsResponseOrderRegardlessOfSelection() {
         let shown = TitleSelection.windows(
-            from: all, selection: [ProviderID.claude.qualify("scoped:Fable"),
-                                   ProviderID.claude.qualify(LimitWindow.sessionID),
-                                   ProviderID.claude.qualify(LimitWindow.weeklyID)],
-            provider: .claude)
+            from: sections(all), selection: [ProviderID.claude.qualify("scoped:Fable"),
+                                             ProviderID.claude.qualify(LimitWindow.sessionID),
+                                             ProviderID.claude.qualify(LimitWindow.weeklyID)])
         #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID, "scoped:Fable"])
     }
 
@@ -252,9 +254,8 @@ import Testing
     /// no placeholder, and the stored preference is left alone elsewhere so it returns if it does.
     @Test func aVanishedScopeIsDroppedFromTheTitle() {
         let shown = TitleSelection.windows(
-            from: all, selection: [ProviderID.claude.qualify(LimitWindow.sessionID),
-                                   ProviderID.claude.qualify("scoped:GoneAway")],
-            provider: .claude)
+            from: sections(all), selection: [ProviderID.claude.qualify(LimitWindow.sessionID),
+                                             ProviderID.claude.qualify("scoped:GoneAway")])
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
@@ -263,32 +264,29 @@ import Testing
     /// is rendered literally; the fallback below exists for a selection that *was* made and can no
     /// longer be honoured. Collapsing them would make unchecking the last limit silently re-tick it.
     @Test func selectingNothingRendersNothing() {
-        #expect(TitleSelection.windows(from: all, selection: [], provider: .claude).isEmpty)
+        #expect(TitleSelection.windows(from: sections(all), selection: []).isEmpty)
     }
 
     /// Every selection missing must not render an empty title — the user asked for numbers and a
     /// stale scope list is no reason to show none of them.
     @Test func everySelectionMissingFallsBackToSession() {
         let shown = TitleSelection.windows(
-            from: all, selection: [ProviderID.claude.qualify("scoped:GoneAway"),
-                                   ProviderID.claude.qualify("alsoGone")],
-            provider: .claude)
+            from: sections(all), selection: [ProviderID.claude.qualify("scoped:GoneAway"),
+                                             ProviderID.claude.qualify("alsoGone")])
         #expect(shown.map(\.id) == [LimitWindow.sessionID])
     }
 
     /// …and if even the session window is absent, show whatever came first rather than nothing.
     @Test func withoutASessionWindowItFallsBackToTheFirstReported() {
         let weeklyOnly = [window(.secondary, LimitWindow.weeklyID)]
-        #expect(TitleSelection.windows(from: weeklyOnly,
-                                       selection: [ProviderID.claude.qualify("nothing")],
-                                       provider: .claude).map(\.id)
+        #expect(TitleSelection.windows(from: sections(weeklyOnly),
+                                       selection: [ProviderID.claude.qualify("nothing")]).map(\.id)
             == [LimitWindow.weeklyID])
     }
 
     @Test func nothingReportedRendersNothing() {
-        #expect(TitleSelection.windows(from: [],
-                                       selection: [ProviderID.claude.qualify(LimitWindow.sessionID)],
-                                       provider: .claude).isEmpty)
+        #expect(TitleSelection.windows(
+            from: sections([]), selection: [ProviderID.claude.qualify(LimitWindow.sessionID)]).isEmpty)
     }
 
     @Test func theDefaultSelectionSelectsBothHeadlineWindows() {
@@ -299,9 +297,65 @@ import Testing
         let all = [window(.primary, LimitWindow.sessionID),
                    window(.secondary, LimitWindow.weeklyID),
                    window(.secondaryScoped, "scoped:Fable")]
-        let shown = TitleSelection.windows(from: all,
-                                           selection: Settings.defaultTitleLimitIDs,
-                                           provider: .claude)
+        let shown = TitleSelection.windows(from: sections(all),
+                                           selection: Settings.defaultTitleLimitIDs)
         #expect(shown.map(\.id) == [LimitWindow.sessionID, LimitWindow.weeklyID])
+    }
+
+    /// The per-section-fallback trap. Claude's window is selected and present, so nothing is
+    /// "missing" — Codex must contribute nothing, not its primary window.
+    @Test func aSelectionFromOneProviderDoesNotPullInAnothersFallback() {
+        let sections = [(provider: ProviderID.claude,
+                         windows: [window(.primary, LimitWindow.sessionID)]),
+                        (provider: ProviderID.codex,
+                         windows: [window(.primary, "session")])]
+        let shown = TitleSelection.windows(
+            from: sections, selection: [ProviderID.claude.qualify(LimitWindow.sessionID)])
+        #expect(shown.count == 1)
+    }
+}
+
+/// Which provider sections the dropdown draws, and whether they need naming. Separate suite because
+/// `MenuController` can't be constructed in a test, so this rule — free-standing on purpose — is the
+/// only place these cases are reachable.
+@Suite struct ProviderSectionTests {
+    // Fixed, and matched to `snapshot`'s `updatedAt` below: `PanelSections.headingsNeeded` defaults
+    // `now` to the real `Date()`, and `Freshness.maxAge` is 24 hours, so calling it with the real
+    // clock against a fixture stamped at a fixed instant would filter every snapshot as stale no
+    // matter which real day the suite runs on — making these pass (or fail) for the wrong reason.
+    private let now = Date(timeIntervalSince1970: 1_000_000)
+
+    private func snapshot(_ provider: ProviderID, _ ids: [String]) -> ProviderSnapshot {
+        ProviderSnapshot(
+            provider: provider,
+            windows: ids.map {
+                LimitWindow(kind: .primary, id: $0, label: $0.uppercased(), shortLabel: $0,
+                            optionLabel: $0, utilization: 10, resetsAt: nil)
+            },
+            updatedAt: Date(timeIntervalSince1970: 1_000_000), failure: nil)
+    }
+
+    @Test func oneProviderGetsNoHeading() {
+        // Today's menu, unchanged. A "CLAUDE" heading above the only section would be a visible
+        // change in a refactor that is supposed to have none.
+        #expect(PanelSections.headingsNeeded(for: [snapshot(.claude, ["session"])], now: now) == false)
+    }
+
+    @Test func twoProvidersGetHeadings() {
+        #expect(PanelSections.headingsNeeded(for: [snapshot(.claude, ["session"]),
+                                                   snapshot(.codex, ["session"])], now: now))
+    }
+
+    @Test func aProviderWithNothingToShowIsNotASection() {
+        // An empty snapshot must not count towards "more than one", or a Codex provider that is
+        // present but reporting nothing would put a heading above Claude for no reason.
+        let empty = ProviderSnapshot(provider: .codex, windows: [], updatedAt: nil, failure: nil)
+        #expect(PanelSections.headingsNeeded(for: [snapshot(.claude, ["session"]), empty], now: now)
+            == false)
+    }
+
+    @Test func headingsNameTheProvider() {
+        #expect(ProviderID.claude.sectionHeading == "CLAUDE")
+        #expect(ProviderID.codex.sectionHeading == "CODEX")
     }
 }
