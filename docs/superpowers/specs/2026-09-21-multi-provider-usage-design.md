@@ -408,3 +408,46 @@ Two things this design already handles, and which phase 3 should confirm rather 
   for a 30-day window and right for a short rolling one. If a paid plan's primary window is measured
   in hours, forecasts begin working with no change. That is a reason to wait for real data before
   deriving the lookback from `limit_window_seconds`, not a reason to guess now.
+
+## Carried into PR 2
+
+Found during PR 1's implementation and deliberately deferred. Recorded here because PR 1's working
+notes are scratch and the reasoning is worth more than the list.
+
+**Latent once a second provider exists — these are correct today and wrong the moment Codex lands:**
+
+- **`history.save(snapshot:)` writes a flat, provider-blind `[LimitWindow]`, and
+  `restoreLastGoodReading()` attributes all of it to `.claude`.** With one provider that is exactly
+  right. With two, a save concatenating across providers and a restore assuming Claude will
+  mis-attribute rows — and the restore feeds the cold-start panel, so the mistake is visible.
+- **`recording` in `publish(at:recording:)` is per call, not per snapshot.** A failure on one
+  provider suppresses recording of another's good snapshot for that call. Harmless today (the 60s
+  tick re-records within a minute) and *not* fixable by reverting to a per-snapshot check — that was
+  the latching bug fixed in PR 1. The correct condition is "this snapshot carries a fresh reading".
+- **LIMITS SHOWN re-associates a window to its section by `Equatable` containment**
+  (`sections.first { $0.windows.contains(window) }`), so two providers reporting value-equal windows
+  resolve to the first. Works today because `label`/`optionLabel` differ per provider. The clean fix
+  is `TitleSelection.windows` returning qualified ids or `(provider, window)` pairs.
+- **`PollPlan.providersToPoll` hardcodes `.claude`** as the no-credentials fallback, inside a type
+  whose purpose is provider-agnosticism. A `fallback:` parameter is the obvious shape.
+- **A provider whose credentials appear between launches is polled on wake and Refresh Now but never
+  gets a timer** — `refresh()` re-evaluates `providersToPoll()` without re-arming. Unreachable while
+  `PollPlan` always yields Claude.
+
+**The coverage gap worth closing first:**
+
+- **Nothing tests that one provider's `Retry-After` leaves another's poll schedule untouched** — the
+  property this whole refactor was commissioned to establish, and the one that maps onto the
+  fifteen-day dead-menu-bar incident. It lives in `AppDelegate.backOff` / `reschedulePoll(_:)`, which
+  no test may construct. This is not hypothetical: two of PR 1's three Important findings in that
+  task, and its one Critical, were all defects in that same untestable region, every one caught by a
+  reviewer reading rather than by a red test. `PollPlan` extracted the *selection* rule; the *scope*
+  rule did not follow it. A pure `PollSchedule` holding `[ProviderID: (interval, streak)]` with
+  `backOff`, `recovered` and `rescheduleAll` as transitions — leaving `AppDelegate` to turn a plan
+  into `Timer`s — would make "Codex backs off, Claude's entry is byte-identical" an assertion
+  instead of a careful read.
+
+**Smaller, and genuinely optional:** `Credentials.swift` states one rationale twice; no test
+exercises `ClaudeProvider(presence:)`'s one-line delegation; `"scoped:Fable"` is unqualified in some
+fixture-style tests; a redundant `#require` in `UsagePanelTests`; two over-long lines in
+`MenuController.swift`; `AppDelegate` is now the module's largest untestable surface.
