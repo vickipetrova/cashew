@@ -292,9 +292,19 @@ No behaviour change. Claude remains the only provider; the existing 391 tests ar
 
 1. `ProviderID`, `ProviderSnapshot`, and `UsageProvider` gaining `id` / `host` / `credentialsExist()`.
 2. `LimitWindow.Kind` renamed to `.primary` / `.secondary` / `.secondaryScoped`, with the two
-   `switch` statements in `Forecast` updated. The id constants beside it — `sessionID`, `weeklyID`,
-   `scopedID(model:)` — rename with it and stay *unqualified*: they name a window within its
-   provider, and qualification happens only at the storage boundary in item 4.
+   `switch` statements in `Forecast` updated. Both are exhaustive with no `default`, so the compiler
+   finds every site.
+
+   The id constants beside it — `sessionID = "session"`, `weeklyID = "weekly"`,
+   `scopedID(model:)` — **do not rename and do not change value**. They are *Claude's names for
+   Claude's windows*, not kinds: `Kind` is the cross-provider rank, `id` is provider-local identity.
+   Renaming `"session"` to `"primary"` would churn every id for no gain, and Codex's ids are its own
+   (`primary`, `secondary`) regardless. Qualification happens only at the storage boundary in item 4.
+
+   Two grep false positives to leave alone: `ClaudeProvider.session` and `UpdateCheck.session` are
+   `URLSession`s, asserted in `RefuseRedirectsTests.swift:37-38`. And the wire strings the parser
+   switches on — `"session"`, `"weekly_all"`, `"weekly_scoped"` — are the server's protocol values
+   and must not move with the Swift cases.
 3. `AppDelegate` holds `[UsageProvider]` and `[ProviderSnapshot]`; per-provider poll scheduling and
    `Backoff`.
 4. `qualifiedID(provider:window:)` → `"claude:session"`, applied at exactly three storage
