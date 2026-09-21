@@ -126,12 +126,16 @@ final class MenuController: NSObject, NSMenuDelegate {
 
     // TEMPORARY (Task 4 -> Task 5): flattens snapshots onto the old single-list API so this task
     // builds and its tests run. Task 5 replaces this with real per-provider sections.
+    //
+    // Failure checked first, deliberately: `update(windows:updatedAt:)` clears `lastError`, and
+    // `ProviderSnapshot.failed(_:)` keeps `updatedAt` from the last success, so a windows-first check
+    // would take the success branch on every failure after the first one and the error footer could
+    // never show again.
     func update(snapshots: [ProviderSnapshot]) {
-        let windows = snapshots.flatMap(\.windows)
-        if let newest = snapshots.compactMap(\.updatedAt).max() {
-            update(windows: windows, updatedAt: newest)
-        } else if let failure = snapshots.compactMap(\.failure).first {
+        if let failure = snapshots.compactMap(\.failure).first {
             update(error: failure)
+        } else if let newest = snapshots.compactMap(\.updatedAt).max() {
+            update(windows: snapshots.flatMap(\.windows), updatedAt: newest)
         }
     }
 

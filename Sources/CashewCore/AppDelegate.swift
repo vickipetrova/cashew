@@ -74,14 +74,43 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         refresh()
     }
 
+    /// Put every provider back on the normal cadence. For the two callers that legitimately mean
+    /// "everyone" — launch, and a settings change the user made on purpose — not for a single
+    /// provider's own recovery; see the scoped overload below for that.
     private func reschedulePoll() {
         rateLimitStreak.removeAll()
-        for provider in activeProviders {
+        let toPoll = providersToPoll()
+        let ids = Set(toPoll.map(\.id))
+        // A provider that lost its credentials (or was never active) keeps no timer running.
+        for (id, timer) in pollTimers where !ids.contains(id) {
+            timer.invalidate()
+            pollTimers[id] = nil
+        }
+        for provider in toPoll {
             pollTimers[provider.id]?.invalidate()
             pollTimers[provider.id] = schedule(every: Settings.refreshInterval) { [weak self] in
                 self?.refresh(provider)
             }
         }
+    }
+
+    /// Put one provider back on the normal cadence. Scoped deliberately: clearing every streak
+    /// here would let one provider's recovery cancel another's backoff timer and restore full
+    /// cadence against a server still refusing it.
+    private func reschedulePoll(_ id: ProviderID) {
+        rateLimitStreak[id] = nil
+        pollTimers[id]?.invalidate()
+        pollTimers[id] = schedule(every: Settings.refreshInterval) { [weak self] in
+            self?.refresh(id)
+        }
+    }
+
+    /// The providers worth polling right now, by the pure rule in `PollPlan`.
+    private func providersToPoll() -> [UsageProvider] {
+        let activeIDs = activeProviders.map(\.id)
+        let allIDs = providers.map(\.id)
+        let ids = PollPlan.providersToPoll(active: activeIDs, all: allIDs)
+        return ids.compactMap { id in providers.first(where: { $0.id == id }) }
     }
 
     /// Consecutive rate-limited replies, **per provider**. Reset by that provider's next success,
@@ -135,11 +164,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Poll every active provider. Called at launch, on wake, and from Refresh Now.
     private func refresh() {
-        let active = activeProviders
-        // Nothing detected at all: keep Claude so its own copy explains how to sign in, rather than
-        // rendering an empty menu with no account of why.
-        let toPoll = active.isEmpty ? providers.filter { $0.id == .claude } : active
-        for provider in toPoll { refresh(provider) }
+        for provider in providersToPoll() { refresh(provider) }
     }
 
     /// Assemble every provider's snapshot and publish them.
@@ -158,7 +183,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                                             updatedAt: updatedAt, failure: snapshot.failure)
             }
             guard !snapshot.windows.isEmpty || snapshot.failure != nil else { continue }
-            if !snapshot.windows.isEmpty {
+            // Recorded and evaluated only while this provider is not currently failing: a failed
+            // poll leaves the last good numbers on screen (`ProviderSnapshot.failed` keeps them),
+            // and re-recording them here — as this function now also runs on the failure path —
+            // would invent a flat stretch that never happened and drag every rate towards idle.
+            if !snapshot.windows.isEmpty, snapshot.failure == nil {
                 history.record(snapshot.windows, provider: snapshot.provider, at: updatedAt)
                 Notifier.evaluate(snapshot.windows, provider: snapshot.provider)
             }
@@ -187,7 +216,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                     self.publish(at: Date())
                     // Back to the normal cadence, for this provider only. A manual Refresh Now that
                     // is also refused must not reset the streak, or mashing it defeats the mechanism.
-                    if (self.rateLimitStreak[id] ?? 0) > 0 { self.reschedulePoll() }
+                    // Scoped: the all-providers `reschedulePoll()` would cancel another provider's
+                    // own backoff timer and put it back on full cadence against a server still
+                    // refusing it.
+                    if (self.rateLimitStreak[id] ?? 0) > 0 { self.reschedulePoll(id) }
                 case .failure(let error):
                     self.snapshots[id] = existing.failed(error)
                     self.publish(at: Date())

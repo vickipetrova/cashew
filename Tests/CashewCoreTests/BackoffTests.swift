@@ -66,6 +66,19 @@ import Testing
     }
 }
 
+/// Which providers get polled. Pure on purpose: this rule used to live only in `AppDelegate`, which
+/// no test may construct, and that is exactly how a launch with no credentials scheduling no poll at
+/// all went unnoticed.
+@Suite struct PollPlanTests {
+    @Test func withNoCredentialsClaudeIsStillPolledSoItsSignInCopyRenders() {
+        #expect(PollPlan.providersToPoll(active: [], all: [.claude, .codex]) == [.claude])
+    }
+
+    @Test func withCredentialsOnlyTheDetectedProvidersArePolled() {
+        #expect(PollPlan.providersToPoll(active: [.codex], all: [.claude, .codex]) == [.codex])
+    }
+}
+
 /// Which readings are still worth putting on screen.
 ///
 /// Every case here was observed on the real app, which spent fifteen days reporting `0% used ·
