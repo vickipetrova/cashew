@@ -494,3 +494,48 @@ carried from PR 1.
   it is worth restating here because PR 2 is what makes it tractable — a `PollSchedule` extraction
   can now be tested against two real, differently-shaped providers (Claude's Keychain-backed
   discovery, Codex's file-backed one) instead of one provider and a hypothetical second.
+
+## Carried into PR 3
+
+PR 2 closed the LIMITS SHOWN `Equatable` guess and gave `PollPlan` a `hidden:` parameter. What
+follows is what it left, found mostly by running the app rather than by tests — which is itself the
+first entry.
+
+**The structural one, unchanged since PR 1 and now overdue:** `AppDelegate` and `MenuController`
+cannot be constructed in a test, and that single constraint produced the worst defect of each PR —
+a menu bar app with no menu bar, and a restore that filed one provider's window under another. The
+final re-review put the residue precisely: deleting `AppDelegate`'s three-line hiding filter leaves
+all 486 tests green. The rule is asserted at a seam the app really runs, but that the app *calls* it
+cannot be. Extracting the publish/ schedule bookkeeping into pure values — the `PollSchedule` shape
+the previous round sketched — is the only thing that closes it.
+
+**Still untested, and still the property this whole refactor was commissioned to establish:** that
+one provider's `Retry-After` leaves another's poll schedule untouched. Two real, differently-shaped
+providers now exist to test it against.
+
+**Narrow, self-correcting, and recorded so nobody rediscovers them by surprise:**
+
+- **No advice when nothing is detected and Claude is hidden.** Hide Claude while both providers are
+  detected, then lose both credentials: the panel reads "Loading…" forever with no Providers section
+  and no sign-in guidance, where before PR 2 it said "No Claude Code login found." The predicate
+  `PanelSections.empty` asks is `detected.allSatisfy(hidden.contains)`; the honest question is
+  whether anything will actually be polled — `PollPlan.providersToPoll(...).isEmpty`. Note that
+  `noProvidersDetectedAtAllIsLoadingNotAllHidden` reads as if it covers this and does not: it passes
+  `hidden: [.codex]`, where `.loading` is genuinely right because Claude still polls.
+- **A drifted `200` now replaces the restored rows.** A response whose body stops parsing yields the
+  same zero-window snapshot as a metered API-key account, so the panel swaps last-known numbers for
+  "No plan limits reported for this account". `snapshot.json` survives and the next good poll
+  repairs it. The trade was deliberate — "Loading…" forever was worse — but it is a real change in a
+  real failure mode.
+- **Switching every provider off leaves the last percentage in the menu bar for up to 60 seconds**,
+  then settles on "…". `TitleFallback.chip` has no all-hidden case saying so.
+- **Unhiding costs one poll.** While a provider is hidden, `history.save` writes only the visible
+  sections, so the hidden one drops out of `snapshot.json` and cannot be restored on the next launch
+  until it polls again. Correct by the hiding rule, surprising in use.
+- **`windowLabel(seconds:)` is not self-defending.** The ceiling lives in `duration()`; the label
+  function still traps if handed `1e30` directly. Safe today because `duration` is its only producer,
+  and only a doc comment ties them.
+- **`whatIsPolledIsAlwaysAlsoPublishable` is tautological** — both sides filter on the same set. It
+  proves less than its name suggests.
+- **`restoreLastGoodReading()` still hardcodes `.claude`** in one place, and `publish`'s `recording`
+  flag is still per call rather than per snapshot. Both carried from PR 1, both still unreachable.
