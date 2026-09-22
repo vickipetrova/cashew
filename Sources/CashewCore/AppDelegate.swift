@@ -13,6 +13,7 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public override init() { super.init() }
 
     private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider()]
+    private let discovery = ProviderDiscovery()
     private let history = UsageHistory.default
     private let statusline = StatuslineFeed.default
     private lazy var menuController = MenuController(history: history, statusline: statusline)
@@ -30,16 +31,26 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)  // Menu bar only, no dock icon, no window.
 
-        menuController.onRefresh = { [weak self] in self?.refresh() }
+        // Re-probed, not just re-polled: Refresh Now clears the Keychain-denied latch, so it is also
+        // the one moment a provider that looked absent may turn out not to be.
+        menuController.onRefresh = { [weak self] in
+            self?.rediscoverProviders { self?.refresh() }
+        }
         menuController.onSettingsChanged = { [weak self] in self?.settingsChanged() }
         menuController.onTrackSessionsChanged = { [weak self] in self?.startSessionTracking() }
         menuController.onCheckForUpdatesChanged = { [weak self] in self?.startUpdateChecks() }
         Notifier.requestAuthorizationIfNeeded()
 
         restoreLastGoodReading()
-        pushDetectedProviders()
-        refresh()
-        reschedulePoll()
+        // Nothing polls until discovery has answered, and discovery answers from a background queue
+        // — see `ProviderDiscovery` for the deadlock that buys. The delay is a queue hop in the
+        // normal case; when it isn't, it is a Keychain that would have blocked the first poll just
+        // as hard, because `ClaudeProvider.fetch` reads the same item. What this guarantees is that
+        // it blocks somewhere the menu bar doesn't care about.
+        rediscoverProviders { [weak self] in
+            self?.refresh()
+            self?.reschedulePoll()
+        }
         startSessionTracking()
         startUpdateChecks()
         tickTimer = schedule(every: 60) { [weak self] in
@@ -63,7 +74,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func didWake() {
-        refresh()
+        // Re-probed rather than assumed: the Mac can wake hours later into a machine that has since
+        // been signed into, or out of.
+        rediscoverProviders { [weak self] in self?.refresh() }
         refreshSessions()
         checkForUpdatesIfDue()
     }
@@ -72,9 +85,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// alert threshold should be evaluated against current usage rather than at the next tick.
     private func settingsChanged() {
         Notifier.requestAuthorizationIfNeeded()
-        pushDetectedProviders()
-        reschedulePoll()
-        refresh()
+        rediscoverProviders { [weak self] in
+            self?.reschedulePoll()
+            self?.refresh()
+        }
     }
 
     /// Put every provider back on the normal cadence. For the two callers that legitimately mean
@@ -109,23 +123,41 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The providers worth polling right now, by the pure rule in `PollPlan`.
+    ///
+    /// Reads the *last probed* answer rather than asking again, and that is load-bearing: asking
+    /// means a Keychain call, and every caller of this is the main thread. Before the first probe
+    /// lands `activeProviderIDs` is empty, which `PollPlan` already has an answer for — poll Claude
+    /// anyway, so its sign-in copy has somewhere to render.
+    ///
+    /// Ordered by `providers` rather than by the set, so what gets polled is deterministic.
     private func providersToPoll() -> [UsageProvider] {
-        let activeIDs = activeProviders.map(\.id)
         let allIDs = providers.map(\.id)
+        let activeIDs = allIDs.filter { activeProviderIDs.contains($0) }
         let ids = PollPlan.providersToPoll(active: activeIDs, all: allIDs,
                                            hidden: Settings.hiddenProviders)
         return ids.compactMap { id in providers.first(where: { $0.id == id }) }
     }
 
-    /// Tells the menu which providers are worth a Settings switch — credential presence alone,
-    /// never filtered by `hiddenProviders`. Hiding a provider stops it being polled, which would
-    /// otherwise make it vanish from `providersToPoll()`'s output; if the Settings list were built
-    /// from that instead of this, the switch that turns a hidden provider back on would disappear
-    /// along with it. Pushed wherever discovery could have changed, not on every poll — it costs a
-    /// credentials check per provider (a file read for Codex, a non-decrypting Keychain probe for
-    /// Claude), and nothing here needs it done more often than that.
-    private func pushDetectedProviders() {
-        menuController.update(detected: PollPlan.detectedProviders(active: activeProviders.map(\.id)))
+    /// Re-probe every provider's credentials and act on the answer.
+    ///
+    /// A continuation rather than a return value because the probe runs on `ProviderDiscovery`'s own
+    /// queue — see that type for the deadlock a synchronous answer caused. Run wherever discovery
+    /// could have changed (launch, wake, a settings change, Refresh Now) and nowhere else: a probe
+    /// costs a file read for Codex and a Keychain round trip for Claude, and nothing needs it more
+    /// often than that.
+    ///
+    /// Also what tells the menu which providers are worth a Settings switch — credential presence
+    /// alone, never filtered by `hiddenProviders`. Hiding a provider stops it being polled, which
+    /// would otherwise make it vanish from `providersToPoll()`'s output; if the Settings list were
+    /// built from that instead of this, the switch that turns a hidden provider back on would
+    /// disappear along with it.
+    private func rediscoverProviders(then next: @escaping () -> Void = {}) {
+        discovery.probe(providers) { [weak self] active in
+            guard let self else { return }
+            self.activeProviderIDs = active
+            self.menuController.update(detected: PollPlan.detectedProviders(active: Array(active)))
+            next()
+        }
     }
 
     /// Consecutive rate-limited replies, **per provider**. Reset by that provider's next success,
@@ -196,9 +228,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Only providers the user actually has. A provider with no credentials is not polled, does not
     /// appear, and costs no network — see the discovery rule in the design.
-    private var activeProviders: [UsageProvider] {
-        providers.filter { $0.credentialsExist() }
-    }
+    ///
+    /// Stored, not computed. Computing it meant `credentialsExist()` — and therefore
+    /// `SecItemCopyMatching` — on whichever thread asked, which was always the main one. Empty until
+    /// the first probe answers; `providersToPoll()` says what that means.
+    private var activeProviderIDs: Set<ProviderID> = []
 
     private func refresh(_ id: ProviderID) {
         guard let provider = providers.first(where: { $0.id == id }) else { return }

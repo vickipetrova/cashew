@@ -43,6 +43,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
 | `Sources/CashewCore/CodexCredentials.swift` | Finds the token `codex login` already wrote, at `~/.codex/auth.json`. One store, so none of `Credentials`' ranking applies — read-only, never written, never cached |
 | `Sources/CashewCore/CodexProvider.swift` | Codex usage, read from `chatgpt.com/backend-api/codex/usage`. Same defensive-parsing contract as `ClaudeProvider`, plus two hazards of its own — see the response shape section below |
+| `Sources/CashewCore/ProviderDiscovery.swift` | Asks each provider whether it has credentials, **off the main thread, always**. Exists for one deadlock, described under Credentials below — a synchronous answer is a Keychain call on the caller's thread, and the only caller is the main one |
 | `Sources/CashewCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
 | `Sources/CashewCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/CashewCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
@@ -362,6 +363,31 @@ a denial as "you've never signed in" is wrong advice on the one path every Keych
 A denial also latches, or a user who clicks Deny would be re-prompted on every poll. The lookup runs
 on a serial background queue because that prompt is modal and every `refresh()` caller is the main
 thread.
+
+**No Keychain call may be made on the main thread — not even the "cheap" presence probe.** Keeping
+the decrypting read on a background queue is only half the rule, and the missing half cost a menu
+bar app its menu bar. `Credentials.keychainItemExists()` asks for attributes only, so it cannot raise
+the prompt — but it still goes through the legacy `SecKeychain` path, which serializes on the
+keychain *item's* own lock, and it resolves to the same item `Credentials.readKeychain()` is
+decrypting. That decrypt holds the lock across a synchronous securityd round trip that is waiting on
+the modal ACL prompt, and that wait has no upper bound. A presence probe on the main thread therefore
+blocks on the lock instead of on the prompt, which is not an improvement.
+
+It blocked inside `applicationDidFinishLaunching`, which never returned: AppKit never finished
+launching, the status item was allocated but never placed, and `count menu bars` over the
+accessibility API reported **0** for a process that was alive, unpanicked, and mid-poll. It shipped
+green because the only caller was `AppDelegate`, which no test may construct. With one provider the
+main thread reached the probe microseconds after dispatching the decrypt and reliably won the race;
+adding `CodexProvider` put a few milliseconds of its own synchronous `fetch` in between and the main
+thread started reliably losing it. Ordering `[CodexProvider(), ClaudeProvider()]` makes the menu bar
+come back — which is how the race was confirmed, and why the rule is about the thread rather than
+about the provider count.
+
+`ProviderDiscovery` is where that rule lives now. `AppDelegate` holds `activeProviderIDs` as *state*
+rather than recomputing it, `credentialsExist()` is reachable only from the discovery queue, and
+anything that needs the answer takes a continuation. Before the first probe answers the set is empty,
+which `PollPlan.providersToPoll` already has an answer for — poll Claude anyway, so its sign-in copy
+has somewhere to render.
 
 ## Claude Code sessions
 
