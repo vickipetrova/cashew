@@ -71,7 +71,7 @@ struct CodexProvider: UsageProvider {
         guard http.statusCode == 200 else {
             if http.statusCode == 401 { return .failure(UsageError.unauthorized) }
             if http.statusCode == 429 {
-                return .failure(UsageError.rateLimited(retryAfter: ClaudeProvider.retryAfter(in: http)))
+                return .failure(UsageError.rateLimited(retryAfter: Backoff.retryAfter(in: http)))
             }
             return .failure(UsageError.http(http.statusCode))
         }
@@ -116,6 +116,12 @@ struct CodexProvider: UsageProvider {
     /// bounds it to roughly 1970±200 years, so a wild value drops the field instead of overflowing
     /// the `Int` conversion in `Fmt.countdown`.
     ///
+    /// The `reset_after_seconds` fallback does not go through `UsageJSON.date` at all, so that bound
+    /// would not have covered it — `duration`'s own ceiling is what does, and a decade from now is
+    /// comfortably inside the same range. The two have to stay in step: raise `maxDuration` past two
+    /// centuries and this line starts handing `Notifier.periodID` the unbounded timestamp its own
+    /// `Int((resetsAt.timeIntervalSince1970 / 60).rounded())` traps on.
+    ///
     /// Falls back to `reset_after_seconds` from now: a row with a percentage and no reset time is
     /// still worth showing, and `UsageRow` says "reset time unknown" rather than pretending.
     private static func resetDate(_ entry: [String: Any], now: Date = Date()) -> Date? {
@@ -124,13 +130,31 @@ struct CodexProvider: UsageProvider {
         return now.addingTimeInterval(after)
     }
 
+    /// A decade of seconds. Longer than any rate-limit window a vendor could mean, short enough that
+    /// `windowLabel`'s day count and `resetDate`'s `addingTimeInterval` both stay ordinary numbers.
+    ///
+    /// The upper bound is the point. Dropping `UsageJSON.number`'s 0–100 clamp was right — it would
+    /// render a 30-day window as "0-HOUR" — but leaving *no* ceiling reproduced, one function over,
+    /// the exact hazard `UsageJSON.number`'s own doc comment describes: `rawNumber` checks only
+    /// finiteness, so `{"limit_window_seconds": 1e30}` passes, and `Int((seconds / 86_400).rounded())`
+    /// traps on a value past `Int`'s range. That is a crash on every poll, from one server-controlled
+    /// field. `1e999` was already covered because JSON parses it to infinity; a large *finite* value
+    /// was not.
+    private static let maxDuration: Double = 10 * 365 * 86_400
+
     /// `limit_window_seconds` and `reset_after_seconds` are durations, not percentages —
     /// `UsageJSON.number`'s 0–100 clamp exists for `used_percent` alone, and reusing it here would
     /// silently turn a real window length (18,000, 604,800, 2,592,000) or countdown into noise.
     /// Built on `UsageJSON.rawNumber`, which carries the same boolean and finiteness guards without
     /// the clamp, so there is exactly one place that could forget the boolean bridge.
+    ///
+    /// Range-checked rather than clamped, because both callers want the row dropped: a window whose
+    /// length is nonsense has no honest heading, and a countdown to a date ten thousand years out is
+    /// not a countdown.
     private static func duration(_ any: Any?) -> Double? {
-        guard let value = UsageJSON.rawNumber(any), value > 0 else { return nil }
+        guard let value = UsageJSON.rawNumber(any), value > 0, value <= maxDuration else {
+            return nil
+        }
         return value
     }
 
@@ -139,10 +163,18 @@ struct CodexProvider: UsageProvider {
     /// Claude gets away with a literal "WEEKLY" because its cadence is fixed. Codex's is not: a free
     /// plan's primary window is 30 days and a paid plan's is hours, in the same field, so a
     /// hardcoded label would be wrong for half the users.
+    ///
+    /// Both boundaries are decided *after* rounding, not before it. Choosing the unit from the raw
+    /// seconds and then rounding within it made the two disagree: 86,399s took the hours branch and
+    /// rounded to "24-HOUR" while 86,400s took the days branch and rendered "1-DAY", so a second's
+    /// drift in a server-reported value changed the heading's units. Anything under half an hour
+    /// rounds to zero hours, and "0-HOUR" is not a heading, so it falls back to the unitless word.
     static func windowLabel(seconds: Double) -> String {
         guard seconds.isFinite, seconds > 0 else { return "WINDOW" }
         if seconds == 7 * 86_400 { return "WEEKLY" }
-        if seconds < 86_400 { return "\(Int((seconds / 3600).rounded()))-HOUR" }
+        let hours = Int((seconds / 3600).rounded())
+        if hours < 1 { return "WINDOW" }
+        if hours < 24 { return "\(hours)-HOUR" }
         return "\(Int((seconds / 86_400).rounded()))-DAY"
     }
 }
