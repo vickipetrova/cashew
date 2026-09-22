@@ -95,6 +95,13 @@ import Testing
                     resetsAt: resetsIn.map { now.addingTimeInterval($0) })
     }
 
+    /// Spelled out at every call site rather than defaulted to Claude: the bug this shape exists to
+    /// prevent was a provider being assumed rather than stated.
+    private func section(_ provider: ProviderID,
+                         _ windows: [LimitWindow]) -> UsageHistory.Snapshot.Section {
+        UsageHistory.Snapshot.Section(provider: provider, windows: windows)
+    }
+
     /// The whole point: a launch that can't reach the API still has rows to draw. Every display
     /// field has to survive, not just the percentage — a heading and a reset time are what make it a
     /// row rather than a number.
@@ -102,11 +109,85 @@ import Testing
         let directory = scratch()
         let saved = [window("session", 82, resetsIn: 3_600),
                      window("weekly", 41, resetsIn: 200_000)]
-        UsageHistory(directory: directory).save(snapshot: saved, at: now)
+        UsageHistory(directory: directory).save(snapshot: [section(.claude, saved)], at: now)
 
         let restored = try #require(UsageHistory(directory: directory).restorableSnapshot(now: now))
-        #expect(restored.windows == saved)
+        #expect(restored.sections == [section(.claude, saved)])
+        #expect(restored.windows(for: .claude) == saved)
         #expect(restored.at == now)
+    }
+
+    /// The rule this shape exists for: **a saved reading restores into the same provider sections it
+    /// was saved from.**
+    ///
+    /// It did not. `save` took a flat `[LimitWindow]` holding every provider's rows at once and the
+    /// restore had no way to tell them apart, so it handed all of them to Claude. A real cold start
+    /// drew `CODEX · 30-DAY` under the `CLAUDE` heading — see `aRestoredReadingStillDrawsItsHeadings`
+    /// below for the other half of the damage.
+    @Test func aSavedReadingRestoresIntoTheSectionsItWasSavedFrom() throws {
+        let directory = scratch()
+        let claude = [window("session", 7, resetsIn: 3_600),
+                      window("weekly", 28, resetsIn: 50_000)]
+        let codex = [window("primary", 0, resetsIn: 2_500_000)]
+        UsageHistory(directory: directory)
+            .save(snapshot: [section(.claude, claude), section(.codex, codex)], at: now)
+
+        let restored = try #require(UsageHistory(directory: directory).restorableSnapshot(now: now))
+
+        #expect(restored.sections.map(\.provider) == [.claude, .codex])
+        #expect(restored.windows(for: .claude) == claude)
+        #expect(restored.windows(for: .codex) == codex)
+        // The symptom, stated directly: Codex's row is not one of Claude's.
+        #expect(!restored.windows(for: .claude).contains { $0.id == "primary" })
+    }
+
+    /// The user-visible half, end to end, because the collapse cost more than one mislabelled row:
+    /// two providers folded into one section, and headings are drawn only when there is more than
+    /// one section to tell apart. So the dropdown lost the `CLAUDE` heading, the `CODEX` heading and
+    /// the separator between them as well, and read as one undivided list.
+    ///
+    /// `PanelSections.rows` is already covered for two live snapshots; what nothing covered was the
+    /// path that actually broke — snapshots rebuilt *from disk*.
+    @Test func aRestoredReadingStillDrawsItsHeadings() throws {
+        let directory = scratch()
+        UsageHistory(directory: directory).save(snapshot: [
+            section(.claude, [window("session", 7, resetsIn: 3_600)]),
+            section(.codex, [window("primary", 0, resetsIn: 2_500_000)]),
+        ], at: now)
+
+        let restored = try #require(UsageHistory(directory: directory).restorableSnapshot(now: now))
+        // Exactly what `AppDelegate.restoreLastGoodReading()` builds from it.
+        let snapshots = restored.sections.map {
+            ProviderSnapshot(provider: $0.provider, windows: $0.windows,
+                             updatedAt: restored.at, failure: nil, restored: true)
+        }
+
+        let rows = PanelSections.rows(for: snapshots, now: now)
+        #expect(rows == [.heading(.claude), .usage(.claude, restored.windows(for: .claude)[0]),
+                         .separator,
+                         .heading(.codex), .usage(.codex, restored.windows(for: .codex)[0])])
+    }
+
+    /// A provider whose every row has expired has nothing to say, and an empty section would still
+    /// count towards the "more than one section" rule above — putting a `CLAUDE` heading over a
+    /// Codex-only menu.
+    @Test func aSectionLeftWithNothingIsDroppedRatherThanRestoredEmpty() throws {
+        let directory = scratch()
+        UsageHistory(directory: directory).save(snapshot: [
+            section(.claude, [window("session", 82, resetsIn: -3_600)]),   // reset an hour ago
+            section(.codex, [window("primary", 0, resetsIn: 2_500_000)]),
+        ], at: now.addingTimeInterval(-7_200))
+
+        let restored = try #require(UsageHistory(directory: directory).restorableSnapshot(now: now))
+        #expect(restored.sections.map(\.provider) == [.codex])
+
+        let snapshots = restored.sections.map {
+            ProviderSnapshot(provider: $0.provider, windows: $0.windows,
+                             updatedAt: restored.at, failure: nil, restored: true)
+        }
+        // One section, so no headings — which is the *right* answer here, unlike the collapsed case.
+        #expect(!PanelSections.rows(for: snapshots, now: now)
+            .contains { if case .heading = $0 { return true } else { return false } })
     }
 
     /// A window that has already reset describes a period that is over. "82%" for a session that
@@ -114,31 +195,32 @@ import Testing
     /// than showing nothing.
     @Test func windowsThatHaveAlreadyResetAreNotRestored() throws {
         let directory = scratch()
-        UsageHistory(directory: directory).save(snapshot: [
+        UsageHistory(directory: directory).save(snapshot: [section(.claude, [
             window("session", 82, resetsIn: -3_600),   // reset an hour ago
             window("weekly", 41, resetsIn: 200_000),
-        ], at: now.addingTimeInterval(-7_200))
+        ])], at: now.addingTimeInterval(-7_200))
 
         let restored = try #require(UsageHistory(directory: directory).restorableSnapshot(now: now))
-        #expect(restored.windows.map(\.id) == ["weekly"])
+        #expect(restored.windows(for: .claude).map(\.id) == ["weekly"])
     }
 
     /// …and if that leaves nothing, there is nothing to show. Returning an empty snapshot would send
     /// `MenuController` down its non-empty branch to render a panel with no rows in it.
     @Test func aFullyExpiredSnapshotRestoresNothing() {
         let directory = scratch()
-        UsageHistory(directory: directory).save(snapshot: [window("session", 82, resetsIn: -60)],
-                                                at: now.addingTimeInterval(-7_200))
+        UsageHistory(directory: directory)
+            .save(snapshot: [section(.claude, [window("session", 82, resetsIn: -60)])],
+                  at: now.addingTimeInterval(-7_200))
         #expect(UsageHistory(directory: directory).restorableSnapshot(now: now) == nil)
     }
 
     /// The provider never promised a reset time for these, so nothing says the reading has expired.
     @Test func aWindowWithNoResetTimeIsStillRestorable() throws {
         let directory = scratch()
-        UsageHistory(directory: directory).save(snapshot: [window("session", 82, resetsIn: nil)],
-                                                at: now)
+        UsageHistory(directory: directory)
+            .save(snapshot: [section(.claude, [window("session", 82, resetsIn: nil)])], at: now)
         let restored = try #require(UsageHistory(directory: directory).restorableSnapshot(now: now))
-        #expect(restored.windows.count == 1)
+        #expect(restored.windows(for: .claude).count == 1)
     }
 
     @Test func noSnapshotAtAllRestoresNothing() {
@@ -158,8 +240,8 @@ import Testing
     /// write takes out both halves at once.
     @Test func theSnapshotAndTheSamplesFailIndependently() throws {
         let directory = scratch()
-        UsageHistory(directory: directory).save(snapshot: [window("session", 82, resetsIn: 3_600)],
-                                                at: now)
+        UsageHistory(directory: directory)
+            .save(snapshot: [section(.claude, [window("session", 82, resetsIn: 3_600)])], at: now)
         try Data("not json".utf8).write(to: directory.appendingPathComponent("history.json"))
 
         let history = UsageHistory(directory: directory)

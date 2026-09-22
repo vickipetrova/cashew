@@ -192,8 +192,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// fell to "!" and the dropdown showed the error alone, on exactly the launch the restore is
     /// for. One seed, in the one place both the panel and the failure path read from.
     ///
-    /// Attributed to Claude because the saved reading is a flat `[LimitWindow]` carrying no provider
-    /// — all a one-provider app ever wrote.
+    /// One `ProviderSnapshot` per saved section, each under the provider that actually reported it.
+    /// This used to attribute the whole file to Claude, because the saved reading was a flat
+    /// `[LimitWindow]` carrying no provider — all a one-provider app ever wrote. With two providers
+    /// that meant Codex's row restored as a Claude row, and one section where there should have been
+    /// two, so the dropdown lost its headings and its separator as well. `UsageHistory.Snapshot` now
+    /// carries the provider and a window without one cannot be saved.
     ///
     /// Published straight away so the panel has rows before the first poll lands. `restored: true`
     /// is what stops that publish being mistaken for one — see `ProviderSnapshot.observed(live:)` —
@@ -201,8 +205,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// feed the dropdown goes on saying "Showing data from" the hour it was really read.
     private func restoreLastGoodReading() {
         guard let restored = history.restorableSnapshot() else { return }
-        snapshots[.claude] = ProviderSnapshot(provider: .claude, windows: restored.windows,
-                                              updatedAt: restored.at, failure: nil, restored: true)
+        for section in restored.sections {
+            snapshots[section.provider] = ProviderSnapshot(
+                provider: section.provider, windows: section.windows,
+                updatedAt: restored.at, failure: nil, restored: true)
+        }
         publish(at: Date())
     }
 
@@ -261,7 +268,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   `Notifier` exists to prevent.
     private func publish(at updatedAt: Date, recording: Bool = true) {
         var assembled: [ProviderSnapshot] = []
-        var observed: [LimitWindow] = []
+        // Sections, not a flat list: this is the write half of the pair `restoreLastGoodReading()`
+        // reads, and a flat list is exactly how Codex's row ended up filed under Claude.
+        var observed: [UsageHistory.Snapshot.Section] = []
         for provider in providers {
             guard var snapshot = snapshots[provider.id] else { continue }
             var live: [LimitWindow] = []
@@ -278,11 +287,15 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             // stretch that never happened. What the live overlay just contributed is new, and still
             // counts.
             let fresh = snapshot.observed(live: live)
-            if recording, !fresh.isEmpty {
-                history.record(fresh, provider: snapshot.provider, at: updatedAt)
-                Notifier.evaluate(fresh, provider: snapshot.provider)
+            if !fresh.isEmpty {
+                if recording {
+                    history.record(fresh, provider: snapshot.provider, at: updatedAt)
+                    Notifier.evaluate(fresh, provider: snapshot.provider)
+                }
+                // Never an empty section: one would survive the restore and count towards the
+                // "more than one section" rule that decides whether the dropdown draws headings.
+                observed.append(.init(provider: snapshot.provider, windows: fresh))
             }
-            observed.append(contentsOf: fresh)
             assembled.append(snapshot)
         }
         guard !assembled.isEmpty else { return }

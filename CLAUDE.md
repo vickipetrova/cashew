@@ -47,7 +47,7 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
 | `Sources/CashewCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/CashewCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
-| `Sources/CashewCore/UsageHistory.swift` | Everything Cashew writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
+| `Sources/CashewCore/UsageHistory.swift` | Everything Cashew writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Both are **per provider** — samples by a qualified id, the snapshot by `Snapshot.Section`, which makes a provider-less window unrepresentable. Location is injected so tests never reach the real one |
 | `Sources/CashewCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — the feed never writes the file or touches `~/.claude/`; hook installation is `HookInstaller`'s, and only for its own hooks. Also owns the setup snippet and the status shown in Settings; `docs/LIVE-UPDATES.md` quotes the snippet and a test holds the two together. The snippet's URL is pasted into the user's own script and can never be corrected, so it names a file, not a heading |
 | `Sources/CashewCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
 | `Sources/CashewCore/HookInstaller.swift` | Adds/removes Cashew's hooks in `~/.claude/settings.json` and nothing else |
@@ -155,6 +155,18 @@ was fine — a fresh process using the same token got `200` immediately, which i
 So `UsageError.rateLimited` carries the `Retry-After` the parser used to discard (RFC 9110 allows
 seconds *or* an HTTP date, and a date already in the past must yield nil rather than a negative wait),
 and `Backoff.delay` turns it into a schedule. Don't fold it back into `.http`.
+
+**What is written to disk is written per provider, and the snapshot makes that structural.** Samples
+were always keyed by `ProviderID.qualify`, so two providers' `session` windows never shared a series.
+The last good reading was not: `save` took a flat `[LimitWindow]` holding every provider's rows at
+once and `restoreLastGoodReading()` handed the whole file to Claude, because that is all a
+one-provider app ever wrote. With two providers a real cold start drew `CODEX · 30-DAY` under the
+`CLAUDE` heading — and since headings appear only when there is more than one section, folding two
+sections into one took the headings *and* the separator away, leaving one undivided list.
+`UsageHistory.Snapshot` is therefore `[Section]`, each carrying its `ProviderID`, so `save` and the
+restore agree by construction rather than by convention. The on-disk format changed with it and
+there is no migration: `read` is `try?`-guarded, so an old `snapshot.json` fails to decode and that
+one cold start goes without its last good reading.
 
 **Staleness is a display rule, not a storage one.** Keeping the last good numbers when a poll fails is
 right for a short outage and wrong for a long one. `Freshness.displayable` is the single definition —
