@@ -51,6 +51,25 @@ That's the one setup Cashew can't handle. Claude Code moves both the credentials
 Keychain service name to match the variable, and an app launched from Finder doesn't inherit
 environment variables set in your shell — so Cashew has no way to learn where you put it.
 
+## My Codex usage doesn't appear
+
+Run `codex login`. Cashew only reads the token the Codex CLI already wrote to
+`~/.codex/auth.json` — it cannot sign you in itself, and there is no setup on Cashew's side beyond
+that file existing.
+
+An API-key login — `codex login --with-api-key` — is not enough. It writes `~/.codex/auth.json`
+with no ChatGPT tokens in it, so Cashew can see that you have Codex and still has nothing to ask the
+usage endpoint with. The Codex section says so rather than showing rows. Sign in with `codex login`
+if you want plan usage in the menu bar.
+
+A free ChatGPT plan reports exactly **one** window, `CODEX · 30-DAY`. That is correct, not a missing
+row: the response has no `secondary_window` for a free plan, and Cashew shows what the account
+actually has rather than inventing a second row to match Claude's three.
+
+If you use `CODEX_HOME` to move Codex's state directory, that's the same setup Cashew can't handle
+as `CLAUDE_CONFIG_DIR` above: `auth.json` moves with it, and an app launched from Finder doesn't
+inherit environment variables set in your shell, so Cashew has no way to learn where you put it.
+
 ## The numbers disagree with /usage
 
 Check `/usage` inside Claude Code. If they genuinely disagree,

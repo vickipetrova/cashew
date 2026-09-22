@@ -44,4 +44,15 @@ import Testing
         #expect(ClaudeProvider.host == "api.anthropic.com")
         #expect(ClaudeProvider.endpointHost == ClaudeProvider.host)
     }
+
+    @Test func theCodexEndpointOnlyTalksToItsDeclaredHost() {
+        #expect(CodexProvider.host == "chatgpt.com")
+        #expect(CodexProvider.endpointHost == CodexProvider.host)
+    }
+
+    @Test func theCodexSessionRefusesRedirects() {
+        // Same reason as the other two: a redirect off the declared host would silently break the
+        // one-host-per-provider promise in hard rule 5.
+        #expect(CodexProvider.session.delegate is RefuseRedirects)
+    }
 }

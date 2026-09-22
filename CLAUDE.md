@@ -41,10 +41,13 @@ is no override to reach for. The `build` check has to be green before the PR can
 | `Sources/CashewCore/UsageAPI.swift` | `LimitWindow` model, `ProviderID` (identity, storage-key qualification, dropdown section heading) and `ProviderSnapshot` (one provider's windows, its own `updatedAt` and failure), `UsageProvider` protocol, `ClaudeProvider` (endpoint client + all response parsing) |
 | `Sources/CashewCore/RefuseRedirects.swift` | The redirect policy both sessions install. Its own file so the two can't drift — the update check spent its whole life following redirects while the usage session refused them |
 | `Sources/CashewCore/Credentials.swift` | Token discovery across the login Keychain and the credentials file, ranked rather than first-wins |
+| `Sources/CashewCore/CodexCredentials.swift` | Finds the token `codex login` already wrote, at `~/.codex/auth.json`. One store, so none of `Credentials`' ranking applies — read-only, never written, never cached |
+| `Sources/CashewCore/CodexProvider.swift` | Codex usage, read from `chatgpt.com/backend-api/codex/usage`. Same defensive-parsing contract as `ClaudeProvider`, plus two hazards of its own — see the response shape section below |
+| `Sources/CashewCore/ProviderDiscovery.swift` | Asks each provider whether it has credentials, **off the main thread, always**. Exists for one deadlock, described under Credentials below — a synchronous answer is a Keychain call on the caller's thread, and the only caller is the main one |
 | `Sources/CashewCore/Format.swift` | Percentages, countdowns, locale-aware clock times, the colour modes, the menu bar spark image. `clock` is for *future* dates and `stamp` for past ones — they are not interchangeable, see below |
 | `Sources/CashewCore/Settings.swift` | UserDefaults-backed preferences; launch-at-login proxies `SMAppService` |
 | `Sources/CashewCore/Notifier.swift` | Threshold alerts, deduplicated per window per reset period |
-| `Sources/CashewCore/UsageHistory.swift` | Everything Cashew writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Location is injected so tests never reach the real one |
+| `Sources/CashewCore/UsageHistory.swift` | Everything Cashew writes to disk: the rolling samples the forecast reads, and the last good reading so a failed cold start still has rows. Both are **per provider** — samples by a qualified id, the snapshot by `Snapshot.Section`, which makes a provider-less window unrepresentable. Location is injected so tests never reach the real one |
 | `Sources/CashewCore/StatuslineFeed.swift` | Plan usage read from what Claude Code hands its statusline, when the user has opted in. Read-only — the feed never writes the file or touches `~/.claude/`; hook installation is `HookInstaller`'s, and only for its own hooks. Also owns the setup snippet and the status shown in Settings; `docs/LIVE-UPDATES.md` quotes the snippet and a test holds the two together. The snippet's URL is pasted into the user's own script and can never be corrected, so it names a file, not a heading |
 | `Sources/CashewCore/Forecast.swift` | Pure burn-rate projection over those samples, and the rule for which forecasts colour the title |
 | `Sources/CashewCore/HookInstaller.swift` | Adds/removes Cashew's hooks in `~/.claude/settings.json` and nothing else |
@@ -153,6 +156,18 @@ So `UsageError.rateLimited` carries the `Retry-After` the parser used to discard
 seconds *or* an HTTP date, and a date already in the past must yield nil rather than a negative wait),
 and `Backoff.delay` turns it into a schedule. Don't fold it back into `.http`.
 
+**What is written to disk is written per provider, and the snapshot makes that structural.** Samples
+were always keyed by `ProviderID.qualify`, so two providers' `session` windows never shared a series.
+The last good reading was not: `save` took a flat `[LimitWindow]` holding every provider's rows at
+once and `restoreLastGoodReading()` handed the whole file to Claude, because that is all a
+one-provider app ever wrote. With two providers a real cold start drew `CODEX · 30-DAY` under the
+`CLAUDE` heading — and since headings appear only when there is more than one section, folding two
+sections into one took the headings *and* the separator away, leaving one undivided list.
+`UsageHistory.Snapshot` is therefore `[Section]`, each carrying its `ProviderID`, so `save` and the
+restore agree by construction rather than by convention. The on-disk format changed with it and
+there is no migration: `read` is `try?`-guarded, so an old `snapshot.json` fails to decode and that
+one cold start goes without its last good reading.
+
 **Staleness is a display rule, not a storage one.** Keeping the last good numbers when a poll fails is
 right for a short outage and wrong for a long one. `Freshness.displayable` is the single definition —
 used by the panel, the menu bar title, the error copy *and* `restorableSnapshot`, so a reading can't
@@ -164,6 +179,67 @@ Values are also clamped to 0–100 and checked for finiteness, because `Fmt.pct`
 that traps on infinity or anything past `Int`'s range. `scope.model.display_name` is server-controlled
 and lands in a menu label, a notification title *and* a `UserDefaults` key, so it is trimmed,
 flattened, length-capped, and rejected when empty.
+
+### Codex's response shape
+
+`CodexProvider.windows(in:)` reads `rate_limit.primary_window` and `rate_limit.secondary_window` —
+the same undocumented-and-drifting contract as Claude's, so hard rule 3 applies in full and
+`secondary_window: null` is read as "this plan doesn't have one" rather than a fault; it is every
+free plan's response. Two hazards specific to Codex:
+
+- **`reset_at` is epoch *seconds*, and Claude's `expiresAt` two files over in `Credentials.swift` is
+  epoch *milliseconds*.** Both are bare numbers that parse without complaint at the wrong scale, and
+  now that the two coexist in one codebase, a helper written against one and reused against the
+  other would be silently off by 1000x. `UsageJSON.date` accepts Codex's raw-number seconds or
+  Claude's ISO8601 string, never assumes which, and bounds the result to roughly 1970±200 years so a
+  value read at the wrong scale drops the field instead of landing on a nonsense date.
+- **The section label is derived from `limit_window_seconds`, not hardcoded, because the cadence is
+  plan-dependent.** Claude gets away with a literal `"WEEKLY"` because its window is fixed; Codex's
+  primary window is 30 days on a free plan and a matter of hours on paid, in the same field, so
+  `CodexProvider.windowLabel` turns the reported duration into `"30-DAY"`, `"5-HOUR"`, or `"WEEKLY"`
+  for the one case that lands on exactly seven days — never a label chosen ahead of time. The unit
+  is chosen *after* rounding, or 86,399s reads "24-HOUR" and 86,400s reads "1-DAY".
+- **A duration needs an upper bound, and that is not the same guard as a percentage's.**
+  `CodexProvider.duration` rightly drops `UsageJSON.number`'s 0–100 clamp — clamped, a 30-day window
+  renders as "0-HOUR" — but `UsageJSON.rawNumber` checks only finiteness, so for a while there was
+  no ceiling at all. `{"limit_window_seconds": 1e30}` then reached `Int((seconds / 86_400).rounded())`,
+  which traps: a crash on every poll, from one server-controlled field, and exactly the hazard
+  `UsageJSON.number`'s own doc comment describes reproduced one function over. `1e999` was covered
+  because JSON parses it to infinity; a large *finite* value was not. `maxDuration` (a decade of
+  seconds) is also what bounds `reset_after_seconds`, which is added to `now` directly and so never
+  passes through `UsageJSON.date`'s plausible-epoch range at all.
+
+**Error copy is parameterised by provider, because `UsageError.errorDescription` is Claude's.** It
+was drawn under whichever heading needed a message, so a Codex 401 said "open a Claude Code session
+to refresh it", a Codex network failure said "Can't reach api.anthropic.com." under a **CODEX**
+heading, and `codex login --with-api-key` — which writes `{"auth_mode":"apikey","tokens":null}`, so
+the file exists and Codex is detected and polled while `read()` returns nil — told the user "No
+Claude Code login found." `ProviderErrorCopy.message(_:provider:)` is the one caller that knows
+whose heading it is about to sit under; `errorDescription` keeps Claude's strings byte-identical, and
+the faults that name nothing provider-specific are deliberately word-for-word the same in both.
+
+`Settings.hiddenProviders` stores which detected providers the user switched off in **Settings ›
+Providers**, as a `Set<ProviderID>` in `UserDefaults`. It exists because detection and display are
+different questions: a provider with credentials on disk is still *detected* even after the user
+hides it — the switch that turns it back on has to keep appearing, which is
+`ProviderSettingsRows.rows` — but hidden means it is neither polled nor published.
+
+**The exclusion is applied to the data, once, and never by a reader.** `PollPlan.providersToPoll`
+drops a hidden provider before the network call and `PollPlan.providersToPublish` drops it before
+`AppDelegate.publish` assembles anything, so `MenuController` is only ever handed snapshots the user
+is meant to see. That is a correction, not a decoration: it was a filtered accessor the renderers
+were each supposed to remember to use, and five of the six forgot at least once — the dropdown rows,
+the display windows, the title windows, the fallback chip, and the LIMITS SHOWN picker, which ended
+up writing into `Settings.titleLimitIDs` for a provider whose rows were being filtered back out.
+Meanwhile `publish` itself never consulted the set at all, so a provider polled and then hidden went
+on reaching `Notifier.evaluate` and `history.record` every 60 seconds. One filter on the data closes
+all of it; a rule each reader has to remember is a rule that gets forgotten.
+
+Two consequences worth knowing. Hiding really does stop the traffic — `providersToPoll`'s
+poll-Claude-anyway fallback is for a user with *no* credentials, not for one who switched Claude
+off, and SECURITY.md promises as much. And a user who switches everything off is told so, by
+`PanelSections.Empty.allHidden`, rather than being left on "Loading…" for something that will never
+load.
 
 ## Why the dropdown's rows are custom views
 
@@ -331,6 +407,31 @@ a denial as "you've never signed in" is wrong advice on the one path every Keych
 A denial also latches, or a user who clicks Deny would be re-prompted on every poll. The lookup runs
 on a serial background queue because that prompt is modal and every `refresh()` caller is the main
 thread.
+
+**No Keychain call may be made on the main thread — not even the "cheap" presence probe.** Keeping
+the decrypting read on a background queue is only half the rule, and the missing half cost a menu
+bar app its menu bar. `Credentials.keychainItemExists()` asks for attributes only, so it cannot raise
+the prompt — but it still goes through the legacy `SecKeychain` path, which serializes on the
+keychain *item's* own lock, and it resolves to the same item `Credentials.readKeychain()` is
+decrypting. That decrypt holds the lock across a synchronous securityd round trip that is waiting on
+the modal ACL prompt, and that wait has no upper bound. A presence probe on the main thread therefore
+blocks on the lock instead of on the prompt, which is not an improvement.
+
+It blocked inside `applicationDidFinishLaunching`, which never returned: AppKit never finished
+launching, the status item was allocated but never placed, and `count menu bars` over the
+accessibility API reported **0** for a process that was alive, unpanicked, and mid-poll. It shipped
+green because the only caller was `AppDelegate`, which no test may construct. With one provider the
+main thread reached the probe microseconds after dispatching the decrypt and reliably won the race;
+adding `CodexProvider` put a few milliseconds of its own synchronous `fetch` in between and the main
+thread started reliably losing it. Ordering `[CodexProvider(), ClaudeProvider()]` makes the menu bar
+come back — which is how the race was confirmed, and why the rule is about the thread rather than
+about the provider count.
+
+`ProviderDiscovery` is where that rule lives now. `AppDelegate` holds `activeProviderIDs` as *state*
+rather than recomputing it, `credentialsExist()` is reachable only from the discovery queue, and
+anything that needs the answer takes a continuation. Before the first probe answers the set is empty,
+which `PollPlan.providersToPoll` already has an answer for — poll Claude anyway, so its sign-in copy
+has somewhere to render.
 
 ## Claude Code sessions
 

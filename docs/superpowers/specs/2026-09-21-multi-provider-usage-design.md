@@ -414,25 +414,40 @@ Two things this design already handles, and which phase 3 should confirm rather 
 Found during PR 1's implementation and deliberately deferred. Recorded here because PR 1's working
 notes are scratch and the reasoning is worth more than the list.
 
+PR 2 (this one, `feat/codex-provider`) landed Codex as the second provider and turned it on. It
+closed two of the items below outright, partially addressed a third, and reached none of the rest —
+they are unchanged from PR 1 and still open. New deferrals PR 2 itself created are recorded after
+this list, not folded into it.
+
 **Latent once a second provider exists — these are correct today and wrong the moment Codex lands:**
 
 - **`history.save(snapshot:)` writes a flat, provider-blind `[LimitWindow]`, and
   `restoreLastGoodReading()` attributes all of it to `.claude`.** With one provider that is exactly
   right. With two, a save concatenating across providers and a restore assuming Claude will
-  mis-attribute rows — and the restore feeds the cold-start panel, so the mistake is visible.
+  mis-attribute rows — and the restore feeds the cold-start panel, so the mistake is visible. **Not
+  reached by PR 2** — `restoreLastGoodReading()` still hardcodes `.claude` for exactly this reason,
+  by its own comment.
 - **`recording` in `publish(at:recording:)` is per call, not per snapshot.** A failure on one
   provider suppresses recording of another's good snapshot for that call. Harmless today (the 60s
   tick re-records within a minute) and *not* fixable by reverting to a per-snapshot check — that was
   the latching bug fixed in PR 1. The correct condition is "this snapshot carries a fresh reading".
-- **LIMITS SHOWN re-associates a window to its section by `Equatable` containment**
-  (`sections.first { $0.windows.contains(window) }`), so two providers reporting value-equal windows
-  resolve to the first. Works today because `label`/`optionLabel` differ per provider. The clean fix
-  is `TitleSelection.windows` returning qualified ids or `(provider, window)` pairs.
-- **`PollPlan.providersToPoll` hardcodes `.claude`** as the no-credentials fallback, inside a type
-  whose purpose is provider-agnosticism. A `fallback:` parameter is the obvious shape.
+  **Not reached by PR 2** — `publish(at:recording:)`'s signature is unchanged.
+- **Closed by PR 2.** LIMITS SHOWN no longer re-associates a window to its section by `Equatable`
+  containment. `TitleSelection.windows` now takes `[(provider, [LimitWindow])]` and returns
+  `[(provider, LimitWindow)]` pairs, and `MenuController` stores and compares the qualified id
+  (`provider.qualify(window.id)`) throughout — `menuBarSettings()`, `Settings.titleLimitIDs`, and the
+  `.mixed` state all key on it. Two providers reporting value-equal windows can no longer resolve to
+  the first.
+- **Partially addressed by PR 2.** `PollPlan.providersToPoll` now takes a `hidden: Set<ProviderID>`
+  parameter, so a provider switched off in Settings is excluded from polling the same as one with no
+  credentials — that part of the shape landed. The `.claude` fallback itself is unchanged: when
+  nothing is active and unhidden, it still hardcodes `all.filter { $0 == .claude }` rather than
+  taking a `fallback:` parameter. Still correct today (Claude is still the only provider every
+  install has), still the wrong shape for a third provider that isn't Claude.
 - **A provider whose credentials appear between launches is polled on wake and Refresh Now but never
-  gets a timer** — `refresh()` re-evaluates `providersToPoll()` without re-arming. Unreachable while
-  `PollPlan` always yields Claude.
+  gets a timer** — `refresh()` re-evaluates `providersToPoll()` without re-arming. **Not reached by
+  PR 2**, and no longer unreachable: with Codex installed after Cashew launches, this is now a real
+  path rather than a theoretical one, since `PollPlan` no longer always yields Claude alone.
 
 **The coverage gap worth closing first:**
 
@@ -445,9 +460,82 @@ notes are scratch and the reasoning is worth more than the list.
   rule did not follow it. A pure `PollSchedule` holding `[ProviderID: (interval, streak)]` with
   `backOff`, `recovered` and `rescheduleAll` as transitions — leaving `AppDelegate` to turn a plan
   into `Timer`s — would make "Codex backs off, Claude's entry is byte-identical" an assertion
-  instead of a careful read.
+  instead of a careful read. **Not reached by PR 2**, and this is the item most worth doing first in
+  whatever comes next: a second real provider now exists to write that assertion against, which it
+  did not when this was first recorded — PR 1 had only Claude, so "another provider's schedule" was
+  necessarily hypothetical. It no longer is.
 
 **Smaller, and genuinely optional:** `Credentials.swift` states one rationale twice; no test
 exercises `ClaudeProvider(presence:)`'s one-line delegation; `"scoped:Fable"` is unqualified in some
 fixture-style tests; a redundant `#require` in `UsagePanelTests`; two over-long lines in
-`MenuController.swift`; `AppDelegate` is now the module's largest untestable surface.
+`MenuController.swift`; `AppDelegate` is now the module's largest untestable surface. Not reached by
+PR 2.
+
+## Carried into PR 3
+
+Found during PR 2's implementation and deliberately deferred, the same way the section above was
+carried from PR 1.
+
+- **Closed, and not the way this said to close it.** The LIMITS SHOWN picker did list a hidden
+  provider's windows, and worse than "inert" — ticking a row wrote into `Settings.titleLimitIDs` for
+  a provider the title path filtered back out, so the choice took effect later, when the provider was
+  unhidden. The recorded fix was "read `unhiddenSnapshots` here too", which would have been the fifth
+  call site to apply the same filter by hand, and `AppDelegate.publish` was meanwhile the sixth place
+  that forgot it entirely — a hidden provider went on reaching `Notifier.evaluate` and
+  `history.record` on every 60-second tick, and its section was written to disk and restored next
+  launch. So the exclusion moved off the readers and onto the data: `PollPlan.providersToPublish`
+  filters once while `publish` assembles, `MenuController.unhiddenSnapshots` is gone, and every
+  reader in that file is correct by construction. The `hidden:` parameters on
+  `PanelSections.visible`/`rows` and `TitleFallback.chip` — which existed only as a test seam for a
+  rule with no production caller — went with it; those tests now compose `providersToPublish` with
+  the reader, which is what production does.
+- **The `Retry-After` coverage gap above is no longer the spec's only mention of itself.** It was
+  already carried from PR 1 as the weakest-coverage item in the codebase; PR 2 didn't touch it, but
+  it is worth restating here because PR 2 is what makes it tractable — a `PollSchedule` extraction
+  can now be tested against two real, differently-shaped providers (Claude's Keychain-backed
+  discovery, Codex's file-backed one) instead of one provider and a hypothetical second.
+
+## Carried into PR 3
+
+PR 2 closed the LIMITS SHOWN `Equatable` guess and gave `PollPlan` a `hidden:` parameter. What
+follows is what it left, found mostly by running the app rather than by tests — which is itself the
+first entry.
+
+**The structural one, unchanged since PR 1 and now overdue:** `AppDelegate` and `MenuController`
+cannot be constructed in a test, and that single constraint produced the worst defect of each PR —
+a menu bar app with no menu bar, and a restore that filed one provider's window under another. The
+final re-review put the residue precisely: deleting `AppDelegate`'s three-line hiding filter leaves
+all 486 tests green. The rule is asserted at a seam the app really runs, but that the app *calls* it
+cannot be. Extracting the publish/ schedule bookkeeping into pure values — the `PollSchedule` shape
+the previous round sketched — is the only thing that closes it.
+
+**Still untested, and still the property this whole refactor was commissioned to establish:** that
+one provider's `Retry-After` leaves another's poll schedule untouched. Two real, differently-shaped
+providers now exist to test it against.
+
+**Narrow, self-correcting, and recorded so nobody rediscovers them by surprise:**
+
+- **No advice when nothing is detected and Claude is hidden.** Hide Claude while both providers are
+  detected, then lose both credentials: the panel reads "Loading…" forever with no Providers section
+  and no sign-in guidance, where before PR 2 it said "No Claude Code login found." The predicate
+  `PanelSections.empty` asks is `detected.allSatisfy(hidden.contains)`; the honest question is
+  whether anything will actually be polled — `PollPlan.providersToPoll(...).isEmpty`. Note that
+  `noProvidersDetectedAtAllIsLoadingNotAllHidden` reads as if it covers this and does not: it passes
+  `hidden: [.codex]`, where `.loading` is genuinely right because Claude still polls.
+- **A drifted `200` now replaces the restored rows.** A response whose body stops parsing yields the
+  same zero-window snapshot as a metered API-key account, so the panel swaps last-known numbers for
+  "No plan limits reported for this account". `snapshot.json` survives and the next good poll
+  repairs it. The trade was deliberate — "Loading…" forever was worse — but it is a real change in a
+  real failure mode.
+- **Switching every provider off leaves the last percentage in the menu bar for up to 60 seconds**,
+  then settles on "…". `TitleFallback.chip` has no all-hidden case saying so.
+- **Unhiding costs one poll.** While a provider is hidden, `history.save` writes only the visible
+  sections, so the hidden one drops out of `snapshot.json` and cannot be restored on the next launch
+  until it polls again. Correct by the hiding rule, surprising in use.
+- **`windowLabel(seconds:)` is not self-defending.** The ceiling lives in `duration()`; the label
+  function still traps if handed `1e30` directly. Safe today because `duration` is its only producer,
+  and only a doc comment ties them.
+- **`whatIsPolledIsAlwaysAlsoPublishable` is tautological** — both sides filter on the same set. It
+  proves less than its name suggests.
+- **`restoreLastGoodReading()` still hardcodes `.claude`** in one place, and `publish`'s `recording`
+  flag is still per call rather than per snapshot. Both carried from PR 1, both still unreachable.

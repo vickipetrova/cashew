@@ -1,5 +1,6 @@
 Your Claude Code plan usage, in the macOS menu bar — session and weekly percentages, reset times,
-and a warning when you're on pace to run out before the window resets.
+and a warning when you're on pace to run out before the window resets. Codex is supported too, if
+you have it installed and signed in.
 
 Zero setup: no cookies, no DevTools, nothing to paste. Cashew reads the OAuth token Claude Code
 already has and asks Anthropic the same question `/usage` does.
@@ -98,6 +99,11 @@ is closed.
 - **A Claude Pro or Max plan.** Session and weekly windows are plan quotas; metered API-key accounts
   don't have them, so there's nothing to show — Cashew says so plainly instead of showing zeroes.
 - **Claude Code, signed in at least once**, so there's a token to read.
+
+Codex is detected automatically and needs nothing beyond **`codex login`** and a ChatGPT plan — a
+metered API key has no plan quota for Cashew to read, the same as Claude's own API-key accounts
+above. Detected providers get their own switch under **Settings › Providers**, if you'd rather only
+see one.
 
 Something looking broken? [TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md) covers the cases that
 usually aren't.

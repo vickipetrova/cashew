@@ -30,6 +30,18 @@ enum ProviderID: String, Codable, CaseIterable {
         case .codex: return "CODEX"
         }
     }
+
+    /// The mark that tells two providers' percentages apart in the menu bar.
+    ///
+    /// Only drawn when more than one provider's limits are selected — see `TitleGlyphs.needed`.
+    /// With one provider the title is exactly what it was before providers were a concept, which is
+    /// the whole reason the rule is conditional rather than always-on.
+    var titleGlyph: String {
+        switch self {
+        case .claude: return "✻"
+        case .codex: return "◆"
+        }
+    }
 }
 
 /// One rate-limit window, described in terms no single vendor owns.
@@ -224,6 +236,10 @@ enum UsageError: LocalizedError {
     case network(Error)
     case badResponse
 
+    /// Claude's wording, and only Claude's. Kept as `errorDescription` because that is what it has
+    /// always been and what the tests pin; anything drawn under a provider's heading goes through
+    /// `ProviderErrorCopy.message(_:provider:)` instead, which is the only caller that knows whose
+    /// heading it is about to sit under.
     var errorDescription: String? {
         switch self {
         case .noCredentials:
@@ -240,6 +256,63 @@ enum UsageError: LocalizedError {
             return "Usage API returned HTTP \(code)."
         case .network:
             return "Can't reach api.anthropic.com."
+        case .badResponse:
+            return "Couldn't read the usage response."
+        }
+    }
+}
+
+/// What a provider's section says when its own poll failed.
+///
+/// Parameterised by provider because `UsageError.errorDescription` is Claude's copy and the panel
+/// drew it under whichever heading happened to need a message. Every one of these was live: a Codex
+/// 401 read "Token expired — open a Claude Code session to refresh it"; a Codex network failure said
+/// "Can't reach api.anthropic.com." under a **CODEX** heading; and `codex login --with-api-key`
+/// writes `{"auth_mode":"apikey","tokens":null}`, so the file exists, Codex is detected and polled,
+/// `CodexCredentials.read()` returns nil — and the user was told "No Claude Code login found."
+/// Meanwhile `docs/TROUBLESHOOTING.md` was telling them to run `codex login`.
+///
+/// Pure and free-standing so the copy is assertable: `MenuController`, which is where this is drawn,
+/// cannot be constructed in a test.
+enum ProviderErrorCopy {
+    static func message(_ error: Error, provider: ProviderID) -> String {
+        guard let usage = error as? UsageError else { return error.localizedDescription }
+        switch provider {
+        // Byte-identical to what it has always been. These strings are pinned by tests and by the
+        // muscle memory of anyone who has read this menu during an outage.
+        case .claude: return usage.errorDescription ?? error.localizedDescription
+        case .codex: return codex(usage)
+        }
+    }
+
+    /// Codex's half. The three that differ from Claude's are the three that name something: a login
+    /// to open, a command to run, a host to reach. The rest say nothing provider-specific and are
+    /// deliberately word-for-word the same, so two sections reporting the same fault read as the
+    /// same fault.
+    private static func codex(_ error: UsageError) -> String {
+        switch error {
+        case .noCredentials:
+            // Covers both ways this is reached: no `auth.json` at all, and an API-key login, which
+            // writes the file with `tokens: null` and so is detected but unreadable. One sentence
+            // rather than two paths, because Cashew cannot tell them apart without parsing a file
+            // it has already decided it cannot use.
+            return "No Codex login found. Run codex login to sign in — an API-key login reports no "
+                + "plan usage."
+        case .credentialsAccessDenied:
+            // Not reachable today: Codex keeps no Keychain item, so nothing can deny access to it.
+            // Spelled out anyway rather than defaulted, so adding a store to `CodexCredentials`
+            // cannot silently inherit Claude's Keychain advice.
+            return "Can't read your Codex login at ~/.codex/auth.json."
+        case .unauthorized:
+            return "Token expired — run codex login to sign in again."
+        case .rateLimited:
+            return "Too many requests — Cashew is asking less often until this clears."
+        case .http(let code):
+            return "Usage API returned HTTP \(code)."
+        // Interpolated from the provider's declared host rather than written out, so a section can
+        // never name a host its provider does not contact — which is exactly what happened here.
+        case .network:
+            return "Can't reach \(CodexProvider.host)."
         case .badResponse:
             return "Couldn't read the usage response."
         }
@@ -269,16 +342,162 @@ enum Backoff {
         let doublings = pow(2.0, Double(min(max(attempt, 1), 16)))
         return min(base * doublings, ceiling)
     }
+
+    /// `Retry-After`, in seconds from now.
+    ///
+    /// Lives here rather than on a provider because RFC 9110 is nobody's vendor: it used to be
+    /// `ClaudeProvider.retryAfter(in:)` and `CodexProvider` reached across to call it, which is the
+    /// same shape that got `UsageJSON` extracted — a shared rule parked inside one of its callers.
+    ///
+    /// RFC 9110 allows two forms and servers use both: a delta in seconds, or an HTTP date. Parsed
+    /// defensively like everything else here — an unreadable header is simply no header, and the
+    /// caller falls back to doubling. A date already in the past yields nil rather than a negative
+    /// wait, which would otherwise schedule the retry immediately and defeat the whole mechanism.
+    static func retryAfter(in response: HTTPURLResponse) -> TimeInterval? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+
+        if let seconds = TimeInterval(raw) {
+            return seconds > 0 ? seconds : nil
+        }
+        guard let date = httpDateFormatter.date(from: raw) else { return nil }
+        let seconds = date.timeIntervalSinceNow
+        return seconds > 0 ? seconds : nil
+    }
+
+    /// RFC 9110's preferred date format. Fixed locale and timezone: the parse must not follow the
+    /// user's region, or a Mac set to a non-Gregorian calendar fails to read a valid header.
+    private static let httpDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter
+    }()
 }
 
 /// Which providers to poll. Pure, because this rule silently went wrong once already: it lived only
 /// in AppDelegate, which no test can build.
 enum PollPlan {
-    /// The providers worth polling. When none has credentials, Claude is polled anyway so its
-    /// own sign-in copy has somewhere to render — an empty menu explains nothing.
-    static func providersToPoll(active: [ProviderID], all: [ProviderID]) -> [ProviderID] {
-        active.isEmpty ? all.filter { $0 == .claude } : active
+    /// The providers worth polling: detected, and not switched off.
+    ///
+    /// When that leaves nothing, Claude is polled anyway so its own sign-in copy has somewhere to
+    /// render — an empty menu explains nothing, which is the same reason the no-credentials
+    /// fallback exists. That case is the pre-discovery state at launch and the never-signed-in one.
+    ///
+    /// **Unless Claude is the thing that was switched off.** The fallback used to fire on `hidden`
+    /// too, so hiding Claude on a machine with no Codex went on requesting `api.anthropic.com`
+    /// every five minutes to produce copy that `publish` then filtered straight back out — nobody
+    /// was helped, and it made SECURITY.md's promise that hiding a provider stops its traffic
+    /// untrue. A user who switched everything off is told so by the dropdown instead; see
+    /// `PanelSections.Empty.allHidden`.
+    static func providersToPoll(active: [ProviderID], all: [ProviderID],
+                                hidden: Set<ProviderID> = []) -> [ProviderID] {
+        let shown = active.filter { !hidden.contains($0) }
+        guard shown.isEmpty else { return shown }
+        return all.filter { $0 == .claude && !hidden.contains($0) }
     }
+
+    /// The providers a publish may assemble — and therefore record samples for, evaluate alerts
+    /// for, write to `history.json` and hand to the menu.
+    ///
+    /// Beside `providersToPoll` because it is the same exclusion at the other end of the same pipe,
+    /// and keeping them apart is precisely how the rule kept being forgotten: `AppDelegate.publish`
+    /// iterated every provider and never consulted `hiddenProviders`, so a provider that was polled
+    /// and *then* hidden kept its entry in the published snapshots — a threshold alert for a product
+    /// the user had switched off, its section written to disk, and restored on the next launch.
+    ///
+    /// Filtering once here is what lets every reader downstream — the dropdown rows, the display
+    /// windows, the title windows, the fallback chip and the LIMITS SHOWN picker — simply read what
+    /// it was handed. Five of those six forgot to filter for themselves at least once while this
+    /// feature was being built, which is the argument for putting the rule on the data instead.
+    static func providersToPublish(all: [ProviderID], hidden: Set<ProviderID>) -> [ProviderID] {
+        all.filter { !hidden.contains($0) }
+    }
+
+    /// Which providers Settings offers a switch for: everything with credentials, full stop.
+    ///
+    /// Deliberately takes no `hidden` parameter — that omission is the point. `providersToPoll`
+    /// above excludes a hidden provider from what gets polled; feeding *that* output into the
+    /// Settings list instead of `active` would make the switch that turns a provider back on
+    /// disappear the moment it's turned off, with no way back short of a hand-edited plist.
+    static func detectedProviders(active: [ProviderID]) -> Set<ProviderID> {
+        Set(active)
+    }
+}
+
+// MARK: - Shared JSON guards
+
+/// The JSON guards every provider needs, in one place.
+///
+/// Provider-neutral — `CodexProvider` and `StatuslineFeed` use this as much as `ClaudeProvider`
+/// does — which is why it is filed under its own heading rather than Claude's.
+///
+/// Shared rather than duplicated because each one exists for a bug that has already happened, and a
+/// second copy is a second place to forget one: `{"percent": true}` reading as 1% because JSON
+/// booleans bridge to `NSNumber`; `Fmt.pct` trapping on a non-finite value it converts with `Int`;
+/// and a wild timestamp overflowing the `Int` conversion in `Fmt.countdown`.
+enum UsageJSON {
+    /// The raw number, with the guards but no range opinion.
+    ///
+    /// Split out because the two callers disagree about range and about nothing else: a percentage
+    /// is clamped to 0–100, a duration in seconds must not be — 2,592,000 clamped to 100 renders a
+    /// 30-day window as "0-HOUR". Sharing the guards rather than the clamp keeps one place to
+    /// forget the boolean bridge in, which is the whole reason this type exists.
+    static func rawNumber(_ any: Any?) -> Double? {
+        // See `isJSONBoolean`: without this, `{"percent": true}` reads as 1%.
+        guard let any, !isJSONBoolean(any) else { return nil }
+        let value: Double
+        if let double = any as? Double { value = double }
+        else if let int = any as? Int { value = Double(int) }
+        else { return nil }
+        guard value.isFinite else { return nil }
+        return value
+    }
+
+    /// `percent` and `utilization` have both been seen as Int and as Double.
+    ///
+    /// The finite check and the clamp are not paranoia: `Fmt.pct` does `Int(value.rounded())`, and
+    /// converting a Double to Int traps on NaN, infinity, or anything past Int's range. A single
+    /// `{"percent": 1e30}` — or `1e999`, which JSON parses to +infinity — would crash the menu bar
+    /// rather than dropping a row.
+    static func number(_ any: Any?) -> Double? {
+        guard let value = rawNumber(any) else { return nil }
+        // Clamped rather than rejected: a plan reporting 105% is over its limit, and saying "100%"
+        // is far more useful than dropping the row exactly when it matters most.
+        return min(max(value, 0), 100)
+    }
+
+    /// Timestamps outside this range are junk, and a wild one would overflow the `Int` conversion in
+    /// `Fmt.countdown`. Roughly 1970±200 years.
+    private static let plausibleEpochRange = -6_311_433_600.0...6_311_433_600.0
+
+    /// Accepts epoch seconds as a number, or ISO8601 with or without fractional seconds.
+    /// Codex sends the former, Claude the latter — and the same wrong-scale hazard applies to both.
+    static func date(_ any: Any?) -> Date? {
+        // See `isJSONBoolean`: without this, `{"resets_at": false}` parses as 1 January 1970.
+        guard let any, !isJSONBoolean(any) else { return nil }
+        if let seconds = any as? Double {
+            guard seconds.isFinite, plausibleEpochRange.contains(seconds) else { return nil }
+            return Date(timeIntervalSince1970: seconds)
+        }
+        guard let string = any as? String else { return nil }
+        // Timestamps currently arrive as "2026-08-02T16:39:59.408408+00:00". The fractional-seconds
+        // parser is required for those and returns nil without them, so both are needed.
+        return fractionalISO.date(from: string) ?? plainISO.date(from: string)
+    }
+
+    private static let fractionalISO: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let plainISO: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
 }
 
 // MARK: - Claude
@@ -364,7 +583,7 @@ struct ClaudeProvider: UsageProvider {
         guard http.statusCode == 200 else {
             if http.statusCode == 401 { return .failure(UsageError.unauthorized) }
             if http.statusCode == 429 {
-                return .failure(UsageError.rateLimited(retryAfter: retryAfter(in: http)))
+                return .failure(UsageError.rateLimited(retryAfter: Backoff.retryAfter(in: http)))
             }
             return .failure(UsageError.http(http.statusCode))
         }
@@ -374,34 +593,6 @@ struct ClaudeProvider: UsageProvider {
         }
         return .success(windows(in: object))
     }
-
-    /// `Retry-After`, in seconds from now.
-    ///
-    /// RFC 9110 allows two forms and servers use both: a delta in seconds, or an HTTP date. Parsed
-    /// defensively like everything else here — an unreadable header is simply no header, and the
-    /// caller falls back to doubling. A date already in the past yields nil rather than a negative
-    /// wait, which would otherwise schedule the retry immediately and defeat the whole mechanism.
-    static func retryAfter(in response: HTTPURLResponse) -> TimeInterval? {
-        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
-            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
-
-        if let seconds = TimeInterval(raw) {
-            return seconds > 0 ? seconds : nil
-        }
-        guard let date = httpDateFormatter.date(from: raw) else { return nil }
-        let seconds = date.timeIntervalSinceNow
-        return seconds > 0 ? seconds : nil
-    }
-
-    /// RFC 9110's preferred date format. Fixed locale and timezone: the parse must not follow the
-    /// user's region, or a Mac set to a non-Gregorian calendar fails to read a valid header.
-    private static let httpDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return formatter
-    }()
 
     // MARK: - Parsing
     //
@@ -426,9 +617,9 @@ struct ClaudeProvider: UsageProvider {
         let limits = (object["limits"] as? [Any])?.compactMap { $0 as? [String: Any] } ?? []
         for entry in limits {
             guard let kind = entry["kind"] as? String,
-                  let utilization = number(entry["percent"])
+                  let utilization = UsageJSON.number(entry["percent"])
             else { continue }
-            let resetsAt = date(entry["resets_at"])
+            let resetsAt = UsageJSON.date(entry["resets_at"])
 
             switch kind {
             case "session":
@@ -530,56 +721,9 @@ struct ClaudeProvider: UsageProvider {
 
     private static func legacyWindow(_ any: Any?) -> (utilization: Double, resetsAt: Date?)? {
         guard let dict = any as? [String: Any],
-              let utilization = number(dict["utilization"])
+              let utilization = UsageJSON.number(dict["utilization"])
         else { return nil }
-        return (utilization, date(dict["resets_at"]))
+        return (utilization, UsageJSON.date(dict["resets_at"]))
     }
 
-    /// `percent` and `utilization` have both been seen as Int and as Double.
-    ///
-    /// The finite check and the clamp are not paranoia: `Fmt.pct` does `Int(value.rounded())`, and
-    /// converting a Double to Int traps on NaN, infinity, or anything past Int's range. A single
-    /// `{"percent": 1e30}` — or `1e999`, which JSON parses to +infinity — would crash the menu bar
-    /// rather than dropping a row.
-    static func number(_ any: Any?) -> Double? {
-        // See `isJSONBoolean`: without this, `{"percent": true}` reads as 1%.
-        guard let any, !isJSONBoolean(any) else { return nil }
-        let value: Double
-        if let double = any as? Double { value = double }
-        else if let int = any as? Int { value = Double(int) }
-        else { return nil }
-        guard value.isFinite else { return nil }
-        // Clamped rather than rejected: a plan reporting 105% is over its limit, and saying "100%"
-        // is far more useful than dropping the row exactly when it matters most.
-        return min(max(value, 0), 100)
-    }
-
-    /// Timestamps outside this range are junk, and a wild one would overflow the `Int` conversion in
-    /// `Fmt.countdown`. Roughly 1970±200 years.
-    private static let plausibleEpochRange = -6_311_433_600.0...6_311_433_600.0
-
-    static func date(_ any: Any?) -> Date? {
-        // See `isJSONBoolean`: without this, `{"resets_at": false}` parses as 1 January 1970.
-        guard let any, !isJSONBoolean(any) else { return nil }
-        if let seconds = any as? Double {
-            guard seconds.isFinite, plausibleEpochRange.contains(seconds) else { return nil }
-            return Date(timeIntervalSince1970: seconds)
-        }
-        guard let string = any as? String else { return nil }
-        // Timestamps currently arrive as "2026-08-02T16:39:59.408408+00:00". The fractional-seconds
-        // parser is required for those and returns nil without them, so both are needed.
-        return fractionalISO.date(from: string) ?? plainISO.date(from: string)
-    }
-
-    private static let fractionalISO: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return formatter
-    }()
-
-    private static let plainISO: ISO8601DateFormatter = {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        return formatter
-    }()
 }

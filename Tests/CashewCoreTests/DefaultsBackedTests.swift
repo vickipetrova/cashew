@@ -434,5 +434,27 @@ struct DefaultsBacked {
             Settings.knownRelease = nil
             #expect(defaults.object(forKey: "knownRelease") == nil)
         }
+
+        // MARK: - Which providers are switched off
+
+        @Test func noProviderIsHiddenByDefault() {
+            #expect(Settings.hiddenProviders.isEmpty)
+        }
+
+        @Test func hidingAProviderRoundTrips() {
+            Settings.hiddenProviders = [.codex]
+            #expect(Settings.hiddenProviders == [.codex])
+        }
+
+        @Test func anUnknownStoredProviderIsIgnoredRatherThanCrashing() {
+            // A hand-edited plist, or a provider removed in a later version, must not take the app down.
+            Settings.defaults.set(["codex", "not-a-provider"], forKey: "hiddenProviders")
+            #expect(Settings.hiddenProviders == [.codex])
+        }
+
+        @Test func togglingHidesAndShows() {
+            #expect(Settings.hiddenProviders(toggling: .codex, in: []) == [.codex])
+            #expect(Settings.hiddenProviders(toggling: .codex, in: [.codex]).isEmpty)
+        }
     }
 }

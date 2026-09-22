@@ -12,7 +12,8 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     // `AppDelegate()` to compile from the executable target.
     public override init() { super.init() }
 
-    private let providers: [UsageProvider] = [ClaudeProvider()]
+    private let providers: [UsageProvider] = [ClaudeProvider(), CodexProvider()]
+    private let discovery = ProviderDiscovery()
     private let history = UsageHistory.default
     private let statusline = StatuslineFeed.default
     private lazy var menuController = MenuController(history: history, statusline: statusline)
@@ -30,15 +31,34 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     public func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)  // Menu bar only, no dock icon, no window.
 
-        menuController.onRefresh = { [weak self] in self?.refresh() }
+        // Re-probed, not just re-polled: Refresh Now clears the Keychain-denied latch, so it is also
+        // the one moment a provider that looked absent may turn out not to be.
+        menuController.onRefresh = { [weak self] in
+            self?.rediscoverProviders { self?.refresh() }
+        }
         menuController.onSettingsChanged = { [weak self] in self?.settingsChanged() }
         menuController.onTrackSessionsChanged = { [weak self] in self?.startSessionTracking() }
         menuController.onCheckForUpdatesChanged = { [weak self] in self?.startUpdateChecks() }
         Notifier.requestAuthorizationIfNeeded()
 
         restoreLastGoodReading()
-        refresh()
+        // Armed before the probe, not only after it. `reschedulePoll` used to run solely inside
+        // `rediscoverProviders`'s callback, so until the credential probe answered there was no
+        // repeating timer at all — and the probe reads the Keychain, which can sit on a modal
+        // permission prompt for as long as the user takes to notice it. A prompt left unanswered
+        // meant a Cashew that never polled again, not one that polled late. `providersToPoll()`
+        // already has an answer for the pre-discovery state (Claude, unless it is switched off), so
+        // this arms the fallback cadence immediately; the callback below re-arms it on the real one.
         reschedulePoll()
+        // Nothing polls until discovery has answered, and discovery answers from a background queue
+        // — see `ProviderDiscovery` for the deadlock that buys. The delay is a queue hop in the
+        // normal case; when it isn't, it is a Keychain that would have blocked the first poll just
+        // as hard, because `ClaudeProvider.fetch` reads the same item. What this guarantees is that
+        // it blocks somewhere the menu bar doesn't care about.
+        rediscoverProviders { [weak self] in
+            self?.refresh()
+            self?.reschedulePoll()
+        }
         startSessionTracking()
         startUpdateChecks()
         tickTimer = schedule(every: 60) { [weak self] in
@@ -62,7 +82,9 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func didWake() {
-        refresh()
+        // Re-probed rather than assumed: the Mac can wake hours later into a machine that has since
+        // been signed into, or out of.
+        rediscoverProviders { [weak self] in self?.refresh() }
         refreshSessions()
         checkForUpdatesIfDue()
     }
@@ -71,8 +93,10 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// alert threshold should be evaluated against current usage rather than at the next tick.
     private func settingsChanged() {
         Notifier.requestAuthorizationIfNeeded()
-        reschedulePoll()
-        refresh()
+        rediscoverProviders { [weak self] in
+            self?.reschedulePoll()
+            self?.refresh()
+        }
     }
 
     /// Put every provider back on the normal cadence. For the two callers that legitimately mean
@@ -107,11 +131,41 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// The providers worth polling right now, by the pure rule in `PollPlan`.
+    ///
+    /// Reads the *last probed* answer rather than asking again, and that is load-bearing: asking
+    /// means a Keychain call, and every caller of this is the main thread. Before the first probe
+    /// lands `activeProviderIDs` is empty, which `PollPlan` already has an answer for — poll Claude
+    /// anyway, so its sign-in copy has somewhere to render.
+    ///
+    /// Ordered by `providers` rather than by the set, so what gets polled is deterministic.
     private func providersToPoll() -> [UsageProvider] {
-        let activeIDs = activeProviders.map(\.id)
         let allIDs = providers.map(\.id)
-        let ids = PollPlan.providersToPoll(active: activeIDs, all: allIDs)
+        let activeIDs = allIDs.filter { activeProviderIDs.contains($0) }
+        let ids = PollPlan.providersToPoll(active: activeIDs, all: allIDs,
+                                           hidden: Settings.hiddenProviders)
         return ids.compactMap { id in providers.first(where: { $0.id == id }) }
+    }
+
+    /// Re-probe every provider's credentials and act on the answer.
+    ///
+    /// A continuation rather than a return value because the probe runs on `ProviderDiscovery`'s own
+    /// queue — see that type for the deadlock a synchronous answer caused. Run wherever discovery
+    /// could have changed (launch, wake, a settings change, Refresh Now) and nowhere else: a probe
+    /// costs a file read for Codex and a Keychain round trip for Claude, and nothing needs it more
+    /// often than that.
+    ///
+    /// Also what tells the menu which providers are worth a Settings switch — credential presence
+    /// alone, never filtered by `hiddenProviders`. Hiding a provider stops it being polled, which
+    /// would otherwise make it vanish from `providersToPoll()`'s output; if the Settings list were
+    /// built from that instead of this, the switch that turns a hidden provider back on would
+    /// disappear along with it.
+    private func rediscoverProviders(then next: @escaping () -> Void = {}) {
+        discovery.probe(providers) { [weak self] active in
+            guard let self else { return }
+            self.activeProviderIDs = active
+            self.menuController.update(detected: PollPlan.detectedProviders(active: Array(active)))
+            next()
+        }
     }
 
     /// Consecutive rate-limited replies, **per provider**. Reset by that provider's next success,
@@ -146,8 +200,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// fell to "!" and the dropdown showed the error alone, on exactly the launch the restore is
     /// for. One seed, in the one place both the panel and the failure path read from.
     ///
-    /// Attributed to Claude because the saved reading is a flat `[LimitWindow]` carrying no provider
-    /// — all a one-provider app ever wrote.
+    /// One `ProviderSnapshot` per saved section, each under the provider that actually reported it.
+    /// This used to attribute the whole file to Claude, because the saved reading was a flat
+    /// `[LimitWindow]` carrying no provider — all a one-provider app ever wrote. With two providers
+    /// that meant Codex's row restored as a Claude row, and one section where there should have been
+    /// two, so the dropdown lost its headings and its separator as well. `UsageHistory.Snapshot` now
+    /// carries the provider and a window without one cannot be saved.
     ///
     /// Published straight away so the panel has rows before the first poll lands. `restored: true`
     /// is what stops that publish being mistaken for one — see `ProviderSnapshot.observed(live:)` —
@@ -155,8 +213,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     /// feed the dropdown goes on saying "Showing data from" the hour it was really read.
     private func restoreLastGoodReading() {
         guard let restored = history.restorableSnapshot() else { return }
-        snapshots[.claude] = ProviderSnapshot(provider: .claude, windows: restored.windows,
-                                              updatedAt: restored.at, failure: nil, restored: true)
+        for section in restored.sections {
+            snapshots[section.provider] = ProviderSnapshot(
+                provider: section.provider, windows: section.windows,
+                updatedAt: restored.at, failure: nil, restored: true)
+        }
         publish(at: Date())
     }
 
@@ -182,9 +243,11 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Only providers the user actually has. A provider with no credentials is not polled, does not
     /// appear, and costs no network — see the discovery rule in the design.
-    private var activeProviders: [UsageProvider] {
-        providers.filter { $0.credentialsExist() }
-    }
+    ///
+    /// Stored, not computed. Computing it meant `credentialsExist()` — and therefore
+    /// `SecItemCopyMatching` — on whichever thread asked, which was always the main one. Empty until
+    /// the first probe answers; `providersToPoll()` says what that means.
+    private var activeProviderIDs: Set<ProviderID> = []
 
     private func refresh(_ id: ProviderID) {
         guard let provider = providers.first(where: { $0.id == id }) else { return }
@@ -213,8 +276,19 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
     ///   `Notifier` exists to prevent.
     private func publish(at updatedAt: Date, recording: Bool = true) {
         var assembled: [ProviderSnapshot] = []
-        var observed: [LimitWindow] = []
-        for provider in providers {
+        // Sections, not a flat list: this is the write half of the pair `restoreLastGoodReading()`
+        // reads, and a flat list is exactly how Codex's row ended up filed under Claude.
+        var observed: [UsageHistory.Snapshot.Section] = []
+        // The one place a hidden provider is excluded, and deliberately the *assembly* rather than
+        // any of the readers. This loop used to run over every provider regardless, so a provider
+        // polled and then switched off kept its entry in `snapshots` and went on reaching
+        // `Notifier.evaluate` and `history.record`/`save` on every 60-second tick — a threshold
+        // alert for a product the user had turned off, and its section written to disk and restored
+        // on the next launch. `MenuController` used to defend itself with a filtered accessor; five
+        // separate readers there forgot to use it. Filtering here means they cannot.
+        let shown = Set(PollPlan.providersToPublish(all: providers.map(\.id),
+                                                    hidden: Settings.hiddenProviders))
+        for provider in providers where shown.contains(provider.id) {
             guard var snapshot = snapshots[provider.id] else { continue }
             var live: [LimitWindow] = []
             if provider.id == .claude, let reading = statusline.read(), !reading.isEmpty {
@@ -224,20 +298,38 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                                             updatedAt: updatedAt, failure: snapshot.failure,
                                             restored: snapshot.restored)
             }
-            guard !snapshot.windows.isEmpty || snapshot.failure != nil else { continue }
+            // A clean poll that reported no windows is published like any other. It used to be
+            // dropped here, which made two documented branches unreachable: `TitleFallback.chip`'s
+            // dash ("a clean fetch that reported nothing isn't an error and isn't still loading")
+            // and the dropdown's "No plan limits reported for this account" both key on a snapshot
+            // with `updatedAt` set and no windows, and no such snapshot ever arrived. `publish` had
+            // to stop dropping them anyway, because the empty-assembly guard below no longer
+            // returns early: an API-key account would have kept its restored rows on screen instead
+            // of being told its plan has no quota to show. Nothing renders an empty section —
+            // `PanelSections.visible` drops a snapshot with nothing to show and nothing to say.
+            //
             // `observed`, not `windows`: a restored snapshot's own rows came off disk with their
             // samples already recorded, and re-recording them once a minute would invent a flat
             // stretch that never happened. What the live overlay just contributed is new, and still
             // counts.
             let fresh = snapshot.observed(live: live)
-            if recording, !fresh.isEmpty {
-                history.record(fresh, provider: snapshot.provider, at: updatedAt)
-                Notifier.evaluate(fresh, provider: snapshot.provider)
+            if !fresh.isEmpty {
+                if recording {
+                    history.record(fresh, provider: snapshot.provider, at: updatedAt)
+                    Notifier.evaluate(fresh, provider: snapshot.provider)
+                }
+                // Never an empty section: one would survive the restore and count towards the
+                // "more than one section" rule that decides whether the dropdown draws headings.
+                observed.append(.init(provider: snapshot.provider, windows: fresh))
             }
-            observed.append(contentsOf: fresh)
             assembled.append(snapshot)
         }
-        guard !assembled.isEmpty else { return }
+        // Keyed on whether there is any provider state at all, not on whether the assembly came out
+        // empty. Those used to be the same question and hiding made them different: switching off
+        // the last visible provider produces an empty assembly that still has to be published, or
+        // the menu goes on drawing the rows it was last handed with nothing left to replace them.
+        // Before the first poll or restore there is genuinely nothing to say, and that still returns.
+        guard !snapshots.isEmpty else { return }
         // Nothing observed, nothing to save. Writing here regardless would overwrite the last good
         // reading with whatever is on screen — an empty list while a provider is failing, which
         // destroys the file this launch was restored from, or the restored rows themselves re-dated

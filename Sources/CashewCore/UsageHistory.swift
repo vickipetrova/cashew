@@ -14,12 +14,38 @@ final class UsageHistory {
     /// The last successful reading, kept whole rather than as samples.
     ///
     /// Samples carry a percentage and nothing else, which is all a rate needs — but a *row* needs the
-    /// heading, the kind and the reset time too. Keeping the last good `[LimitWindow]` verbatim is
-    /// what lets a cold start that can't reach the API still show the numbers it had, instead of an
-    /// error and a blank panel.
-    struct Snapshot: Codable {
-        let windows: [LimitWindow]
+    /// heading, the kind and the reset time too. Keeping the last good windows verbatim is what lets
+    /// a cold start that can't reach the API still show the numbers it had, instead of an error and
+    /// a blank panel.
+    ///
+    /// **Sections, not a flat `[LimitWindow]`, and that is the whole point of the type.** The flat
+    /// shape was everything a one-provider app ever needed and became wrong the moment there were
+    /// two: `save` wrote every provider's rows into one list and the restore had no way to tell
+    /// them apart, so it handed all of them to Claude. On a real cold start that put
+    /// `CODEX · 30-DAY` under the `CLAUDE` heading — and, because one section is one section, took
+    /// the headings and the separator away entirely. A provider-less window is now unrepresentable,
+    /// so the two cannot drift again by convention.
+    ///
+    /// The on-disk format changed with it, deliberately and without a migration. `read` is
+    /// `try?`-guarded, so a `snapshot.json` in the old shape simply fails to decode and that one
+    /// cold start goes without its last good reading — the same trade this codebase already makes
+    /// whenever the encoded form moves.
+    struct Snapshot: Codable, Equatable {
+        /// One provider's rows, inseparable from the provider they came from.
+        struct Section: Codable, Equatable {
+            let provider: ProviderID
+            let windows: [LimitWindow]
+        }
+
+        let sections: [Section]
         let at: Date
+
+        /// The rows saved for one provider, or none. Named rather than spelled as a `first(where:)`
+        /// at each call site, because "whose rows are these" is the question this type exists to
+        /// answer.
+        func windows(for provider: ProviderID) -> [LimitWindow] {
+            sections.first { $0.provider == provider }?.windows ?? []
+        }
     }
 
     private let fileURL: URL
@@ -65,8 +91,12 @@ final class UsageHistory {
     // MARK: - Last good reading
 
     /// Overwrite the remembered reading. Success only, same as `record`.
-    func save(snapshot windows: [LimitWindow], at now: Date = Date()) {
-        write(Snapshot(windows: windows, at: now), to: snapshotURL)
+    ///
+    /// Takes sections rather than windows so the caller cannot hand over rows without saying whose
+    /// they are. `save` and `restorableSnapshot` used to agree by convention and stopped agreeing
+    /// the first time there were two providers; now they agree by construction.
+    func save(snapshot sections: [Snapshot.Section], at now: Date = Date()) {
+        write(Snapshot(sections: sections, at: now), to: snapshotURL)
     }
 
     /// What's worth showing from the last good reading, or nil if there's nothing honest left.
@@ -74,11 +104,20 @@ final class UsageHistory {
     /// Deliberately *not* everything that was saved, and filtered by the same `Freshness` rule the
     /// running app applies to what's on screen — one definition, so a reading can't be too stale to
     /// keep displaying yet fresh enough to restore.
+    ///
+    /// Applied per section, and a section left with nothing is dropped rather than restored empty:
+    /// a provider whose every row has expired has nothing to say, and an empty section would still
+    /// count towards the "more than one section" rule that decides whether headings are drawn.
     func restorableSnapshot(now: Date = Date()) -> Snapshot? {
         guard let snapshot: Snapshot = Self.read(snapshotURL) else { return nil }
-        let live = Freshness.displayable(snapshot.windows, updatedAt: snapshot.at, now: now)
+        let live = snapshot.sections.compactMap { section -> Snapshot.Section? in
+            let windows = Freshness.displayable(section.windows, updatedAt: snapshot.at, now: now)
+            return windows.isEmpty
+                ? nil
+                : Snapshot.Section(provider: section.provider, windows: windows)
+        }
         guard !live.isEmpty else { return nil }
-        return Snapshot(windows: live, at: snapshot.at)
+        return Snapshot(sections: live, at: snapshot.at)
     }
 
     // MARK: - Disk

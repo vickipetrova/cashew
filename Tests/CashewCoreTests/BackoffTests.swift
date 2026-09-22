@@ -77,6 +77,74 @@ import Testing
     @Test func withCredentialsOnlyTheDetectedProvidersArePolled() {
         #expect(PollPlan.providersToPoll(active: [.codex], all: [.claude, .codex]) == [.codex])
     }
+
+    @Test func aHiddenProviderIsNotPolled() {
+        // Hiding is not just a display choice: it stops the network call, so hiding Codex returns a
+        // Claude-only user to exactly the traffic they had before this feature existed.
+        #expect(PollPlan.providersToPoll(active: [.claude, .codex], all: [.claude, .codex],
+                                         hidden: [.codex]) == [.claude])
+    }
+
+    @Test func hidingClaudeStopsItBeingPolledEvenThoughItIsTheFallback() {
+        // The fallback exists so a user with no credentials still gets sign-in copy somewhere. It
+        // must not fire for a user who switched Claude *off*: polling api.anthropic.com to produce
+        // copy that `publish` then filters straight back out helps nobody, and it made SECURITY.md's
+        // promise that hiding a provider stops its traffic untrue. The dropdown says what happened
+        // instead — `PanelSections.Empty.allHidden`.
+        #expect(PollPlan.providersToPoll(active: [.claude], all: [.claude, .codex],
+                                         hidden: [.claude]).isEmpty)
+        #expect(PollPlan.providersToPoll(active: [], all: [.claude, .codex],
+                                         hidden: [.claude]).isEmpty)
+    }
+
+    /// The other end of the same pipe. `AppDelegate.publish` iterated every provider and never
+    /// consulted `hiddenProviders`, so a provider polled and *then* hidden kept its entry in the
+    /// published snapshots — reaching `Notifier.evaluate` and `history.record` on every 60-second
+    /// tick, for a product the user had switched off, and being written to disk and restored next
+    /// launch. The rule now lives on the data rather than on each of the six readers downstream.
+    @Test func aHiddenProviderIsNotPublishedEither() {
+        #expect(PollPlan.providersToPublish(all: [.claude, .codex], hidden: [.codex]) == [.claude])
+        #expect(PollPlan.providersToPublish(all: [.claude, .codex],
+                                            hidden: [.claude, .codex]).isEmpty)
+    }
+
+    @Test func publishingKeepsProviderOrderSoSectionsCannotReorder() {
+        // Section order is fixed so rows cannot move under a click already in flight.
+        #expect(PollPlan.providersToPublish(all: ProviderID.allCases, hidden: [])
+            == ProviderID.allCases)
+    }
+
+    /// Poll and publish have to agree about what "hidden" means, or a provider is polled and then
+    /// discarded — or worse, published without ever being polled.
+    @Test func whatIsPolledIsAlwaysAlsoPublishable() {
+        let all: [ProviderID] = [.claude, .codex]
+        for hidden: Set<ProviderID> in [[], [.claude], [.codex], [.claude, .codex]] {
+            let polled = PollPlan.providersToPoll(active: all, all: all, hidden: hidden)
+            let published = Set(PollPlan.providersToPublish(all: all, hidden: hidden))
+            #expect(polled.allSatisfy(published.contains))
+        }
+    }
+
+    /// The trap door this task's correction exists to close: `MenuController`'s Settings list has
+    /// to be built from credential *presence*, never from what's currently polled — because hiding
+    /// a provider removes it from the polled set, and a Settings list built from that would make
+    /// the very switch that could turn it back on disappear the moment it's used.
+    ///
+    /// `MenuController` can't be constructed in a test, so this asserts the rule where it actually
+    /// lives: `PollPlan.detectedProviders` takes no `hidden` parameter at all — it structurally
+    /// cannot filter by it — while `PollPlan.providersToPoll` does, and the two diverge on exactly
+    /// the input that matters: a detected-but-hidden provider.
+    @Test func detectedProvidersDoNotShrinkWhenAProviderIsHiddenUnlikePolledProviders() {
+        let active: [ProviderID] = [.claude, .codex]
+        let hidden: Set<ProviderID> = [.codex]
+
+        let detected = PollPlan.detectedProviders(active: active)
+        let polled = PollPlan.providersToPoll(active: active, all: active, hidden: hidden)
+
+        #expect(detected == [.claude, .codex])
+        #expect(polled == [.claude])
+        #expect(!detected.subtracting(polled).isEmpty)
+    }
 }
 
 /// Which readings are still worth putting on screen.
