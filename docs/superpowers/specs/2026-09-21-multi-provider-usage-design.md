@@ -476,13 +476,19 @@ PR 2.
 Found during PR 2's implementation and deliberately deferred, the same way the section above was
 carried from PR 1.
 
-- **`menuBarSettings()`'s LIMITS SHOWN picker lists a hidden provider's windows.** It builds its rows
-  from raw `snapshots`, not `MenuController.unhiddenSnapshots` — unlike every other reader in the
-  file, which was made to go through `unhiddenSnapshots` specifically so a hidden provider's own
-  state could never surface. Ticking one of that provider's rows is inert: `titleWindows()` builds
-  the actual title selection from `unhiddenSnapshots` and filters the hidden provider's window back
-  out, so the picker offers a choice that silently does nothing. The fix is the one-line change every
-  other call site already got: read `unhiddenSnapshots` here too.
+- **Closed, and not the way this said to close it.** The LIMITS SHOWN picker did list a hidden
+  provider's windows, and worse than "inert" — ticking a row wrote into `Settings.titleLimitIDs` for
+  a provider the title path filtered back out, so the choice took effect later, when the provider was
+  unhidden. The recorded fix was "read `unhiddenSnapshots` here too", which would have been the fifth
+  call site to apply the same filter by hand, and `AppDelegate.publish` was meanwhile the sixth place
+  that forgot it entirely — a hidden provider went on reaching `Notifier.evaluate` and
+  `history.record` on every 60-second tick, and its section was written to disk and restored next
+  launch. So the exclusion moved off the readers and onto the data: `PollPlan.providersToPublish`
+  filters once while `publish` assembles, `MenuController.unhiddenSnapshots` is gone, and every
+  reader in that file is correct by construction. The `hidden:` parameters on
+  `PanelSections.visible`/`rows` and `TitleFallback.chip` — which existed only as a test seam for a
+  rule with no production caller — went with it; those tests now compose `providersToPublish` with
+  the reader, which is what production does.
 - **The `Retry-After` coverage gap above is no longer the spec's only mention of itself.** It was
   already carried from PR 1 as the weakest-coverage item in the codebase; PR 2 didn't touch it, but
   it is worth restating here because PR 2 is what makes it tractable — a `PollSchedule` extraction

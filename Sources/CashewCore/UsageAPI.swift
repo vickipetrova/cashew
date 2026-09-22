@@ -236,6 +236,10 @@ enum UsageError: LocalizedError {
     case network(Error)
     case badResponse
 
+    /// Claude's wording, and only Claude's. Kept as `errorDescription` because that is what it has
+    /// always been and what the tests pin; anything drawn under a provider's heading goes through
+    /// `ProviderErrorCopy.message(_:provider:)` instead, which is the only caller that knows whose
+    /// heading it is about to sit under.
     var errorDescription: String? {
         switch self {
         case .noCredentials:
@@ -252,6 +256,63 @@ enum UsageError: LocalizedError {
             return "Usage API returned HTTP \(code)."
         case .network:
             return "Can't reach api.anthropic.com."
+        case .badResponse:
+            return "Couldn't read the usage response."
+        }
+    }
+}
+
+/// What a provider's section says when its own poll failed.
+///
+/// Parameterised by provider because `UsageError.errorDescription` is Claude's copy and the panel
+/// drew it under whichever heading happened to need a message. Every one of these was live: a Codex
+/// 401 read "Token expired — open a Claude Code session to refresh it"; a Codex network failure said
+/// "Can't reach api.anthropic.com." under a **CODEX** heading; and `codex login --with-api-key`
+/// writes `{"auth_mode":"apikey","tokens":null}`, so the file exists, Codex is detected and polled,
+/// `CodexCredentials.read()` returns nil — and the user was told "No Claude Code login found."
+/// Meanwhile `docs/TROUBLESHOOTING.md` was telling them to run `codex login`.
+///
+/// Pure and free-standing so the copy is assertable: `MenuController`, which is where this is drawn,
+/// cannot be constructed in a test.
+enum ProviderErrorCopy {
+    static func message(_ error: Error, provider: ProviderID) -> String {
+        guard let usage = error as? UsageError else { return error.localizedDescription }
+        switch provider {
+        // Byte-identical to what it has always been. These strings are pinned by tests and by the
+        // muscle memory of anyone who has read this menu during an outage.
+        case .claude: return usage.errorDescription ?? error.localizedDescription
+        case .codex: return codex(usage)
+        }
+    }
+
+    /// Codex's half. The three that differ from Claude's are the three that name something: a login
+    /// to open, a command to run, a host to reach. The rest say nothing provider-specific and are
+    /// deliberately word-for-word the same, so two sections reporting the same fault read as the
+    /// same fault.
+    private static func codex(_ error: UsageError) -> String {
+        switch error {
+        case .noCredentials:
+            // Covers both ways this is reached: no `auth.json` at all, and an API-key login, which
+            // writes the file with `tokens: null` and so is detected but unreadable. One sentence
+            // rather than two paths, because Cashew cannot tell them apart without parsing a file
+            // it has already decided it cannot use.
+            return "No Codex login found. Run codex login to sign in — an API-key login reports no "
+                + "plan usage."
+        case .credentialsAccessDenied:
+            // Not reachable today: Codex keeps no Keychain item, so nothing can deny access to it.
+            // Spelled out anyway rather than defaulted, so adding a store to `CodexCredentials`
+            // cannot silently inherit Claude's Keychain advice.
+            return "Can't read your Codex login at ~/.codex/auth.json."
+        case .unauthorized:
+            return "Token expired — run codex login to sign in again."
+        case .rateLimited:
+            return "Too many requests — Cashew is asking less often until this clears."
+        case .http(let code):
+            return "Usage API returned HTTP \(code)."
+        // Interpolated from the provider's declared host rather than written out, so a section can
+        // never name a host its provider does not contact — which is exactly what happened here.
+        case .network:
+            return "Can't reach \(CodexProvider.host)."
         case .badResponse:
             return "Couldn't read the usage response."
         }
@@ -281,6 +342,38 @@ enum Backoff {
         let doublings = pow(2.0, Double(min(max(attempt, 1), 16)))
         return min(base * doublings, ceiling)
     }
+
+    /// `Retry-After`, in seconds from now.
+    ///
+    /// Lives here rather than on a provider because RFC 9110 is nobody's vendor: it used to be
+    /// `ClaudeProvider.retryAfter(in:)` and `CodexProvider` reached across to call it, which is the
+    /// same shape that got `UsageJSON` extracted — a shared rule parked inside one of its callers.
+    ///
+    /// RFC 9110 allows two forms and servers use both: a delta in seconds, or an HTTP date. Parsed
+    /// defensively like everything else here — an unreadable header is simply no header, and the
+    /// caller falls back to doubling. A date already in the past yields nil rather than a negative
+    /// wait, which would otherwise schedule the retry immediately and defeat the whole mechanism.
+    static func retryAfter(in response: HTTPURLResponse) -> TimeInterval? {
+        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
+            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
+
+        if let seconds = TimeInterval(raw) {
+            return seconds > 0 ? seconds : nil
+        }
+        guard let date = httpDateFormatter.date(from: raw) else { return nil }
+        let seconds = date.timeIntervalSinceNow
+        return seconds > 0 ? seconds : nil
+    }
+
+    /// RFC 9110's preferred date format. Fixed locale and timezone: the parse must not follow the
+    /// user's region, or a Mac set to a non-Gregorian calendar fails to read a valid header.
+    private static let httpDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        return formatter
+    }()
 }
 
 /// Which providers to poll. Pure, because this rule silently went wrong once already: it lived only
@@ -290,11 +383,36 @@ enum PollPlan {
     ///
     /// When that leaves nothing, Claude is polled anyway so its own sign-in copy has somewhere to
     /// render — an empty menu explains nothing, which is the same reason the no-credentials
-    /// fallback exists.
+    /// fallback exists. That case is the pre-discovery state at launch and the never-signed-in one.
+    ///
+    /// **Unless Claude is the thing that was switched off.** The fallback used to fire on `hidden`
+    /// too, so hiding Claude on a machine with no Codex went on requesting `api.anthropic.com`
+    /// every five minutes to produce copy that `publish` then filtered straight back out — nobody
+    /// was helped, and it made SECURITY.md's promise that hiding a provider stops its traffic
+    /// untrue. A user who switched everything off is told so by the dropdown instead; see
+    /// `PanelSections.Empty.allHidden`.
     static func providersToPoll(active: [ProviderID], all: [ProviderID],
                                 hidden: Set<ProviderID> = []) -> [ProviderID] {
         let shown = active.filter { !hidden.contains($0) }
-        return shown.isEmpty ? all.filter { $0 == .claude } : shown
+        guard shown.isEmpty else { return shown }
+        return all.filter { $0 == .claude && !hidden.contains($0) }
+    }
+
+    /// The providers a publish may assemble — and therefore record samples for, evaluate alerts
+    /// for, write to `history.json` and hand to the menu.
+    ///
+    /// Beside `providersToPoll` because it is the same exclusion at the other end of the same pipe,
+    /// and keeping them apart is precisely how the rule kept being forgotten: `AppDelegate.publish`
+    /// iterated every provider and never consulted `hiddenProviders`, so a provider that was polled
+    /// and *then* hidden kept its entry in the published snapshots — a threshold alert for a product
+    /// the user had switched off, its section written to disk, and restored on the next launch.
+    ///
+    /// Filtering once here is what lets every reader downstream — the dropdown rows, the display
+    /// windows, the title windows, the fallback chip and the LIMITS SHOWN picker — simply read what
+    /// it was handed. Five of those six forgot to filter for themselves at least once while this
+    /// feature was being built, which is the argument for putting the rule on the data instead.
+    static func providersToPublish(all: [ProviderID], hidden: Set<ProviderID>) -> [ProviderID] {
+        all.filter { !hidden.contains($0) }
     }
 
     /// Which providers Settings offers a switch for: everything with credentials, full stop.
@@ -465,7 +583,7 @@ struct ClaudeProvider: UsageProvider {
         guard http.statusCode == 200 else {
             if http.statusCode == 401 { return .failure(UsageError.unauthorized) }
             if http.statusCode == 429 {
-                return .failure(UsageError.rateLimited(retryAfter: retryAfter(in: http)))
+                return .failure(UsageError.rateLimited(retryAfter: Backoff.retryAfter(in: http)))
             }
             return .failure(UsageError.http(http.statusCode))
         }
@@ -475,34 +593,6 @@ struct ClaudeProvider: UsageProvider {
         }
         return .success(windows(in: object))
     }
-
-    /// `Retry-After`, in seconds from now.
-    ///
-    /// RFC 9110 allows two forms and servers use both: a delta in seconds, or an HTTP date. Parsed
-    /// defensively like everything else here — an unreadable header is simply no header, and the
-    /// caller falls back to doubling. A date already in the past yields nil rather than a negative
-    /// wait, which would otherwise schedule the retry immediately and defeat the whole mechanism.
-    static func retryAfter(in response: HTTPURLResponse) -> TimeInterval? {
-        guard let raw = response.value(forHTTPHeaderField: "Retry-After")?
-            .trimmingCharacters(in: .whitespaces), !raw.isEmpty else { return nil }
-
-        if let seconds = TimeInterval(raw) {
-            return seconds > 0 ? seconds : nil
-        }
-        guard let date = httpDateFormatter.date(from: raw) else { return nil }
-        let seconds = date.timeIntervalSinceNow
-        return seconds > 0 ? seconds : nil
-    }
-
-    /// RFC 9110's preferred date format. Fixed locale and timezone: the parse must not follow the
-    /// user's region, or a Mac set to a non-Gregorian calendar fails to read a valid header.
-    private static let httpDateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
-        return formatter
-    }()
 
     // MARK: - Parsing
     //

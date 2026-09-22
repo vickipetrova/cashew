@@ -376,18 +376,35 @@ import Testing
     /// `aHiddenProviderContributesNothingToTheTitlePathEither` in `ProviderSectionTests` — that one
     /// pins the windows the title path receives, this one pins the fallback shown when there are
     /// none.
+    ///
+    /// Composed through `published` rather than passing a `hidden:` argument, which is the point of
+    /// the change this asserts: `chip` no longer takes one. The exclusion happens once, where the
+    /// snapshots are assembled, so this test exercises the same two steps production does and would
+    /// fail if either went missing.
     @Test func aHiddenProvidersFailureDoesNotClaimAnErrorForEveryoneElse() {
         let hiddenFailure = snapshot(.codex, updatedAt: nil, failure: UsageError.badResponse)
         let cleanClaude = snapshot(.claude, updatedAt: Date(), failure: nil)
-        #expect(TitleFallback.chip(for: [hiddenFailure, cleanClaude], hidden: [.codex]) == "–")
+        #expect(TitleFallback.chip(for: published([hiddenFailure, cleanClaude],
+                                                  hidden: [.codex])) == "–")
     }
 
     /// And the mirror case: nothing visible should not read as "loading" just because a hidden
     /// provider happens to have a stale successful read sitting around.
     @Test func aHiddenProvidersOldReadingDoesNotStopAGenuinelyLoadingAccountFromSayingSo() {
         let hiddenReading = snapshot(.codex, updatedAt: Date(), failure: nil)
-        #expect(TitleFallback.chip(for: [hiddenReading], hidden: [.codex]) == "…")
+        #expect(TitleFallback.chip(for: published([hiddenReading], hidden: [.codex])) == "…")
     }
+}
+
+/// What `AppDelegate.publish` hands the menu, built the way production builds it.
+///
+/// The hiding exclusion used to be a `hidden:` parameter on each renderer, which meant every test
+/// of it applied the rule itself and none of them proved the app did. It now lives on the data —
+/// `PollPlan.providersToPublish`, called once while the snapshots are assembled — so a test that
+/// means "this is what the menu receives" composes those two steps instead of re-implementing one.
+func published(_ snapshots: [ProviderSnapshot], hidden: Set<ProviderID>) -> [ProviderSnapshot] {
+    let shown = Set(PollPlan.providersToPublish(all: ProviderID.allCases, hidden: hidden))
+    return snapshots.filter { shown.contains($0.provider) }
 }
 
 /// Which provider sections the dropdown draws, and whether they need naming. Separate suite because
@@ -494,7 +511,7 @@ import Testing
         // Hiding removes the section, not just the heading — and with the other provider left
         // alone, no heading either, because there is again only one section to tell apart.
         let both = [snapshot(.claude, ["session"]), snapshot(.codex, ["primary"])]
-        let rows = PanelSections.rows(for: both, now: now, hidden: [.codex])
+        let rows = PanelSections.rows(for: published(both, hidden: [.codex]), now: now)
         #expect(rows == [.usage(.claude, both[0].windows[0])])
     }
 
@@ -506,9 +523,150 @@ import Testing
     /// opening the menu at all.
     @Test func aHiddenProviderContributesNothingToTheTitlePathEither() {
         let both = [snapshot(.claude, ["session"]), snapshot(.codex, ["primary"])]
-        let visible = PanelSections.visible(both, now: now, hidden: [.codex])
+        let visible = PanelSections.visible(published(both, hidden: [.codex]), now: now)
         #expect(visible.map(\.provider) == [.claude])
         let windowsForTitle = visible.flatMap { $0.displayable(now: now) }
         #expect(windowsForTitle == both[0].windows)
+    }
+}
+
+/// What the dropdown says when it has no rows to draw. Three different nothings that look identical
+/// from inside `rebuild()`, which is why the rule is out here where a test can reach it.
+@Suite struct PanelEmptyStateTests {
+    private func snapshot(_ provider: ProviderID, updatedAt: Date?) -> ProviderSnapshot {
+        ProviderSnapshot(provider: provider, windows: [], updatedAt: updatedAt, failure: nil)
+    }
+
+    @Test func nothingPolledYetIsLoading() {
+        #expect(PanelSections.empty([], detected: [.claude], hidden: []) == .loading)
+    }
+
+    @Test func aCleanPollThatReportedNothingSaysSoRatherThanLoadingForever() {
+        // Metered API-key accounts. Reachable only because `publish` stopped dropping a snapshot
+        // with no windows on the floor — before that this branch could not be entered at all.
+        #expect(PanelSections.empty([snapshot(.claude, updatedAt: Date())],
+                                    detected: [.claude], hidden: []) == .noLimits)
+    }
+
+    /// The state I2 exists for. Everything the user has is switched off, so `publish` hands over
+    /// nothing — indistinguishable from a cold start unless the hidden set is consulted, and the
+    /// panel used to sit on "Loading…" forever for something that was never going to load.
+    @Test func switchingEveryProviderOffSaysSoAndNamesTheWayBack() {
+        #expect(PanelSections.empty([], detected: [.claude, .codex],
+                                    hidden: [.claude, .codex]) == .allHidden)
+        #expect(PanelSections.text(.allHidden).contains("Settings"))
+    }
+
+    @Test func onlySomeProvidersHiddenIsNotTheAllHiddenCase() {
+        // Codex is off, Claude is on and simply hasn't answered yet. Saying "every provider is
+        // switched off" here would be a lie about a menu that is about to fill in.
+        #expect(PanelSections.empty([], detected: [.claude, .codex], hidden: [.codex]) == .loading)
+    }
+
+    @Test func noProvidersDetectedAtAllIsLoadingNotAllHidden() {
+        // A stale `hiddenProviders` from a provider that has since been signed out of must not make
+        // a fresh install claim the user switched everything off.
+        #expect(PanelSections.empty([], detected: [], hidden: [.codex]) == .loading)
+    }
+}
+
+/// Which providers Settings offers a switch for. The rule that decides whether a user who hid a
+/// provider can ever get it back.
+@Suite struct ProviderSettingsRowsTests {
+    @Test func oneProviderAndNothingHiddenOffersNoSection() {
+        // A lone switch that turns off the only thing Cashew can show is a way to break it.
+        #expect(ProviderSettingsRows.rows(detected: [.claude], hidden: []).isEmpty)
+    }
+
+    @Test func twoDetectedProvidersEachGetASwitch() {
+        #expect(ProviderSettingsRows.rows(detected: [.claude, .codex], hidden: [])
+            == [.claude, .codex])
+    }
+
+    /// The trap door. Hide Claude, then lose Codex's `auth.json` — `codex logout`, `CODEX_HOME`, the
+    /// file moved — and the count-based rule removed the section along with the only switch that
+    /// could turn Claude back on. The dropdown then had nothing in it and no way to fix that.
+    @Test func theLastDetectedProviderKeepsItsSwitchWhileItIsHidden() {
+        #expect(ProviderSettingsRows.rows(detected: [.claude], hidden: [.claude]) == [.claude])
+    }
+
+    @Test func aHiddenProviderWithNoCredentialsIsNotOfferedASwitch() {
+        // Nothing to switch: it isn't polled and renders nothing either way. The stored hidden flag
+        // survives, so it comes back switched off — with a switch — the moment it is detected again.
+        #expect(ProviderSettingsRows.rows(detected: [.claude], hidden: [.codex]).isEmpty)
+    }
+
+    @Test func theSectionOrderIsFixedRatherThanSetOrder() {
+        // `Set` iteration order is not stable across runs, and a Settings section whose two rows
+        // swap places between openings would be its own bug.
+        #expect(ProviderSettingsRows.rows(detected: [.codex, .claude], hidden: [])
+            == ProviderID.allCases)
+    }
+}
+
+/// What a provider's section says when its own poll failed.
+///
+/// Every case below was live: Codex sections drew Claude's copy, because `errorDescription` is
+/// Claude's wording and the panel drew it under whichever heading asked.
+@Suite struct ProviderErrorCopyTests {
+    @Test func claudesCopyIsUnchanged() {
+        // Byte-identical to `errorDescription`, deliberately — these strings are what users have
+        // read during every outage so far.
+        for error: UsageError in [.noCredentials, .credentialsAccessDenied, .unauthorized,
+                                  .rateLimited(retryAfter: nil), .http(500),
+                                  .badResponse] {
+            #expect(ProviderErrorCopy.message(error, provider: .claude) == error.errorDescription)
+        }
+    }
+
+    @Test func aRejectedCodexTokenPointsAtCodexLoginNotAtClaudeCode() {
+        let message = ProviderErrorCopy.message(UsageError.unauthorized, provider: .codex)
+        #expect(message.contains("codex login"))
+        #expect(!message.lowercased().contains("claude"))
+    }
+
+    /// `codex login --with-api-key` writes `{"auth_mode":"apikey","tokens":null}`, so the file
+    /// exists, Codex is detected and polled, and `read()` returns nil — and the user was told "No
+    /// Claude Code login found."
+    @Test func aCodexLoginThatCannotBeReadDoesNotBlameClaudeCode() {
+        let message = ProviderErrorCopy.message(UsageError.noCredentials, provider: .codex)
+        #expect(message.contains("codex login"))
+        #expect(!message.lowercased().contains("claude"))
+    }
+
+    @Test func aNetworkFailureNamesTheHostThatProviderActuallyContacts() {
+        let codex = ProviderErrorCopy.message(UsageError.network(UsageError.badResponse),
+                                              provider: .codex)
+        #expect(codex.contains(CodexProvider.host))
+        #expect(!codex.contains(ClaudeProvider.host))
+        let claude = ProviderErrorCopy.message(UsageError.network(UsageError.badResponse),
+                                               provider: .claude)
+        #expect(claude.contains(ClaudeProvider.host))
+    }
+
+    /// The faults that name nothing provider-specific read the same in both sections on purpose:
+    /// two sections reporting the same problem should look like the same problem.
+    @Test func providerNeutralFaultsReadIdenticallyInBothSections() {
+        for error: UsageError in [.rateLimited(retryAfter: 30), .http(503), .badResponse] {
+            #expect(ProviderErrorCopy.message(error, provider: .codex)
+                == ProviderErrorCopy.message(error, provider: .claude))
+        }
+    }
+
+    @Test func noProvidersCopyMentionsAnotherProvidersProduct() {
+        // The whole class of bug, asserted as a class: every message a Codex section can draw, held
+        // against Claude's name and host.
+        for error: UsageError in [.noCredentials, .credentialsAccessDenied, .unauthorized,
+                                  .rateLimited(retryAfter: nil), .http(500),
+                                  .network(UsageError.badResponse), .badResponse] {
+            let message = ProviderErrorCopy.message(error, provider: .codex).lowercased()
+            #expect(!message.contains("claude"))
+            #expect(!message.contains(ClaudeProvider.host))
+        }
+    }
+
+    @Test func anErrorThatIsNotAUsageErrorFallsBackToItsOwnDescription() {
+        struct Odd: LocalizedError { var errorDescription: String? { "Something else" } }
+        #expect(ProviderErrorCopy.message(Odd(), provider: .codex) == "Something else")
     }
 }

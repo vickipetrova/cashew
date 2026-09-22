@@ -24,8 +24,9 @@ enum TitleSelection {
                 .map { (provider: section.provider, window: $0) }
         }
         guard shown.isEmpty else { return shown }
-        // Everything chosen has gone missing. Global, not per-section: a per-section fallback would
-        // put an unselected provider's window in the title purely because that provider happened to
+        // Everything chosen has gone missing. The user did ask for numbers, so a stale scope list is
+        // no reason to show none of them. Global, not per-section: a per-section fallback would put
+        // an unselected provider's window in the title purely because that provider happened to
         // report something.
         let all = sections.flatMap { s in s.windows.map { (provider: s.provider, window: $0) } }
         return all.first { $0.window.kind == .primary }.map { [$0] } ?? Array(all.prefix(1))
@@ -46,21 +47,42 @@ enum TitleGlyphs {
 /// a clean account with no quota to report, or a loading ellipsis.
 ///
 /// Pure and separate for the same reason `TitleGlyphs` and `TitleSelection` are — `MenuController`
-/// cannot be built in a test, and this was the fourth place in this feature that read raw snapshots
-/// without excluding a hidden provider first: a hidden provider's own failed poll must not be what
-/// puts an error glyph in the menu bar for a product the user switched off.
+/// cannot be built in a test.
+///
+/// Takes what it is given and filters nothing. A hidden provider never reaches here because
+/// `AppDelegate.publish` no longer assembles one — see `PollPlan.providersToPublish`. This rule
+/// briefly carried its own `hidden` parameter, which is the shape being argued against: four
+/// readers in this file each had to remember to apply the same exclusion, and the one that ended up
+/// forgetting it was the LIMITS SHOWN picker.
 enum TitleFallback {
-    /// `hidden` has no production caller — `MenuController` always passes `unhiddenSnapshots`,
-    /// already filtered, so filtering again here would do it twice. The parameter stays, defaulted
-    /// to empty, as the seam this rule is asserted through; see the same note on
-    /// `PanelSections.visible`'s own `hidden` parameter.
-    static func chip(for snapshots: [ProviderSnapshot], hidden: Set<ProviderID> = []) -> String {
-        let considered = snapshots.filter { !hidden.contains($0.provider) }
-        if considered.contains(where: { $0.failure != nil }) { return "!" }
+    static func chip(for snapshots: [ProviderSnapshot]) -> String {
+        if snapshots.contains(where: { $0.failure != nil }) { return "!" }
         // A clean fetch that reported nothing isn't an error and isn't still loading —
         // API-key accounts have no plan quota to report.
-        if considered.contains(where: { $0.updatedAt != nil }) { return "–" }
+        if snapshots.contains(where: { $0.updatedAt != nil }) { return "–" }
         return "…"
+    }
+}
+
+/// Which providers Settings › Providers offers a switch for.
+///
+/// Pure for the usual reason, and this one had a trap door in it: the section was shown only when
+/// more than one provider was detected, so hiding Claude and then losing Codex's `auth.json` —
+/// `codex logout`, `CODEX_HOME`, the file moved — left one detected provider, that provider hidden,
+/// and no section at all. The only switch that could turn Claude back on had vanished along with
+/// the thing it controlled, and there was no route back short of a hand-edited plist.
+enum ProviderSettingsRows {
+    static func rows(detected: Set<ProviderID>, hidden: Set<ProviderID>) -> [ProviderID] {
+        // Detected only. A provider that is hidden but has no credentials is not offered a switch:
+        // it contributes nothing either way, and a switch for a product that isn't installed is
+        // noise. `hiddenProviders` persists, so when its credentials come back it reappears here —
+        // switched off, with a switch.
+        let offered = ProviderID.allCases.filter { detected.contains($0) }
+        // A single switch that turns off the only thing Cashew can show is a way to break it, not a
+        // preference — *unless* that one thing is already off, in which case the switch is the only
+        // way back and showing it is the whole point.
+        guard offered.count > 1 || offered.contains(where: hidden.contains) else { return [] }
+        return offered
     }
 }
 
@@ -69,21 +91,13 @@ enum TitleFallback {
 /// Pure and separate from `MenuController` for the same reason `TitleSelection` is: the controller
 /// cannot be constructed in a test, so a rule that lives inside it is a rule with no coverage.
 enum PanelSections {
-    /// A snapshot worth drawing: it has something to show, or something to say about why it
-    /// doesn't — and its provider hasn't been switched off in Settings.
+    /// A snapshot worth drawing: it has something to show, or something to say about why it doesn't.
     ///
-    /// `hidden` has no production caller: `MenuController` now pre-filters with its own
-    /// `unhiddenSnapshots` before calling this, so passing `hidden` again here would filter twice.
-    /// The parameter stays anyway, defaulted to empty, because `MenuController` cannot be
-    /// constructed in a test — this is the only seam the exclusion rule can be asserted through.
-    /// Retained deliberately; a previous PR in this codebase had exactly this shape of parameter
-    /// mistaken for dead code and removed.
-    static func visible(_ snapshots: [ProviderSnapshot], now: Date = Date(),
-                        hidden: Set<ProviderID> = []) -> [ProviderSnapshot] {
-        snapshots.filter {
-            !hidden.contains($0.provider)
-                && (!$0.displayable(now: now).isEmpty || $0.failure != nil)
-        }
+    /// Knows nothing about hiding. A provider switched off in Settings is not assembled in the first
+    /// place — see `PollPlan.providersToPublish` — which is what lets this rule, and every other
+    /// reader in this file, simply render what it was handed.
+    static func visible(_ snapshots: [ProviderSnapshot], now: Date = Date()) -> [ProviderSnapshot] {
+        snapshots.filter { !$0.displayable(now: now).isEmpty || $0.failure != nil }
     }
 
     /// One row of the dropdown's usage section, named by *what* it is rather than *how* it's drawn
@@ -104,12 +118,8 @@ enum PanelSections {
     /// `sections` and `needHeadings` are derived from one `visible(...)` call, not two independent
     /// ones each defaulting `now` to a fresh `Date()` — two clocks a freshness boundary could fall
     /// between would let the heading count disagree with the sections actually drawn.
-    ///
-    /// `hidden` is likewise defaulted and has no production caller — see the note on `visible`'s own
-    /// `hidden` parameter above; the same reasoning applies here.
-    static func rows(for snapshots: [ProviderSnapshot], now: Date = Date(),
-                     hidden: Set<ProviderID> = []) -> [Row] {
-        let sections = visible(snapshots, now: now, hidden: hidden)
+    static func rows(for snapshots: [ProviderSnapshot], now: Date = Date()) -> [Row] {
+        let sections = visible(snapshots, now: now)
         // Headings appear only once there is more than one section to tell apart, so a single
         // provider gets exactly the menu it had before providers were a concept — which is what
         // makes adding the second one a change the existing user never sees until it applies to
@@ -133,6 +143,48 @@ enum PanelSections {
             }
         }
         return rows
+    }
+
+    /// What the dropdown says when `rows` came out empty. Three different nothings, and telling
+    /// them apart is the whole job — from here they all look like "no snapshots".
+    enum Empty: Equatable {
+        /// No poll has landed yet.
+        case loading
+        /// A poll landed and reported no windows. Metered API-key accounts have no quota to show.
+        case noLimits
+        /// Every provider Cashew found has been switched off in Settings.
+        case allHidden
+    }
+
+    static let loadingText = "Loading…"
+
+    static let noLimitsText = """
+        No plan limits reported for this account. Pro and Max plans have session and weekly \
+        windows; metered API-key accounts have no quota to show.
+        """
+
+    /// Names Settings rather than only stating the fact, because this is the one empty state the
+    /// user caused and can undo — and the route back is two submenus deep.
+    static let allHiddenText =
+        "Every provider is switched off. Turn one back on in Settings › Providers."
+
+    static func empty(_ snapshots: [ProviderSnapshot], detected: Set<ProviderID>,
+                      hidden: Set<ProviderID>) -> Empty {
+        // Asked first, because from inside this function switching everything off is indistinguishable
+        // from a cold start: `publish` filters hidden providers out before the menu ever sees them,
+        // so `snapshots` is empty either way and the panel used to sit on "Loading…" forever for
+        // something that was never going to load.
+        if !detected.isEmpty, detected.allSatisfy({ hidden.contains($0) }) { return .allHidden }
+        if snapshots.contains(where: { $0.updatedAt != nil }) { return .noLimits }
+        return .loading
+    }
+
+    static func text(_ empty: Empty) -> String {
+        switch empty {
+        case .loading: return loadingText
+        case .noLimits: return noLimitsText
+        case .allHidden: return allHiddenText
+        }
     }
 }
 
@@ -158,25 +210,19 @@ final class MenuController: NSObject, NSMenuDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let menu = NSMenu()
 
-    /// The raw reads from each poll. Almost nothing should read this directly — see
-    /// `unhiddenSnapshots` below, which is what every renderer actually wants.
-    private var snapshots: [ProviderSnapshot] = []
-
-    /// The snapshots anything user-facing may consider, with hidden providers removed.
+    /// What each provider currently reports, and the only thing anything here renders from.
     ///
-    /// Everything that renders reads this rather than `snapshots` directly. Four separate call
-    /// sites forgot the filter while this feature was being built — the dropdown rows, the display
-    /// windows, the title windows and the title's fallback chip — each because raw `snapshots` was
-    /// in scope and read naturally. This exists so the question does not have to be asked again at
-    /// the next call site.
-    private var unhiddenSnapshots: [ProviderSnapshot] {
-        snapshots.filter { !Settings.hiddenProviders.contains($0.provider) }
-    }
+    /// Every entry is already the user's to see: `AppDelegate.publish` excludes a provider switched
+    /// off in Settings before assembling, so nothing in this file has to remember to. It used to be
+    /// the other way round — raw reads here, and a filtered accessor each renderer was supposed to
+    /// use instead — and five of the six readers forgot it at least once while this feature was
+    /// being built. The rule now lives on the data; see `PollPlan.providersToPublish`.
+    private var snapshots: [ProviderSnapshot] = []
 
     /// Which providers have credentials, independent of `snapshots` — which only ever holds what's
     /// currently polled, and hiding a provider stops it being polled. Deriving the Settings list
     /// from `snapshots` would make a hidden provider's own switch disappear the moment it's used,
-    /// with no way back short of a hand-edited plist. See `AppDelegate.pushDetectedProviders()`.
+    /// with no way back short of a hand-edited plist. See `AppDelegate.rediscoverProviders(then:)`.
     private var detected: Set<ProviderID> = []
     private var isMenuOpen = false
 
@@ -333,7 +379,7 @@ final class MenuController: NSObject, NSMenuDelegate {
 
         guard !displayWindows().isEmpty else {
             button.attributedTitle = NSAttributedString()
-            button.title = TitleFallback.chip(for: unhiddenSnapshots)
+            button.title = TitleFallback.chip(for: snapshots)
             return
         }
 
@@ -389,7 +435,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// either on its own.
     private func displayWindows() -> [LimitWindow] {
         let now = Date()
-        return PanelSections.visible(unhiddenSnapshots, now: now).flatMap { $0.displayable(now: now) }
+        return PanelSections.visible(snapshots, now: now).flatMap { $0.displayable(now: now) }
     }
 
     /// The windows the title shows, across every provider.
@@ -400,7 +446,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// permanently unselectable.
     private func titleWindows() -> [(provider: ProviderID, window: LimitWindow)] {
         let now = Date()
-        let sections = PanelSections.visible(unhiddenSnapshots, now: now)
+        let sections = PanelSections.visible(snapshots, now: now)
             .map { (provider: $0.provider, windows: $0.displayable(now: now)) }
         return TitleSelection.windows(from: sections, selection: Settings.titleLimitIDs)
     }
@@ -456,22 +502,18 @@ final class MenuController: NSObject, NSMenuDelegate {
         // `PanelSections.rows` is empty exactly when no provider has anything to show and none has
         // failed either — `visible(...)`, which it's built from, always keeps a failed snapshot
         // regardless of its windows, so an empty plan can never hide an error.
-        let rows = PanelSections.rows(for: unhiddenSnapshots)
+        let rows = PanelSections.rows(for: snapshots)
 
         if rows.isEmpty {
-            // `unhiddenSnapshots`, not `snapshots`: a hidden provider's own successful poll must not
-            // be what tells a Claude-only user they're still loading, or make a genuinely-loading
-            // account claim it has none to show.
-            if unhiddenSnapshots.contains(where: { $0.updatedAt != nil }) {
-                menu.addItem(textRow {
-                    """
-                    No plan limits reported for this account. Pro and Max plans have session and \
-                    weekly windows; metered API-key accounts have no quota to show.
-                    """
-                })
-            } else {
-                menu.addItem(textRow { "Loading…" })
-            }
+            // Which nothing this is, from `PanelSections.empty` — the three read identically from
+            // here and say very different things to the user. Re-read on every live refresh rather
+            // than decided once: a first poll landing while the menu is held open turns "Loading…"
+            // into the real answer, and this row is the only thing on screen to turn.
+            menu.addItem(textRow { [weak self] in
+                guard let self else { return nil }
+                return PanelSections.text(PanelSections.empty(
+                    self.snapshots, detected: self.detected, hidden: Settings.hiddenProviders))
+            })
         } else {
             for row in rows {
                 switch row {
@@ -592,22 +634,26 @@ final class MenuController: NSObject, NSMenuDelegate {
         return item
     }
 
-    /// One switch per *detected* provider, or nothing at all.
-    ///
-    /// Returns nil when fewer than two providers are detected: a section offering a single switch
-    /// that turns off the only thing the app can show is a way to break Cashew, not a preference.
-    /// A provider with no credentials is not listed — there is nothing to switch.
+    /// One switch per *detected* provider, or nothing at all — by the rule in
+    /// `ProviderSettingsRows`, which is where the "can this user get back?" question is decided and
+    /// asserted.
     ///
     /// Reads `detected`, not `snapshots` — see the note on `detected`'s declaration for why that
     /// distinction is load-bearing rather than cosmetic.
     private func providerSettings() -> NSMenu? {
-        guard detected.count > 1 else { return nil }
+        let hidden = Settings.hiddenProviders
+        let offered = ProviderSettingsRows.rows(detected: detected, hidden: hidden)
+        guard !offered.isEmpty else { return nil }
         let menu = NSMenu()
         menu.autoenablesItems = false
-        let hidden = Settings.hiddenProviders
-        for provider in ProviderID.allCases where detected.contains(provider) {
+        for provider in offered {
+            // Just the name. `SettingsRow.toggle` appends the on/off itself — that is the rule for
+            // every switch in this tree, because a view-backed item draws no `title` and VoiceOver
+            // and `get name of every menu item` have nowhere else to read the state from. Spelling
+            // it out here as well is what produced `Claude (on) (on)` in the menu, and a visible
+            // "(on)" beside a switch that is already showing "on".
             menu.addItem(SettingsRow.toggle(
-                "\(provider.sectionHeading.capitalized) (\(hidden.contains(provider) ? "off" : "on"))",
+                provider.sectionHeading.capitalized,
                 isOn: !hidden.contains(provider),
                 onToggle: { [weak self] _ in
                     Settings.hiddenProviders = Settings.hiddenProviders(toggling: provider,
@@ -625,6 +671,12 @@ final class MenuController: NSObject, NSMenuDelegate {
         // Built from the windows the response actually reported, never from a hardcoded list — the
         // set of model-scoped limits is the vendor's to change, and has already changed once.
         // Omitted entirely when there is nothing to choose between yet.
+        //
+        // Raw `snapshots` is correct here now, and was not always: this picker listed a hidden
+        // provider's windows, and ticking one wrote into `Settings.titleLimitIDs` for a provider
+        // the title path had already filtered out — a choice that did nothing and then silently
+        // took effect when the provider was unhidden. Nothing here filters any more because
+        // `AppDelegate.publish` never hands over a hidden provider's snapshot.
         let allWindows = snapshots.flatMap(\.windows)
         if !allWindows.isEmpty {
             menu.addItem(SettingsRow.header(Copy.limitsHeader))
@@ -916,7 +968,7 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// Registered as a live row so the age keeps counting up while the menu is held open.
     private func refreshRow() -> NSMenuItem {
         let title = { [weak self] in
-            "Refresh Now (\(Fmt.age(of: self?.unhiddenSnapshots.compactMap(\.updatedAt).max())))"
+            "Refresh Now (\(Fmt.age(of: self?.snapshots.compactMap(\.updatedAt).max())))"
         }
         let item = action(title(), key: "r", selector: #selector(refreshClicked))
         liveRows.append(LiveRow { item.title = title() })
@@ -937,7 +989,9 @@ final class MenuController: NSObject, NSMenuDelegate {
     /// A provider's error copy, plus the "you're looking at old numbers" note that only makes sense
     /// when that provider still has numbers on screen to be old.
     private func message(for error: Error, in snapshot: ProviderSnapshot) -> String {
-        let description = (error as? UsageError)?.errorDescription ?? error.localizedDescription
+        // The provider matters, not just the error. `errorDescription` is Claude's wording, and
+        // drawing it under whichever heading asked told a Codex user to open a Claude Code session.
+        let description = ProviderErrorCopy.message(error, provider: snapshot.provider)
         // Keyed on what is actually on screen *for this provider*: once `Freshness` drops its rows,
         // promising "showing data from…" would point at numbers that aren't there any more.
         guard !snapshot.displayable().isEmpty, let updatedAt = snapshot.updatedAt else {

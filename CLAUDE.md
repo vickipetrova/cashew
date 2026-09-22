@@ -197,17 +197,49 @@ free plan's response. Two hazards specific to Codex:
   plan-dependent.** Claude gets away with a literal `"WEEKLY"` because its window is fixed; Codex's
   primary window is 30 days on a free plan and a matter of hours on paid, in the same field, so
   `CodexProvider.windowLabel` turns the reported duration into `"30-DAY"`, `"5-HOUR"`, or `"WEEKLY"`
-  for the one case that lands on exactly seven days — never a label chosen ahead of time.
+  for the one case that lands on exactly seven days — never a label chosen ahead of time. The unit
+  is chosen *after* rounding, or 86,399s reads "24-HOUR" and 86,400s reads "1-DAY".
+- **A duration needs an upper bound, and that is not the same guard as a percentage's.**
+  `CodexProvider.duration` rightly drops `UsageJSON.number`'s 0–100 clamp — clamped, a 30-day window
+  renders as "0-HOUR" — but `UsageJSON.rawNumber` checks only finiteness, so for a while there was
+  no ceiling at all. `{"limit_window_seconds": 1e30}` then reached `Int((seconds / 86_400).rounded())`,
+  which traps: a crash on every poll, from one server-controlled field, and exactly the hazard
+  `UsageJSON.number`'s own doc comment describes reproduced one function over. `1e999` was covered
+  because JSON parses it to infinity; a large *finite* value was not. `maxDuration` (a decade of
+  seconds) is also what bounds `reset_after_seconds`, which is added to `now` directly and so never
+  passes through `UsageJSON.date`'s plausible-epoch range at all.
+
+**Error copy is parameterised by provider, because `UsageError.errorDescription` is Claude's.** It
+was drawn under whichever heading needed a message, so a Codex 401 said "open a Claude Code session
+to refresh it", a Codex network failure said "Can't reach api.anthropic.com." under a **CODEX**
+heading, and `codex login --with-api-key` — which writes `{"auth_mode":"apikey","tokens":null}`, so
+the file exists and Codex is detected and polled while `read()` returns nil — told the user "No
+Claude Code login found." `ProviderErrorCopy.message(_:provider:)` is the one caller that knows
+whose heading it is about to sit under; `errorDescription` keeps Claude's strings byte-identical, and
+the faults that name nothing provider-specific are deliberately word-for-word the same in both.
 
 `Settings.hiddenProviders` stores which detected providers the user switched off in **Settings ›
 Providers**, as a `Set<ProviderID>` in `UserDefaults`. It exists because detection and display are
 different questions: a provider with credentials on disk is still *detected* even after the user
-hides it — the switch that turns it back on has to keep appearing — but hidden means excluded from
-polling (`PollPlan.providersToPoll`), from the dropdown (`PanelSections.visible`), from the menu bar
-title and its fallback chip, and from the "how old is this" age `MenuController.refreshRow()` reads.
-Every one of those reads `MenuController.unhiddenSnapshots`, not raw `snapshots`, for the same reason:
-a hidden provider's own failed or stale poll must never be what shows up on screen for a product the
-user turned off.
+hides it — the switch that turns it back on has to keep appearing, which is
+`ProviderSettingsRows.rows` — but hidden means it is neither polled nor published.
+
+**The exclusion is applied to the data, once, and never by a reader.** `PollPlan.providersToPoll`
+drops a hidden provider before the network call and `PollPlan.providersToPublish` drops it before
+`AppDelegate.publish` assembles anything, so `MenuController` is only ever handed snapshots the user
+is meant to see. That is a correction, not a decoration: it was a filtered accessor the renderers
+were each supposed to remember to use, and five of the six forgot at least once — the dropdown rows,
+the display windows, the title windows, the fallback chip, and the LIMITS SHOWN picker, which ended
+up writing into `Settings.titleLimitIDs` for a provider whose rows were being filtered back out.
+Meanwhile `publish` itself never consulted the set at all, so a provider polled and then hidden went
+on reaching `Notifier.evaluate` and `history.record` every 60 seconds. One filter on the data closes
+all of it; a rule each reader has to remember is a rule that gets forgotten.
+
+Two consequences worth knowing. Hiding really does stop the traffic — `providersToPoll`'s
+poll-Claude-anyway fallback is for a user with *no* credentials, not for one who switched Claude
+off, and SECURITY.md promises as much. And a user who switches everything off is told so, by
+`PanelSections.Empty.allHidden`, rather than being left on "Loading…" for something that will never
+load.
 
 ## Why the dropdown's rows are custom views
 

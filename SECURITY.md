@@ -68,9 +68,10 @@ found — so if Claude Code is the only one you have installed, this is exactly 
 always sent, unchanged, and `chatgpt.com` is never contacted at all unless `~/.codex/auth.json` is
 there to read. Switching a detected provider off in **Settings › Providers** stops its traffic too,
 not just its rows: a hidden provider is excluded from what gets polled, the same as one with no
-credentials at all. The second-to-last line above is the update check. It carries no token, cookie
-or identifier beyond a `User-Agent: Cashew/<version>` header, never downloads anything, and can be
-turned off under Settings. No telemetry, no analytics, no crash reporting, no third-party services.
+credentials at all, and switching off every provider you have means no usage request is sent at
+all. The last line above is the update check. It carries no token, cookie or identifier beyond a
+`User-Agent: Cashew/<version>` header, never downloads anything, and can be turned off under
+Settings. No telemetry, no analytics, no crash reporting, no third-party services.
 
 Both sessions are ephemeral, so no response is cached to disk and no cookie outlives the process.
 **Neither follows a redirect.** For the usage request that is what makes the destination above a

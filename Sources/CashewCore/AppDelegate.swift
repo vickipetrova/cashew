@@ -42,6 +42,14 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         Notifier.requestAuthorizationIfNeeded()
 
         restoreLastGoodReading()
+        // Armed before the probe, not only after it. `reschedulePoll` used to run solely inside
+        // `rediscoverProviders`'s callback, so until the credential probe answered there was no
+        // repeating timer at all — and the probe reads the Keychain, which can sit on a modal
+        // permission prompt for as long as the user takes to notice it. A prompt left unanswered
+        // meant a Cashew that never polled again, not one that polled late. `providersToPoll()`
+        // already has an answer for the pre-discovery state (Claude, unless it is switched off), so
+        // this arms the fallback cadence immediately; the callback below re-arms it on the real one.
+        reschedulePoll()
         // Nothing polls until discovery has answered, and discovery answers from a background queue
         // — see `ProviderDiscovery` for the deadlock that buys. The delay is a queue hop in the
         // normal case; when it isn't, it is a Keychain that would have blocked the first poll just
@@ -271,7 +279,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
         // Sections, not a flat list: this is the write half of the pair `restoreLastGoodReading()`
         // reads, and a flat list is exactly how Codex's row ended up filed under Claude.
         var observed: [UsageHistory.Snapshot.Section] = []
-        for provider in providers {
+        // The one place a hidden provider is excluded, and deliberately the *assembly* rather than
+        // any of the readers. This loop used to run over every provider regardless, so a provider
+        // polled and then switched off kept its entry in `snapshots` and went on reaching
+        // `Notifier.evaluate` and `history.record`/`save` on every 60-second tick — a threshold
+        // alert for a product the user had turned off, and its section written to disk and restored
+        // on the next launch. `MenuController` used to defend itself with a filtered accessor; five
+        // separate readers there forgot to use it. Filtering here means they cannot.
+        let shown = Set(PollPlan.providersToPublish(all: providers.map(\.id),
+                                                    hidden: Settings.hiddenProviders))
+        for provider in providers where shown.contains(provider.id) {
             guard var snapshot = snapshots[provider.id] else { continue }
             var live: [LimitWindow] = []
             if provider.id == .claude, let reading = statusline.read(), !reading.isEmpty {
@@ -281,7 +298,16 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
                                             updatedAt: updatedAt, failure: snapshot.failure,
                                             restored: snapshot.restored)
             }
-            guard !snapshot.windows.isEmpty || snapshot.failure != nil else { continue }
+            // A clean poll that reported no windows is published like any other. It used to be
+            // dropped here, which made two documented branches unreachable: `TitleFallback.chip`'s
+            // dash ("a clean fetch that reported nothing isn't an error and isn't still loading")
+            // and the dropdown's "No plan limits reported for this account" both key on a snapshot
+            // with `updatedAt` set and no windows, and no such snapshot ever arrived. `publish` had
+            // to stop dropping them anyway, because the empty-assembly guard below no longer
+            // returns early: an API-key account would have kept its restored rows on screen instead
+            // of being told its plan has no quota to show. Nothing renders an empty section —
+            // `PanelSections.visible` drops a snapshot with nothing to show and nothing to say.
+            //
             // `observed`, not `windows`: a restored snapshot's own rows came off disk with their
             // samples already recorded, and re-recording them once a minute would invent a flat
             // stretch that never happened. What the live overlay just contributed is new, and still
@@ -298,7 +324,12 @@ public final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             assembled.append(snapshot)
         }
-        guard !assembled.isEmpty else { return }
+        // Keyed on whether there is any provider state at all, not on whether the assembly came out
+        // empty. Those used to be the same question and hiding made them different: switching off
+        // the last visible provider produces an empty assembly that still has to be published, or
+        // the menu goes on drawing the rows it was last handed with nothing left to replace them.
+        // Before the first poll or restore there is genuinely nothing to say, and that still returns.
+        guard !snapshots.isEmpty else { return }
         // Nothing observed, nothing to save. Writing here regardless would overwrite the last good
         // reading with whatever is on screen — an empty list while a provider is failing, which
         // destroys the file this launch was restored from, or the restored rows themselves re-dated

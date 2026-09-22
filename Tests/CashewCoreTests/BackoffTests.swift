@@ -85,10 +85,44 @@ import Testing
                                          hidden: [.codex]) == [.claude])
     }
 
-    @Test func hidingEveryProviderStillPollsClaudeSoItsCopyRenders() {
-        // The same reason the no-credentials fallback exists: a blank menu explains nothing.
+    @Test func hidingClaudeStopsItBeingPolledEvenThoughItIsTheFallback() {
+        // The fallback exists so a user with no credentials still gets sign-in copy somewhere. It
+        // must not fire for a user who switched Claude *off*: polling api.anthropic.com to produce
+        // copy that `publish` then filters straight back out helps nobody, and it made SECURITY.md's
+        // promise that hiding a provider stops its traffic untrue. The dropdown says what happened
+        // instead — `PanelSections.Empty.allHidden`.
         #expect(PollPlan.providersToPoll(active: [.claude], all: [.claude, .codex],
-                                         hidden: [.claude]) == [.claude])
+                                         hidden: [.claude]).isEmpty)
+        #expect(PollPlan.providersToPoll(active: [], all: [.claude, .codex],
+                                         hidden: [.claude]).isEmpty)
+    }
+
+    /// The other end of the same pipe. `AppDelegate.publish` iterated every provider and never
+    /// consulted `hiddenProviders`, so a provider polled and *then* hidden kept its entry in the
+    /// published snapshots — reaching `Notifier.evaluate` and `history.record` on every 60-second
+    /// tick, for a product the user had switched off, and being written to disk and restored next
+    /// launch. The rule now lives on the data rather than on each of the six readers downstream.
+    @Test func aHiddenProviderIsNotPublishedEither() {
+        #expect(PollPlan.providersToPublish(all: [.claude, .codex], hidden: [.codex]) == [.claude])
+        #expect(PollPlan.providersToPublish(all: [.claude, .codex],
+                                            hidden: [.claude, .codex]).isEmpty)
+    }
+
+    @Test func publishingKeepsProviderOrderSoSectionsCannotReorder() {
+        // Section order is fixed so rows cannot move under a click already in flight.
+        #expect(PollPlan.providersToPublish(all: ProviderID.allCases, hidden: [])
+            == ProviderID.allCases)
+    }
+
+    /// Poll and publish have to agree about what "hidden" means, or a provider is polled and then
+    /// discarded — or worse, published without ever being polled.
+    @Test func whatIsPolledIsAlwaysAlsoPublishable() {
+        let all: [ProviderID] = [.claude, .codex]
+        for hidden: Set<ProviderID> in [[], [.claude], [.codex], [.claude, .codex]] {
+            let polled = PollPlan.providersToPoll(active: all, all: all, hidden: hidden)
+            let published = Set(PollPlan.providersToPublish(all: all, hidden: hidden))
+            #expect(polled.allSatisfy(published.contains))
+        }
     }
 
     /// The trap door this task's correction exists to close: `MenuController`'s Settings list has
